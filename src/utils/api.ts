@@ -34,6 +34,12 @@ async function request<T>(
     /* phản hồi không phải JSON */
   }
   if (!res.ok) throw new ApiError(data?.error || `Lỗi máy chủ (${res.status}).`, res.status, data?.code, data);
+  if (data === null)
+    throw new ApiError(
+      'Máy chủ API không trả về dữ liệu JSON. Hãy kiểm tra API đã chạy chưa (npm run dev:api) hoặc cấu hình chuyển tiếp /api.',
+      res.status,
+      'bad_response'
+    );
   return data as T;
 }
 

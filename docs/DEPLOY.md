@@ -1,6 +1,6 @@
 # Triển khai: GitHub → Neon (cơ sở dữ liệu) → Vercel (chạy web)
 
-Kiến trúc: giao diện React (Vite) + API `/api/*` chạy trên Vercel (một hàm duy nhất `api/[...path].ts`) + PostgreSQL trên Neon.
+Kiến trúc: giao diện React (Vite) + API `/api/*` chạy trên Vercel (một hàm duy nhất `api/index.ts`; `vercel.json` rewrite mọi `/api/*` vào hàm này) + PostgreSQL trên Neon.
 Tài khoản, phê duyệt, phiên đăng nhập và dữ liệu tài chính đều nằm trên máy chủ, nên nhiều người ở nhiều thiết bị dùng chung được.
 
 ---
@@ -78,13 +78,10 @@ Tài khoản, phê duyệt, phiên đăng nhập và dữ liệu tài chính đ�
 ## 6. Chạy thử ở máy (kèm Neon)
 
 1. Sao chép `.env.example` thành `.env.local`, điền `DATABASE_URL` và `ADMIN_EMAIL`.
-2. Trong `vite.config.ts` thêm chuyển tiếp API (không đặt `changeOrigin`):
-   ```ts
-   server: { port: 3000, proxy: { '/api': 'http://localhost:3001' } }
-   ```
+2. `vite.config.ts` đã có sẵn chuyển tiếp `/api` → `localhost:3001`.
 3. Mở hai cửa sổ dòng lệnh:
    ```bash
-   npx tsx --env-file=.env.local scripts/dev-api.ts   # API, cổng 3001
+   npm run dev:api                                     # API, cổng 3001
    npm run dev                                         # giao diện, cổng 3000
    ```
    (Cách khác: `npx vercel dev` chạy cả hai cùng lúc, cần `vercel link` và `vercel env pull .env.local`.)
@@ -119,7 +116,8 @@ Tài khoản, phê duyệt, phiên đăng nhập và dữ liệu tài chính đ�
 | Màn hình "Không kết nối được máy chủ" khi chạy ở máy | Chưa chạy `scripts/dev-api.ts` hoặc chưa thêm `proxy` vào `vite.config.ts` |
 | Báo thiếu `DATABASE_URL` (mã 503) | Chưa đặt biến môi trường trên Vercel / trong `.env.local`; sau khi thêm biến phải **Redeploy** |
 | "Hệ thống chưa có quản trị viên" | Chưa đặt `ADMIN_EMAIL` |
-| `/api/health` trả 404 trên Vercel | File `api/[...path].ts` chưa được commit (tên có dấu ngoặc vuông) |
+| `/api/health` chạy nhưng `/api/auth/me` (đường dẫn nhiều cấp) trả 404 | Dùng tên `api/[...path].ts`: Vercel chỉ nối nó với đường dẫn một cấp. Phải dùng `api/index.ts` + rewrite `/api/(.*)` → `/api` trong `vercel.json` |
+| `/api/health` trả 404 trên Vercel | File `api/index.ts` chưa được commit, hoặc `vercel.json` thiếu `rewrites` |
 | Build báo lỗi "Cannot find module '../utils/supabaseSchema'" | Còn file/đoạn import cũ trỏ tới `DataCenterView` hoặc `supabaseSchema` |
 | Hộp thoại "Dữ liệu đã thay đổi ở nơi khác" | Cùng tài khoản đang mở ở hai nơi. Chọn "Tải bản máy chủ" để lấy bản mới nhất |
 

@@ -15,6 +15,19 @@ export default defineConfig(() => {
       },
     },
     server: {
+      // Chuyển tiếp /api sang API chạy ở máy (npm run dev:api, cổng 3001).
+      // Máy chủ so Origin với Host (hoặc X-Forwarded-Host) để chống CSRF, nhưng proxy của Vite đổi Host
+      // thành localhost:3001 → phải báo lại host gốc (localhost:3000) qua X-Forwarded-Host, nếu không POST đăng nhập/đăng ký bị 403.
+      proxy: {
+        '/api': {
+          target: 'http://localhost:3001',
+          configure: (proxy) => {
+            proxy.on('proxyReq', (proxyReq, req) => {
+              if (req.headers.host) proxyReq.setHeader('x-forwarded-host', req.headers.host);
+            });
+          },
+        },
+      },
       // HMR is disabled in AI Studio via DISABLE_HMR env var.
       // Do not modify—file watching is disabled to prevent flickering during agent edits.
       hmr: process.env.DISABLE_HMR !== 'true',
