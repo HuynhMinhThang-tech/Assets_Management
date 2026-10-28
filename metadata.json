@@ -1,0 +1,6 @@
+{
+  "name": "FinTrack VN — Quản Lý Tài Sản & Nợ Đầu Tư",
+  "description": "Nền tảng quản lý tài sản, nợ đòn bẩy, lịch trả nợ chi tiết và dòng tiền đầu tư thực tế với xuất/nhập Excel và mã nguồn Supabase SQL.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
