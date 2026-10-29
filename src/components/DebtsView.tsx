@@ -624,7 +624,7 @@ const AmortizationModal: React.FC<AmortizationModalProps> = ({
         </table>
       </div>
 
-      <ModalFooter hint={'Khi bấm "Thanh toán", tiền được trích từ Ví Đầu Tư và ghi vào Nhật ký dòng tiền.'}>
+      <ModalFooter>
         <button
           type="button"
           onClick={onClose}
@@ -730,7 +730,6 @@ const AddDebtModal: React.FC<AddDebtModalProps> = ({ assets, onClose, onAdd }) =
   return (
     <Modal
       title="Thêm Khoản Vay / Nợ Mới"
-      subtitle="Hệ thống sẽ tự động sinh toàn bộ lịch trả nợ từng tháng và đo lường LTV."
       size="lg"
       onClose={onClose}
     >
@@ -819,7 +818,7 @@ const AddDebtModal: React.FC<AddDebtModalProps> = ({ assets, onClose, onAdd }) =
                 className="w-full px-3 py-1.5 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-slate-900"
               />
               <span className="text-[11px] text-slate-500 font-mono block mt-0.5">
-                {remainingPrincipal > 0 ? formatVND(remainingPrincipal) : 'Để trống: tự tính theo lịch trả đến hôm nay'}
+                {remainingPrincipal > 0 ? formatVND(remainingPrincipal) : ''}
               </span>
               <FieldError>{remainingError}</FieldError>
             </div>
@@ -1000,14 +999,11 @@ const AddDebtModal: React.FC<AddDebtModalProps> = ({ assets, onClose, onAdd }) =
                 </option>
               ))}
             </select>
-            <span className="text-[11px] text-slate-500 block mt-1">
-              Khi liên kết, hệ thống sẽ tự động đo lường tỷ lệ đòn bẩy LTV và vốn tự có thực sở hữu.
-            </span>
           </div>
 
         </ModalBody>
         <ModalFooter
-          hint={errors[0] ? <span className="font-semibold text-rose-600">{errors[0]}</span> : missing[0]}
+          hint={errors[0] ? <span className="font-semibold text-rose-600">{errors[0]}</span> : undefined}
         >
           <button
             type="button"
@@ -1119,14 +1115,7 @@ const AdjustFloatingModal: React.FC<AdjustFloatingModalProps> = ({
 
   return (
     <Modal
-      title={
-        <span className="flex flex-wrap items-center gap-2">
-          Cập Nhật Lãi Suất Thả Nổi & Dư Nợ
-          <span className="text-[11px] font-semibold px-2 py-0.5 rounded bg-sky-50 text-sky-700 border border-sky-200">
-            Tính lại tự động
-          </span>
-        </span>
-      }
+      title="Cập Nhật Lãi Suất Thả Nổi & Dư Nợ"
       subtitle={`${debt.name} · ${debt.lender} · Còn ${unpaidCount} kỳ chưa thanh toán`}
       size="lg"
       onClose={onClose}
@@ -1272,10 +1261,6 @@ const AdjustFloatingModal: React.FC<AdjustFloatingModalProps> = ({
               </span>
             </div>
           </div>
-
-          <p className="text-[11px] text-slate-500 italic">
-            * Lịch sử các kỳ đã thanh toán trong quá khứ được giữ nguyên. Toàn bộ các kỳ nợ còn lại trong tương lai sẽ được tự động tính toán lại với dư nợ và mức lãi suất mới này.
-          </p>
 
         </ModalBody>
         <ModalFooter

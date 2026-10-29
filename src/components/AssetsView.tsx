@@ -417,9 +417,6 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
           <div className="py-16 text-center text-slate-400 text-xs">
             <Layers className="w-10 h-10 text-slate-300 mx-auto mb-2" />
             <p>Không tìm thấy tài sản nào phù hợp với bộ lọc hiện tại.</p>
-            {state.assets.length === 0 && (
-              <p className="mt-1 text-[11px]">Bấm "Thêm tài sản" ở thanh trên cùng để bắt đầu.</p>
-            )}
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -742,11 +739,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
       {sellAssetTarget && (
         <Modal
           title="Thanh lý / Bán Chốt Lời"
-          subtitle={
-            <>
-              Bán tài sản <strong>{sellAssetTarget.name}</strong>, ghi nhận Lãi/Lỗ thực tế và cộng tiền vào Ví đầu tư.
-            </>
-          }
+          subtitle={sellAssetTarget.name}
           onClose={() => setSellAssetTarget(null)}
         >
           <ModalBody>
@@ -860,7 +853,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
       {incomeEditAsset && (
         <Modal
           title="Thu nhập hàng tháng"
-          subtitle={`${incomeEditAsset.name} – hiển thị trên trang Lịch thu chi`}
+          subtitle={incomeEditAsset.name}
           onClose={() => setIncomeEditAsset(null)}
         >
           <ModalBody>
@@ -887,9 +880,6 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                 className="w-full px-3 py-1.5 text-xs border border-slate-300 rounded-lg font-mono disabled:bg-slate-50 disabled:text-slate-400"
               />
               <FieldError>{incomeEditDayError}</FieldError>
-              <p className="mt-1.5 text-[11px] text-slate-500">
-                Tháng ngắn hơn (vd. ngày 31 vào tháng 2) sẽ tự lấy ngày cuối tháng. Khi tiền về, ghi nhận ở Ví & Dòng tiền để lịch chuyển sang "Đã nhận".
-              </p>
             </div>
           </ModalBody>
           <ModalFooter>
@@ -1086,7 +1076,6 @@ const AddAssetModal: React.FC<AddAssetModalProps> = ({ availableCash, onClose, o
   if (fundingMode === 'cash' && cashCost <= 0) missing.push('Nhập tổng giá vốn đầu tư.');
   if (fundingMode === 'loan') {
     if (totalAssetPrice <= 0) missing.push('Nhập tổng giá trị tài sản.');
-    else if (loanPrincipal <= 0) missing.push('Số tiền vay phải lớn hơn 0 – giảm vốn tự có hoặc nhập số tiền vay.');
     if (!loanLender.trim()) missing.push('Nhập ngân hàng / tổ chức cho vay.');
   }
 
@@ -1106,6 +1095,8 @@ const AddAssetModal: React.FC<AddAssetModalProps> = ({ availableCash, onClose, o
 
   const loanErrors: string[] = [];
   if (fundingMode === 'loan') {
+    if (totalAssetPrice > 0 && loanPrincipal <= 0)
+      loanErrors.push('Số tiền vay phải lớn hơn 0 – giảm vốn tự có hoặc nhập số tiền vay.');
     if (downPayment > totalAssetPrice) loanErrors.push('Vốn tự có không được lớn hơn tổng giá trị tài sản.');
     if (loanPrincipal > totalAssetPrice) loanErrors.push('Số tiền vay không được lớn hơn tổng giá trị tài sản.');
     else if (downPayment <= totalAssetPrice && downPayment + loanPrincipal > totalAssetPrice)
@@ -1259,7 +1250,6 @@ const AddAssetModal: React.FC<AddAssetModalProps> = ({ availableCash, onClose, o
   return (
     <Modal
       title="Thêm Tài Sản Mới"
-      subtitle="Chọn phương thức tài trợ vốn và điền các thông số chuyên biệt."
       size="xl"
       onClose={onClose}
     >
@@ -1569,7 +1559,6 @@ const AddAssetModal: React.FC<AddAssetModalProps> = ({ availableCash, onClose, o
                   </div>
                 </div>
                 <FieldError>{rentError}</FieldError>
-                <p className="text-[11px] text-slate-500">Khoản này sẽ hiện trên trang Lịch thu chi vào ngày nhận mỗi tháng.</p>
               </div>
             )}
 
@@ -1757,7 +1746,6 @@ const AddAssetModal: React.FC<AddAssetModalProps> = ({ availableCash, onClose, o
                       <ShieldCheck className={`w-4 h-4 mt-0.5 shrink-0 ${loanSecurityType === 'secured' ? 'text-sky-600' : 'text-slate-400'}`} />
                       <div>
                         <div className="font-bold text-xs">Vay thế chấp</div>
-                        <div className="text-[11px] text-slate-500 mt-0.5">Thế chấp bằng chính tài sản đang tạo này (LTV đo lường tự động)</div>
                       </div>
                     </button>
 
@@ -1773,7 +1761,6 @@ const AddAssetModal: React.FC<AddAssetModalProps> = ({ availableCash, onClose, o
                       <CreditCard className={`w-4 h-4 mt-0.5 shrink-0 ${loanSecurityType === 'unsecured' ? 'text-amber-600' : 'text-slate-400'}`} />
                       <div>
                         <div className="font-bold text-xs">Vay tín chấp</div>
-                        <div className="text-[11px] text-slate-500 mt-0.5">Vay theo lương / Uy tín cá nhân, tài sản không bị thế chấp</div>
                       </div>
                     </button>
                   </div>
@@ -1952,7 +1939,7 @@ const AddAssetModal: React.FC<AddAssetModalProps> = ({ availableCash, onClose, o
         </ModalBody>
         <ModalFooter
           hint={
-            errors[0] ? <span className="font-semibold text-rose-600">{errors[0]}</span> : missing[0]
+            errors[0] ? <span className="font-semibold text-rose-600">{errors[0]}</span> : undefined
           }
         >
           <button

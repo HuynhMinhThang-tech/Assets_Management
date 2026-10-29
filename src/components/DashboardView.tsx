@@ -97,7 +97,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           <h2 className="text-lg font-bold text-slate-900">
             {greetingForNow()}, {userName}
           </h2>
-          <p className="text-xs text-slate-500 mt-0.5">Tổng quan tài sản và nợ của bạn đến hôm nay.</p>
         </div>
       )}
 
@@ -107,9 +106,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm relative overflow-hidden">
           <div className="flex items-center justify-between text-xs text-slate-500 mb-2">
             <span className="font-semibold uppercase tracking-wider">Tài sản ròng (Net Worth)</span>
-            <span className="text-emerald-700 font-semibold bg-emerald-50 px-2 py-0.5 rounded text-[11px]">
-              Tài sản - Nợ
-            </span>
           </div>
           <div className="text-2xl font-extrabold text-slate-900 font-mono tabular-nums">
             {formatVND(summary.netWorth)}
@@ -165,7 +161,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
           <div className="flex items-center justify-between text-xs text-slate-500 mb-2">
             <span className="font-semibold uppercase tracking-wider">Hiệu quả Lãi / Lỗ</span>
-            <span className="text-slate-400 text-[11px]">Chưa chốt & Đã chốt</span>
           </div>
           <div className="space-y-1.5">
             <div className="flex items-center justify-between">
@@ -283,33 +278,23 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               </div>
             ))}
           </div>
-          <p className="text-[11px] text-slate-500 mt-2">
-            Khi nhận tiền: ghi nhận lãi ở mục Ví & Dòng tiền → "Ghi nhận thu nhập", sau đó bán/tất toán sổ hoặc cập nhật sổ tái tục.
-          </p>
         </div>
       )}
 
-      {/* 2c. NET WORTH TREND */}
-      <div className="bg-white border border-slate-200 rounded-xl p-4">
-        <div className="flex items-center justify-between mb-2">
-          <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider">Diễn biến tài sản ròng</h3>
-          {trend && (
+      {/* 2c. NET WORTH TREND (chỉ hiện khi đã có ít nhất 2 ngày dữ liệu) */}
+      {trend && (
+        <div className="bg-white border border-slate-200 rounded-xl p-4">
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider">Diễn biến tài sản ròng</h3>
             <span className={`text-xs font-mono font-semibold ${trend.change >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
               {trend.change >= 0 ? '+' : ''}{formatVND(trend.change, { compact: true })} · {trend.from} → {trend.to}
             </span>
-          )}
-        </div>
-        {trend ? (
+          </div>
           <svg viewBox={`0 0 ${trend.W} ${trend.H}`} className="w-full h-28" role="img" aria-label="Biểu đồ tài sản ròng theo ngày">
             <polyline points={trend.points} fill="none" stroke="#059669" strokeWidth="2" />
           </svg>
-        ) : (
-          <p className="text-xs text-slate-500">
-            Ứng dụng tự chụp tài sản ròng mỗi ngày bạn mở và có thay đổi. Cần ít nhất 2 ngày dữ liệu để vẽ biểu đồ
-            {state.isDemo ? ' (không ghi khi đang dùng dữ liệu mẫu).' : '.'}
-          </p>
-        )}
-      </div>
+        </div>
+      )}
 
       {/* 3. TWO-COLUMN SPLIT: PORTFOLIO ALLOCATION & COLLATERAL LEVERAGE */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -318,9 +303,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           <div className="flex items-center justify-between mb-4 pb-3 border-b border-slate-100">
             <div>
               <h2 className="text-sm font-bold text-slate-900">Phân bổ Danh mục Tài sản</h2>
-              <p className="text-xs text-slate-500 mt-0.5">
-                Tỷ trọng thị giá theo từng nhóm tài sản đầu tư
-              </p>
             </div>
             <button
               onClick={() => onNavigateTab('assets')}
@@ -402,9 +384,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           <div className="flex items-center justify-between mb-4 pb-3 border-b border-slate-100">
             <div>
               <h2 className="text-sm font-bold text-slate-900">Liên kết Nợ & Tài sản Thế chấp</h2>
-              <p className="text-xs text-slate-500 mt-0.5">
-                Tỷ lệ Vốn tự có (Equity) và Đòn bẩy vay nợ (LTV)
-              </p>
             </div>
             <button
               onClick={() => onNavigateTab('debts')}
@@ -525,7 +504,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider">
               Tài sản Hiệu quả Lãi/Lỗ Cao Nhất
             </h3>
-            <span className="text-[11px] text-slate-400">Sắp xếp theo % Lãi sổ sách</span>
           </div>
 
           <div className="space-y-2.5">

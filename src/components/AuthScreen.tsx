@@ -19,22 +19,19 @@ const Field: React.FC<{
   id: string;
   label: string;
   error?: string;
-  hint?: string;
   children: React.ReactNode;
-}> = ({ id, label, error, hint, children }) => (
+}> = ({ id, label, error, children }) => (
   <div>
     <label htmlFor={id} className="mb-1 block text-xs font-semibold text-slate-700">
       {label}
     </label>
     {children}
-    {error ? (
+    {error && (
       <p role="alert" className="mt-1 flex items-start gap-1 text-[11px] font-medium text-rose-600">
         <AlertCircle className="mt-px h-3 w-3 shrink-0" />
         <span>{error}</span>
       </p>
-    ) : hint ? (
-      <p className="mt-1 text-[11px] text-slate-500">{hint}</p>
-    ) : null}
+    )}
   </div>
 );
 
@@ -102,13 +99,6 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ isDark, onToggleTheme, o
 
   const title =
     effectiveMode === 'login' ? 'Đăng nhập' : effectiveMode === 'register' ? 'Đăng ký tài khoản' : 'Quên mật khẩu';
-  const subtitle =
-    effectiveMode === 'login'
-      ? 'Chào mừng trở lại. Đăng nhập để xem tài sản và khoản nợ của bạn.'
-      : effectiveMode === 'register'
-      ? 'Sau khi đăng ký, quản trị viên cần phê duyệt thì bạn mới đăng nhập được.'
-      : 'Nhập Gmail của tài khoản và mật khẩu mới. Yêu cầu sẽ có hiệu lực sau khi quản trị viên duyệt.';
-
   const pwType = showPw ? 'text' : 'password';
   const pwToggle = (
     <button
@@ -134,18 +124,15 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ isDark, onToggleTheme, o
       </button>
 
       <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-7 shadow-lg">
-        <div className="mb-5 flex items-center gap-3">
-          <div className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-emerald-400 to-emerald-600 shadow-lg shadow-emerald-950/30 ring-1 ring-white/10">
+        <div className="mb-5 flex flex-col items-center gap-3 text-center">
+          <div className="grid h-12 w-12 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-emerald-400 to-emerald-600 shadow-lg shadow-emerald-950/30 ring-1 ring-white/10">
             <svg viewBox="0 0 24 24" className="h-6 w-6 text-white" fill="currentColor" aria-hidden="true">
               <rect x="4" y="13" width="4" height="7" rx="1" />
               <rect x="10" y="9" width="4" height="11" rx="1" />
               <rect x="16" y="4" width="4" height="16" rx="1" />
             </svg>
           </div>
-          <div>
-            <div className="text-sm font-bold leading-tight text-slate-900">Quản lý tài sản và nợ</div>
-            <div className="text-[11px] text-slate-500">Theo dõi tài sản, khoản vay và dòng tiền</div>
-          </div>
+          <div className="text-base font-bold leading-tight text-slate-900">Quản lý tài sản và nợ</div>
         </div>
 
         {done ? (
@@ -176,10 +163,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ isDark, onToggleTheme, o
           </div>
         ) : (
           <form onSubmit={handleSubmit} noValidate className="space-y-4">
-            <div>
-              <h1 className="text-lg font-bold text-slate-900">{title}</h1>
-              <p className="mt-1 text-xs leading-relaxed text-slate-500">{subtitle}</p>
-            </div>
+            <h1 className="text-center text-lg font-bold text-slate-900">{title}</h1>
 
             {formError && (
               <div role="alert" className="flex items-start gap-2 rounded-lg border border-rose-200 bg-rose-50 p-3 text-xs font-medium text-rose-800">
@@ -189,7 +173,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ isDark, onToggleTheme, o
             )}
 
             {effectiveMode === 'register' && (
-              <Field id="auth-display" label="Tên hiển thị" error={show('displayName')} hint="Dùng để chào và hiển thị trong ứng dụng.">
+              <Field id="auth-display" label="Tên hiển thị" error={show('displayName')}>
                 <input
                   id="auth-display"
                   type="text"
@@ -202,12 +186,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ isDark, onToggleTheme, o
               </Field>
             )}
 
-            <Field
-              id="auth-email"
-              label="Gmail"
-              error={show('email')}
-              hint={effectiveMode !== 'login' ? 'Chỉ nhận địa chỉ kết thúc bằng @gmail.com, ví dụ ten.ban@gmail.com.' : undefined}
-            >
+            <Field id="auth-email" label="Gmail" error={show('email')}>
               <input
                 id="auth-email"
                 type="email"
@@ -227,7 +206,6 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ isDark, onToggleTheme, o
               id="auth-password"
               label={effectiveMode === 'forgot' ? 'Mật khẩu mới' : 'Mật khẩu'}
               error={show('password')}
-              hint={effectiveMode !== 'login' ? 'Ít nhất 8 ký tự.' : undefined}
             >
               <div className="relative">
                 <input

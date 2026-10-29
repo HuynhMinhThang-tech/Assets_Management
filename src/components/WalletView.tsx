@@ -9,7 +9,6 @@ import {
   Filter,
   CheckCircle2,
   DollarSign,
-  TrendingUp,
 } from 'lucide-react';
 import { UserFinancialState, TransactionType } from '../types/finance';
 import type { IncomeParams } from '../App';
@@ -183,9 +182,6 @@ export const WalletView: React.FC<WalletViewProps> = ({
             <div className="text-3xl font-extrabold font-mono tabular-nums text-emerald-400">
               {formatVND(state.wallet.availableCash)}
             </div>
-            <p className="text-xs text-slate-400 mt-2">
-              Sẵn sàng để giải ngân mua tài sản mới hoặc thanh toán các kỳ nợ định kỳ.
-            </p>
           </div>
 
           <div className="flex items-center gap-2 mt-6 pt-4 border-t border-slate-800">
@@ -217,13 +213,6 @@ export const WalletView: React.FC<WalletViewProps> = ({
             <div className="text-2xl font-extrabold text-slate-900 font-mono tabular-nums">
               {formatVND(state.wallet.totalDeposited)}
             </div>
-            <p className="text-xs text-slate-500 mt-2">
-              Toàn bộ dòng tiền vốn cá nhân nạp vào hệ sinh thái đầu tư.
-            </p>
-          </div>
-          <div className="text-xs text-slate-400 pt-3 border-t border-slate-100 flex items-center gap-1">
-            <TrendingUp className="w-3.5 h-3.5 text-emerald-500" />
-            <span>Nguồn vốn đầu tư ban đầu</span>
           </div>
         </div>
 
@@ -236,12 +225,6 @@ export const WalletView: React.FC<WalletViewProps> = ({
             <div className="text-2xl font-extrabold text-slate-700 font-mono tabular-nums">
               {formatVND(state.wallet.totalWithdrawn)}
             </div>
-            <p className="text-xs text-slate-500 mt-2">
-              Lợi nhuận hoặc vốn đã rút khỏi danh mục đầu tư về tài khoản sinh hoạt.
-            </p>
-          </div>
-          <div className="text-xs text-slate-400 pt-3 border-t border-slate-100 flex items-center gap-1">
-            <span>Rút về tiêu dùng / tài khoản ngoài</span>
           </div>
         </div>
       </div>
@@ -254,9 +237,6 @@ export const WalletView: React.FC<WalletViewProps> = ({
             <h3 className="text-sm font-bold text-slate-900">
               Nhật Ký Dòng Tiền Đầu Tư Thực Tế
             </h3>
-            <p className="text-xs text-slate-500 mt-0.5">
-              Theo dõi đối soát chính xác mọi khoản tiền vào/ra và số dư khả dụng sau từng biến động.
-            </p>
           </div>
 
           <button
@@ -351,7 +331,6 @@ export const WalletView: React.FC<WalletViewProps> = ({
       {isIncomeOpen && (
         <Modal
           title="Ghi nhận thu nhập từ tài sản"
-          subtitle="Tiền được cộng vào ví và tính vào lãi thực tế đúng 1 lần."
           onClose={closeIncome}
         >
           <form onSubmit={handleConfirmIncome} noValidate className="flex min-h-0 flex-1 flex-col">
@@ -392,7 +371,7 @@ export const WalletView: React.FC<WalletViewProps> = ({
                 <input type="text" value={incomeNote} onChange={(e) => setIncomeNote(e.target.value)} className="w-full px-3 py-1.5 text-xs border border-slate-300 rounded-lg" />
               </div>
             </ModalBody>
-            <ModalFooter hint={incomeAmount <= 0 ? 'Nhập số tiền thực nhận để ghi nhận.' : undefined}>
+            <ModalFooter>
               <button type="button" onClick={closeIncome} className="px-3.5 py-1.5 text-xs text-slate-600 hover:bg-slate-100 rounded-lg font-medium">Hủy</button>
               <button type="submit" disabled={!canSubmitIncome} className="px-4 py-1.5 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg shadow-sm disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-emerald-600">Xác nhận ghi nhận</button>
             </ModalFooter>
@@ -404,7 +383,6 @@ export const WalletView: React.FC<WalletViewProps> = ({
       {isDepositModalOpen && (
         <Modal
           title="Nạp Vốn Vào Ví Đầu Tư"
-          subtitle="Bổ sung tiền mặt khả dụng để thực hiện các thương vụ đầu tư mới."
           onClose={closeDeposit}
         >
           <form onSubmit={handleConfirmDeposit} noValidate className="flex min-h-0 flex-1 flex-col">
@@ -435,7 +413,7 @@ export const WalletView: React.FC<WalletViewProps> = ({
                 />
               </div>
             </ModalBody>
-            <ModalFooter hint={depositAmount <= 0 ? 'Nhập số tiền cần nạp.' : undefined}>
+            <ModalFooter>
               <button
                 type="button"
                 onClick={closeDeposit}
@@ -459,7 +437,6 @@ export const WalletView: React.FC<WalletViewProps> = ({
       {isWithdrawModalOpen && (
         <Modal
           title="Rút Vốn Khỏi Ví Đầu Tư"
-          subtitle="Rút tiền mặt khả dụng về tài khoản cá nhân/chi tiêu."
           onClose={closeWithdraw}
         >
           <form onSubmit={handleConfirmWithdraw} noValidate className="flex min-h-0 flex-1 flex-col">
@@ -502,7 +479,7 @@ export const WalletView: React.FC<WalletViewProps> = ({
                 />
               </div>
             </ModalBody>
-            <ModalFooter hint={withdrawAmount <= 0 && !withdrawError ? 'Nhập số tiền cần rút.' : undefined}>
+            <ModalFooter>
               <button
                 type="button"
                 onClick={closeWithdraw}

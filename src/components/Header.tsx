@@ -15,37 +15,17 @@ interface HeaderProps {
 }
 
 export const Header: React.FC<HeaderProps> = ({
-  currentTab,
   availableCash,
   onOpenAddAsset,
   onOpenAddDebt,
   onOpenDeposit,
   syncStatus,
 }) => {
-  const getTabTitle = (tab: NavTab) => {
-    switch (tab) {
-      case 'dashboard':
-        return 'Tổng quan';
-      case 'assets':
-        return 'Quản lý Tài sản Đa Danh mục';
-      case 'debts':
-        return 'Khoản vay, Đòn bẩy & Lịch trả nợ';
-      case 'wallet':
-        return 'Ví Đầu tư & Dòng tiền Thực tế';
-      case 'calendar':
-        return 'Lịch thu chi: Ngày trả nợ & Ngày nhận tiền';
-      case 'admin':
-        return 'Quản trị tài khoản';
-    }
-  };
-
   return (
     <header className="h-16 bg-white border-b border-slate-200 px-6 flex items-center justify-between gap-8 sticky top-0 z-20">
       {/* Zone 1: Contextual Breadcrumb */}
       <div className="flex items-center gap-2 text-sm text-slate-500 whitespace-nowrap shrink-0">
         <span className="font-semibold text-slate-900">Danh mục cá nhân</span>
-        <span className="text-slate-300">/</span>
-        <span className="text-slate-600 font-medium">{getTabTitle(currentTab)}</span>
       </div>
 
       {/* Zone 2 & 3: Cash display & Quick Action CTAs */}

@@ -343,7 +343,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({ state, onNavigateTab
             <p className="py-8 text-center text-xs leading-relaxed text-slate-400">
               {selected
                 ? 'Ngày này không có khoản thu chi nào.'
-                : 'Tháng này chưa có khoản thu chi nào. Lịch trả nợ lấy từ các khoản vay; tiền thuê hàng tháng lấy từ tài sản cho thuê (đặt ở Danh mục Tài sản).'}
+                : 'Tháng này chưa có khoản thu chi nào.'}
             </p>
           ) : (
             <div className="max-h-[640px] space-y-4 overflow-y-auto pr-1">

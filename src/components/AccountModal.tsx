@@ -93,7 +93,6 @@ export const AccountModal: React.FC<AccountModalProps> = ({ user, onClose, onUse
               Lưu
             </button>
           </div>
-          <p className="text-[11px] text-slate-500">Tên này dùng để chào và hiển thị trong ứng dụng. Gmail đăng nhập không đổi được tại đây.</p>
         </form>
 
         <form onSubmit={savePassword} noValidate className="space-y-3 border-t border-slate-100 pt-5">

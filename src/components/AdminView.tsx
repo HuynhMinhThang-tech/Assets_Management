@@ -202,9 +202,6 @@ export const AdminView: React.FC<AdminViewProps> = ({ currentUser, accounts, onC
             <ShieldCheck className="h-5 w-5 text-emerald-600" />
             Quản trị tài khoản
           </h2>
-          <p className="mt-1 max-w-2xl text-xs leading-relaxed text-slate-500">
-            Chỉ hiển thị tên và tên đăng nhập. Mật khẩu được mã hóa một chiều nên không ai xem được, kể cả quản trị viên.
-          </p>
         </div>
         <button type="button" onClick={onBack} className="flex items-center gap-1.5 text-xs font-semibold text-slate-600 hover:text-slate-900">
           <ArrowLeft className="h-4 w-4" /> Về ứng dụng
