@@ -6,6 +6,7 @@ import { AssetsView } from './components/AssetsView';
 import { DebtsView } from './components/DebtsView';
 import { WalletView } from './components/WalletView';
 import { CalendarView } from './components/CalendarView';
+import { BalanceSheetView } from './components/BalanceSheetView';
 import { AuthScreen } from './components/AuthScreen';
 import { AdminView } from './components/AdminView';
 import { AccountModal } from './components/AccountModal';
@@ -761,6 +762,8 @@ function FinanceApp({
               onPayDebtPeriod={handlePayDebtPeriod}
             />
           )}
+
+          {currentTab === 'balance' && <BalanceSheetView state={state} />}
 
           {currentTab === 'admin' && user.role === 'admin' && (
             <AdminView

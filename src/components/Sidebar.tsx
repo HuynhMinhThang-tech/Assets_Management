@@ -5,6 +5,7 @@ import {
   CreditCard,
   Wallet as WalletIcon,
   CalendarDays,
+  Scale,
   ChevronLeft,
   ChevronRight,
   Sun,
@@ -13,7 +14,7 @@ import {
   LogOut,
 } from 'lucide-react';
 
-export type NavTab = 'dashboard' | 'assets' | 'debts' | 'wallet' | 'calendar' | 'admin';
+export type NavTab = 'dashboard' | 'assets' | 'debts' | 'wallet' | 'calendar' | 'balance' | 'admin';
 
 interface SidebarProps {
   currentTab: NavTab;
@@ -70,6 +71,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
       id: 'calendar',
       label: 'Lịch thu chi',
       icon: <CalendarDays className="w-5 h-5 shrink-0" />,
+    },
+    {
+      id: 'balance',
+      label: 'Bảng cân đối',
+      icon: <Scale className="w-5 h-5 shrink-0" />,
     },
   ];
 

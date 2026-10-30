@@ -940,7 +940,6 @@ const AddAssetModal: React.FC<AddAssetModalProps> = ({ availableCash, onClose, o
 
   // Cash Mode Amounts
   const [cashCost, setCashCost] = useState<number>(0);
-  const [cashCurrentVal, setCashCurrentVal] = useState<number>(0);
   const [deductFromWallet, setDeductFromWallet] = useState<boolean>(true);
 
   // Loan Mode Amounts & Attributes
@@ -1004,7 +1003,6 @@ const AddAssetModal: React.FC<AddAssetModalProps> = ({ availableCash, onClose, o
   const applyAutoTotal = (total: number) => {
     if (total <= 0) return;
     if (fundingMode === 'cash') {
-      if (cashCurrentVal === 0 || cashCurrentVal === cashCost) setCashCurrentVal(total);
       setCashCost(total);
     } else {
       setTotalAssetPrice(total);
@@ -1023,7 +1021,6 @@ const AddAssetModal: React.FC<AddAssetModalProps> = ({ availableCash, onClose, o
       const total = qty * stockAvgPrice;
       if (fundingMode === 'cash') {
         setCashCost(total);
-        if (cashCurrentVal === 0) setCashCurrentVal(total);
       } else {
         setTotalAssetPrice(total);
         setLoanPrincipal(Math.max(0, total - downPayment));
@@ -1037,7 +1034,6 @@ const AddAssetModal: React.FC<AddAssetModalProps> = ({ availableCash, onClose, o
       const total = stockQty * price;
       if (fundingMode === 'cash') {
         setCashCost(total);
-        if (cashCurrentVal === 0) setCashCurrentVal(total);
       } else {
         setTotalAssetPrice(total);
         setLoanPrincipal(Math.max(0, total - downPayment));
@@ -1130,7 +1126,8 @@ const AddAssetModal: React.FC<AddAssetModalProps> = ({ availableCash, onClose, o
 
     const assetId = `asset-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
     const initialCost = fundingMode === 'cash' ? cashCost : totalAssetPrice;
-    const currentValue = fundingMode === 'cash' ? (cashCurrentVal || cashCost) : totalAssetPrice;
+    // Lúc mua, thị giá = giá vốn; thị giá mới được cập nhật sau này ở nút "Cập nhật định giá" hoặc khi bán.
+    const currentValue = initialCost;
 
     let metadata: any = {};
     if (category === 'stock') {
@@ -1601,30 +1598,17 @@ const AddAssetModal: React.FC<AddAssetModalProps> = ({ availableCash, onClose, o
           {/* TAB 1: CASH PURCHASE AMOUNTS */}
           {fundingMode === 'cash' && (
             <div className="space-y-3">
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-xs font-semibold text-slate-700 block mb-1">
-                    Tổng giá vốn đầu tư (VND) *
-                  </label>
-                  <CurrencyInput
-                    required
-                    value={cashCost}
-                    onChange={setCashCost}
-                    invalid={!!cashWalletError}
-                    className="w-full px-3 py-1.5 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-slate-900"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs font-semibold text-slate-700 block mb-1">
-                    Thị giá hiện tại (VND) *
-                  </label>
-                  <CurrencyInput
-                    required
-                    value={cashCurrentVal || cashCost}
-                    onChange={setCashCurrentVal}
-                    className="w-full px-3 py-1.5 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-slate-900"
-                  />
-                </div>
+              <div>
+                <label className="text-xs font-semibold text-slate-700 block mb-1">
+                  Tổng giá vốn đầu tư (VND) *
+                </label>
+                <CurrencyInput
+                  required
+                  value={cashCost}
+                  onChange={setCashCost}
+                  invalid={!!cashWalletError}
+                  className="w-full px-3 py-1.5 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-slate-900"
+                />
               </div>
 
               {/* Deduct from wallet checkbox */}
