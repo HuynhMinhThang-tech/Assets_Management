@@ -48,6 +48,7 @@ import { Modal, ModalBody, ModalFooter, FieldError } from './ui/Modal';
 import { useDialog } from './ui/DialogProvider';
 import { MAX_RATE, MAX_TENOR_MONTHS } from '../utils/validation';
 import { getRecurringIncome } from '../utils/calendar';
+import { getUnitPricing, totalFromUnitPrice, RevaluationInput } from '../utils/pricing';
 
 const CATEGORY_COLORS: Record<AssetCategory, string> = {
   real_estate: '#0284c7',
@@ -70,7 +71,7 @@ interface AssetsViewProps {
   onAutoOpenConsumed?: () => void;
   onUpdateAsset: (asset: Asset) => void;
   onDeleteAsset: (assetId: string) => void;
-  onRevalueAsset: (assetId: string, newValue: number, newPricePerUnit?: number) => void;
+  onRevalueAsset: (assetId: string, input: RevaluationInput) => void;
   onSellAsset: (params: SellParams) => void;
 }
 
@@ -91,6 +92,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
 
   // Modals state
   const [revalueAsset, setRevalueAsset] = useState<Asset | null>(null);
+  // Đơn giá mới (cổ phiếu, CCQ, chỉ, m²) hoặc tổng giá trị mới (tiết kiệm, tài sản khác)
   const [revaluePrice, setRevaluePrice] = useState<string>('');
 
   const [sellAssetTarget, setSellAssetTarget] = useState<Asset | null>(null);
@@ -152,6 +154,11 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
     sellFees > 0 && sellFees >= sellProceeds ? 'Phí/thuế phải nhỏ hơn số tiền bán.' : '';
   const canSell = sellProceeds > 0 && !sellQtyError && !sellFeesError;
   const revalueNum = parseFloat(revaluePrice) || 0;
+  const revaluePricing = revalueAsset ? getUnitPricing(revalueAsset) : null;
+  // Tổng giá trị mới: có đơn giá thì = số lượng × đơn giá (tính, không nhập), không thì chính số nhập
+  const revalueTotal = revaluePricing ? totalFromUnitPrice(revaluePricing.quantity, revalueNum) : revalueNum;
+  const revaluePnL = revalueAsset ? revalueTotal - revalueAsset.initialCost : 0;
+  const revaluePnLPct = revalueAsset && revalueAsset.initialCost > 0 ? (revaluePnL / revalueAsset.initialCost) * 100 : 0;
 
 
   // Categories config
@@ -205,8 +212,9 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
 
   // Open Revaluation Modal
   const handleOpenRevalue = (asset: Asset) => {
+    const pricing = getUnitPricing(asset);
     setRevalueAsset(asset);
-    setRevaluePrice(asset.currentValue.toString());
+    setRevaluePrice((pricing ? pricing.unitPrice : asset.currentValue).toString());
   };
 
   // Confirm Revaluation
@@ -214,7 +222,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
     if (!revalueAsset) return;
     const num = parseFloat(revaluePrice);
     if (isNaN(num) || num <= 0) return;
-    onRevalueAsset(revalueAsset.id, num);
+    onRevalueAsset(revalueAsset.id, revaluePricing ? { unitPrice: num } : { totalValue: num });
     setRevalueAsset(null);
   };
 
@@ -695,25 +703,64 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
           <ModalBody>
             <div>
               <label className="text-xs font-semibold text-slate-700 block mb-1">
-                Tổng giá trị thị trường mới (VND)
+                {revaluePricing
+                  ? `Giá thị trường mới mỗi ${revaluePricing.unit} (VND)`
+                  : 'Tổng giá trị hiện tại (VND)'}
               </label>
               <CurrencyInput
                 value={revalueNum}
+                allowDecimal={!!revaluePricing?.allowDecimal}
                 onChange={(val) => setRevaluePrice(val.toString())}
                 invalid={revalueNum <= 0}
                 className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-slate-900"
               />
-              {revalueNum > 0 && revalueAsset.currentValue > 0 ? (
-                <p className="mt-1.5 text-[11px] font-mono text-slate-500">
-                  So với hiện tại ({formatVND(revalueAsset.currentValue)}):{' '}
-                  <span className={revalueNum >= revalueAsset.currentValue ? 'text-emerald-600' : 'text-rose-600'}>
-                    {formatPercent(((revalueNum - revalueAsset.currentValue) / revalueAsset.currentValue) * 100)}
-                  </span>
-                </p>
-              ) : (
-                <FieldError>Giá trị thị trường phải lớn hơn 0.</FieldError>
+              {revalueNum <= 0 && (
+                <FieldError>
+                  {revaluePricing ? 'Giá phải lớn hơn 0.' : 'Giá trị thị trường phải lớn hơn 0.'}
+                </FieldError>
               )}
             </div>
+
+            {revalueNum > 0 && (
+              <div
+                data-revalue-preview
+                className="divide-y divide-slate-100 rounded-lg border border-slate-200 bg-slate-50 text-xs"
+              >
+                {revaluePricing && (
+                  <div className="flex items-center justify-between px-3 py-2">
+                    <span className="text-slate-500">Số lượng nắm giữ</span>
+                    <span className="font-mono font-semibold text-slate-800">
+                      {revaluePricing.quantity.toLocaleString('vi-VN')} {revaluePricing.unit}
+                    </span>
+                  </div>
+                )}
+                <div className="flex items-center justify-between px-3 py-2">
+                  <span className="text-slate-500">Tổng giá trị mới</span>
+                  <span className="font-mono font-bold text-slate-900">{formatVND(revalueTotal)}</span>
+                </div>
+                {revalueAsset.currentValue > 0 && (
+                  <div className="flex items-center justify-between px-3 py-2">
+                    <span className="text-slate-500">So với hiện tại ({formatVND(revalueAsset.currentValue)})</span>
+                    <span
+                      className={`font-mono font-semibold ${
+                        revalueTotal >= revalueAsset.currentValue ? 'text-emerald-600' : 'text-rose-600'
+                      }`}
+                    >
+                      {formatPercent(((revalueTotal - revalueAsset.currentValue) / revalueAsset.currentValue) * 100)}
+                    </span>
+                  </div>
+                )}
+                <div className="flex items-center justify-between px-3 py-2">
+                  <span className="text-slate-500">Lãi/lỗ sổ sách mới</span>
+                  <span
+                    className={`font-mono font-bold ${revaluePnL >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}
+                  >
+                    {revaluePnL >= 0 ? '+' : ''}
+                    {formatVND(revaluePnL)} ({formatPercent(revaluePnLPct)})
+                  </span>
+                </div>
+              </div>
+            )}
           </ModalBody>
           <ModalFooter>
             <button

@@ -441,6 +441,16 @@ const EventCard: React.FC<{
           {e.payable && short > 0 && (
             <span className="text-[11px] font-medium text-rose-600">Ví thiếu {formatVND(short)}</span>
           )}
+          {e.payLocked && (
+            <button
+              type="button"
+              disabled
+              title={`Mở thanh toán từ ${e.payLocked.unlockDate}`}
+              className="rounded-lg bg-amber-600 px-3 py-1 text-[11px] font-bold text-white shadow-sm disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              {e.payLocked.paidThisMonth ? 'Đã trả tháng này' : 'Chưa đến kỳ'}
+            </button>
+          )}
           {isDebt && (
             <button
               type="button"

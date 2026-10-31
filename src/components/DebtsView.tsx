@@ -30,6 +30,8 @@ import {
   formatVND,
   formatPercent,
   getNextDuePayment,
+  checkPayable,
+  payLockLabel,
   generateAmortizationSchedule,
   calculateCollateralMetrics,
   recalculateFloatingDebt,
@@ -268,6 +270,9 @@ export const DebtsView: React.FC<DebtsViewProps> = ({
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
           {filteredDebts.map((debt) => {
             const nextPay = getNextDuePayment(debt);
+            // Mỗi tháng chỉ trả một kỳ: kỳ tới đến hạn ở tháng sau thì khóa nút
+            const payCheck = nextPay ? checkPayable(debt, nextPay.periodIndex) : null;
+            const payLocked = !!payCheck && payCheck.reason === 'month_locked';
             const collateralAsset = state.assets.find((a) => a.id === debt.collateralAssetId);
             const collateralMetrics = collateralAsset
               ? calculateCollateralMetrics(collateralAsset, debt)
@@ -427,7 +432,7 @@ export const DebtsView: React.FC<DebtsViewProps> = ({
                         <span className="font-bold text-slate-900 font-mono tabular-nums text-sm">
                           {formatVND(nextPay.total)}
                         </span>
-                        {state.wallet.availableCash < nextPay.total && (
+                        {!payLocked && state.wallet.availableCash < nextPay.total && (
                           <span className="block text-[11px] font-medium text-rose-600">
                             Ví thiếu {formatVND(nextPay.total - state.wallet.availableCash)}
                           </span>
@@ -461,16 +466,18 @@ export const DebtsView: React.FC<DebtsViewProps> = ({
                         onClick={() =>
                           onPayDebtPeriod(debt.id, nextPay.periodIndex, true)
                         }
-                        disabled={state.wallet.availableCash < nextPay.total}
+                        disabled={payLocked || state.wallet.availableCash < nextPay.total}
                         title={
-                          state.wallet.availableCash < nextPay.total
+                          payLocked && payCheck
+                            ? `Kỳ tiếp theo ngày ${payCheck.dueDate} – mở thanh toán từ ${payCheck.unlockDate}`
+                            : state.wallet.availableCash < nextPay.total
                             ? `Ví thiếu ${formatVND(nextPay.total - state.wallet.availableCash)} – hãy nạp thêm tiền vào ví`
                             : undefined
                         }
                         className="px-3 py-1.5 text-xs font-bold text-white bg-amber-600 hover:bg-amber-700 rounded-lg shadow-sm transition-colors flex items-center gap-1 whitespace-nowrap disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-amber-600"
                       >
                         <CheckCircle2 className="w-3.5 h-3.5" />
-                        <span>Trả kỳ này</span>
+                        <span>{payLocked && payCheck ? payLockLabel(payCheck) : 'Trả kỳ này'}</span>
                       </button>
                     )}
                   </div>
@@ -579,6 +586,8 @@ const AmortizationModal: React.FC<AmortizationModalProps> = ({
           <tbody className="divide-y divide-slate-100 font-mono">
             {schedule.map((item, idx) => {
               const short = item.totalMonthlyPayment - availableCash;
+              const lock = idx === firstUnpaidIdx ? checkPayable(debt, idx) : null;
+              const locked = !!lock && lock.reason === 'month_locked';
               return (
                 <tr
                   key={item.period}
@@ -604,12 +613,13 @@ const AmortizationModal: React.FC<AmortizationModalProps> = ({
                       <div className="flex flex-col items-center gap-0.5">
                         <button
                           onClick={() => onPayPeriod(idx, true)}
-                          disabled={short > 0}
+                          disabled={locked || short > 0}
+                          title={locked && lock ? `Mở thanh toán từ ${lock.unlockDate}` : undefined}
                           className="px-2.5 py-1 text-[11px] font-bold text-white bg-amber-600 hover:bg-amber-700 rounded shadow-xs disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-amber-600"
                         >
-                          Thanh toán
+                          {locked && lock ? payLockLabel(lock) : 'Thanh toán'}
                         </button>
-                        {short > 0 && (
+                        {!locked && short > 0 && (
                           <span className="text-[10px] font-medium text-rose-600">Ví thiếu {formatVND(short)}</span>
                         )}
                       </div>

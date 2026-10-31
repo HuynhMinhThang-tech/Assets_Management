@@ -327,6 +327,61 @@ export function recalculateFloatingDebt(
 }
 
 
+/** Ngày cuối cùng của tháng chứa ngày `s` (YYYY-MM-DD). */
+export function endOfMonthStr(s: string): string {
+  const { y, m } = parseYMD(s);
+  return `${y}-${String(m).padStart(2, '0')}-${String(daysInMonth(y, m)).padStart(2, '0')}`;
+}
+
+export type PayBlockReason =
+  | 'closed' // khoản vay đã tất toán
+  | 'missing' // không có kỳ này
+  | 'paid' // kỳ này đã trả
+  | 'out_of_order' // còn kỳ chưa trả ở trước
+  | 'month_locked'; // kỳ này đến hạn ở tháng sau: chưa được trả
+
+export interface PayCheck {
+  ok: boolean;
+  reason?: PayBlockReason;
+  /** (month_locked) ngày đến hạn của kỳ này. */
+  dueDate?: string;
+  /** (month_locked) ngày đầu tiên được phép trả kỳ này (mùng 1 của tháng đến hạn). */
+  unlockDate?: string;
+  /** (month_locked) khoản vay đã có kỳ được ghi nhận trả trong tháng hiện tại. */
+  paidThisMonth?: boolean;
+}
+
+/**
+ * Quy tắc "mỗi tháng chỉ trả một kỳ": chỉ trả được kỳ có ngày đến hạn KHÔNG MUỘN HƠN cuối tháng hiện tại.
+ * Trả xong kỳ của tháng này thì kỳ sau (đến hạn tháng sau) bị khóa đến mùng 1 tháng sau.
+ * Kỳ quá hạn vẫn trả bù được, nhiều kỳ quá hạn trả liên tiếp được. Vẫn phải trả đúng thứ tự.
+ * Đây là hàm kiểm tra ở lớp xử lý chính (giao diện chỉ dùng lại để khóa nút).
+ */
+export function checkPayable(debt: Debt, periodIndex: number, today: string = todayLocalStr()): PayCheck {
+  if (debt.status !== 'active') return { ok: false, reason: 'closed' };
+  const schedule = debt.schedule || [];
+  const item = schedule[periodIndex];
+  if (!item) return { ok: false, reason: 'missing' };
+  if (item.isPaid) return { ok: false, reason: 'paid' };
+  if (schedule.findIndex((i) => !i.isPaid) !== periodIndex) return { ok: false, reason: 'out_of_order' };
+  if (item.dueDate > endOfMonthStr(today)) {
+    const ym = today.slice(0, 7);
+    return {
+      ok: false,
+      reason: 'month_locked',
+      dueDate: item.dueDate,
+      unlockDate: `${item.dueDate.slice(0, 7)}-01`,
+      paidThisMonth: schedule.some((i) => i.isPaid && (i.paidDate || '').slice(0, 7) === ym),
+    };
+  }
+  return { ok: true };
+}
+
+/** Nhãn nút khi kỳ tiếp theo đang bị khóa theo quy tắc mỗi tháng một kỳ. */
+export function payLockLabel(check: PayCheck): string {
+  return check.paidThisMonth ? 'Đã trả tháng này' : 'Chưa đến kỳ';
+}
+
 /**
  * Calculate next payment due date, countdown in days, and amount.
  */

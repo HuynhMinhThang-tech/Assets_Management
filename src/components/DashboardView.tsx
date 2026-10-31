@@ -19,7 +19,11 @@ import {
   getUpcomingMaturities,
   formatVND,
   formatPercent,
+  checkPayable,
+  payLockLabel,
 } from '../utils/calculations';
+import { buildAllocation, CATEGORY_META } from '../utils/allocation';
+import { AllocationDonut } from './AllocationDonut';
 import { NavTab } from './Sidebar';
 
 interface DashboardViewProps {
@@ -69,15 +73,13 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     return { W, H, points: pts.join(' '), change, from: snaps[0].date, to: snaps[snaps.length - 1].date };
   })();
 
-  // Colors for asset breakdown
-  const categoryLabels: Record<string, { label: string; color: string; bg: string }> = {
-    real_estate: { label: 'Bất động sản', color: '#0284c7', bg: 'bg-sky-500' },
-    stock: { label: 'Cổ phiếu niêm yết', color: '#16a34a', bg: 'bg-emerald-500' },
-    fund: { label: 'Chứng chỉ quỹ', color: '#8b5cf6', bg: 'bg-purple-500' },
-    savings: { label: 'Tiền gửi / Trái phiếu', color: '#f59e0b', bg: 'bg-amber-500' },
-    gold: { label: 'Vàng & Kim loại quý', color: '#eab308', bg: 'bg-yellow-500' },
-    other: { label: 'Khác', color: '#64748b', bg: 'bg-slate-500' },
-  };
+  // Phân bổ danh mục (chỉ tài sản đang nắm giữ, không gồm tiền khả dụng)
+  const allocation = buildAllocation(summary.categoryBreakdown);
+
+  // Quy tắc mỗi tháng chỉ trả một kỳ: khóa nút khi kỳ tới đến hạn ở tháng sau
+  const payCheck = nextPayment ? checkPayable(nextPayment.debt, nextPayment.periodIndex) : null;
+  const payLocked = !!payCheck && !payCheck.ok;
+  const cashShort = !!nextPayment && summary.availableCash < nextPayment.total;
 
   // Calculate leveraged assets (assets linked to a debt)
   const leveragedItems = state.debts
@@ -100,23 +102,20 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         </div>
       )}
 
-      {/* 1. TOP STATS ROW */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* Net Worth */}
-        <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm relative overflow-hidden">
+      {/* 1. TOP STATS ROW: Tiền khả dụng + Tài sản đầu tư − Dư nợ = Tài sản ròng; Lãi/Lỗ */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-4">
+        {/* Available cash */}
+        <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm lg:col-span-2">
           <div className="flex items-center justify-between text-xs text-slate-500 mb-2">
-            <span className="font-semibold uppercase tracking-wider">Tài sản ròng (Net Worth)</span>
+            <span className="font-semibold uppercase tracking-wider">Tiền khả dụng</span>
           </div>
           <div className="text-2xl font-extrabold text-slate-900 font-mono tabular-nums">
-            {formatVND(summary.netWorth)}
-          </div>
-          <div className="mt-2 text-xs text-slate-600 flex items-center gap-1.5">
-            <span>Đã bao gồm: {formatVND(summary.availableCash, { compact: true })} tiền mặt ví</span>
+            {formatVND(summary.availableCash)}
           </div>
         </div>
 
         {/* Total Assets & Book PnL */}
-        <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
+        <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm lg:col-span-2">
           <div className="flex items-center justify-between text-xs text-slate-500 mb-2">
             <span className="font-semibold uppercase tracking-wider">Tổng Tài sản Đầu tư</span>
             <span
@@ -137,7 +136,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         </div>
 
         {/* Total Active Debts */}
-        <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
+        <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm lg:col-span-2">
           <div className="flex items-center justify-between text-xs text-slate-500 mb-2">
             <span className="font-semibold uppercase tracking-wider">Tổng Dư nợ Đang vay</span>
             <span className="text-rose-700 font-semibold bg-rose-50 px-2 py-0.5 rounded text-[11px]">
@@ -157,8 +156,22 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </div>
         </div>
 
+        {/* Net Worth */}
+        <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm relative overflow-hidden lg:col-span-3">
+          <div className="flex items-center justify-between text-xs text-slate-500 mb-2">
+            <span className="font-semibold uppercase tracking-wider">Tài sản ròng (Net Worth)</span>
+          </div>
+          <div
+            className={`text-3xl font-extrabold font-mono tabular-nums ${
+              summary.netWorth < 0 ? 'text-rose-600' : 'text-slate-900'
+            }`}
+          >
+            {formatVND(summary.netWorth)}
+          </div>
+        </div>
+
         {/* Lãi Lỗ Sổ Sách vs Thực Tế */}
-        <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
+        <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm sm:col-span-2 lg:col-span-3">
           <div className="flex items-center justify-between text-xs text-slate-500 mb-2">
             <span className="font-semibold uppercase tracking-wider">Hiệu quả Lãi / Lỗ</span>
           </div>
@@ -236,7 +249,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               <span className="text-lg font-extrabold text-amber-700 font-mono tabular-nums">
                 {formatVND(nextPayment.total)}
               </span>
-              {summary.availableCash < nextPayment.total && (
+              {!payLocked && cashShort && (
                 <span className="block text-[11px] font-medium text-rose-600">
                   Ví thiếu {formatVND(nextPayment.total - summary.availableCash)}
                 </span>
@@ -244,12 +257,18 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             </div>
             <button
               onClick={() => onOpenPayDebtModal(nextPayment.debt)}
-              disabled={summary.availableCash < nextPayment.total}
-              title={summary.availableCash < nextPayment.total ? 'Ví không đủ tiền – hãy nạp thêm vào ví' : undefined}
+              disabled={payLocked || cashShort}
+              title={
+                payLocked
+                  ? `Kỳ tiếp theo ngày ${payCheck?.dueDate} – mở thanh toán từ ${payCheck?.unlockDate}`
+                  : cashShort
+                  ? 'Ví không đủ tiền – hãy nạp thêm vào ví'
+                  : undefined
+              }
               className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold rounded-lg shadow-sm transition-colors flex items-center gap-1.5 whitespace-nowrap disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-amber-600"
             >
               <CheckCircle2 className="w-4 h-4" />
-              <span>Xác nhận trả kỳ này</span>
+              <span>{payLocked && payCheck ? payLockLabel(payCheck) : 'Xác nhận trả kỳ này'}</span>
             </button>
           </div>
         </div>
@@ -313,70 +332,57 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             </button>
           </div>
 
-          {/* Allocation Progress Bar */}
-          <div className="h-4 w-full bg-slate-100 rounded-lg overflow-hidden flex mb-5">
-            {Object.entries(summary.categoryBreakdown).map(([catKey, data]) => {
-              if (data.value <= 0 || summary.totalAssetValue <= 0) return null;
-              const pct = (data.value / summary.totalAssetValue) * 100;
-              const meta = categoryLabels[catKey] || { label: catKey, color: '#64748b' };
-              return (
-                <div
-                  key={catKey}
-                  style={{ width: `${pct}%`, backgroundColor: meta.color }}
-                  className="h-full transition-all relative group"
-                  title={`${meta.label}: ${pct.toFixed(1)}%`}
-                />
-              );
-            })}
-          </div>
+          {allocation.slices.length === 0 ? (
+            <div className="py-10 text-center text-xs text-slate-400">Chưa có tài sản đang nắm giữ.</div>
+          ) : (
+            <>
+              <AllocationDonut slices={allocation.slices} total={allocation.total} />
 
-          {/* Breakdown Table */}
-          <div className="space-y-3">
-            {Object.entries(summary.categoryBreakdown).map(([catKey, data]) => {
-              if (data.count === 0) return null;
-              const pct =
-                summary.totalAssetValue > 0 ? (data.value / summary.totalAssetValue) * 100 : 0;
-              const pnl = data.value - data.cost;
-              const meta = categoryLabels[catKey] || { label: catKey, color: '#64748b' };
-
-              return (
-                <div
-                  key={catKey}
-                  className="flex items-center justify-between text-xs py-2 border-b border-slate-50 last:border-0 hover:bg-slate-50/50 px-2 rounded transition-colors"
-                >
-                  <div className="flex items-center gap-2.5">
-                    <span
-                      className="w-3 h-3 rounded-sm shrink-0"
-                      style={{ backgroundColor: meta.color }}
-                    />
-                    <div>
-                      <span className="font-semibold text-slate-900">{meta.label}</span>
-                      <span className="text-slate-400 ml-1.5 font-mono">({data.count} mục)</span>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-4 text-right">
-                    <div>
-                      <div className="font-bold text-slate-900 font-mono tabular-nums">
-                        {formatVND(data.value, { compact: true })}
+              {/* Chú giải: nhóm, giá trị, lãi/lỗ %, tỷ trọng */}
+              <div className="mt-5 space-y-1">
+                {allocation.slices.map((slice) => {
+                  const pnl = slice.value - slice.cost;
+                  return (
+                    <div
+                      key={slice.key}
+                      data-legend={slice.key}
+                      title={
+                        slice.members.length > 1
+                          ? `Gồm: ${slice.members.map((k) => CATEGORY_META[k].label).join(', ')}`
+                          : undefined
+                      }
+                      className="flex items-center justify-between text-xs py-2 border-b border-slate-50 last:border-0 hover:bg-slate-50/50 px-2 rounded transition-colors"
+                    >
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <span className="w-3 h-3 rounded-sm shrink-0" style={{ backgroundColor: slice.color }} />
+                        <div className="truncate">
+                          <span className="font-semibold text-slate-900">{slice.label}</span>
+                          <span className="text-slate-400 ml-1.5 font-mono">({slice.count} mục)</span>
+                        </div>
                       </div>
-                      <div
-                        className={`text-[11px] font-mono ${
-                          pnl >= 0 ? 'text-emerald-600' : 'text-rose-600'
-                        }`}
-                      >
-                        {pnl >= 0 ? '+' : ''}
-                        {formatVND(pnl, { compact: true })}
+
+                      <div className="flex items-center gap-4 text-right shrink-0">
+                        <div>
+                          <div className="font-bold text-slate-900 font-mono tabular-nums">
+                            {formatVND(slice.value, { compact: true })}
+                          </div>
+                          <div
+                            className={`text-[11px] font-mono ${pnl >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}
+                          >
+                            {formatPercent(slice.pnlPct)} ({pnl >= 0 ? '+' : ''}
+                            {formatVND(pnl, { compact: true })})
+                          </div>
+                        </div>
+                        <div className="w-14 text-right font-mono font-bold text-slate-600">
+                          {slice.pct.toFixed(1)}%
+                        </div>
                       </div>
                     </div>
-                    <div className="w-14 text-right font-mono font-bold text-slate-600">
-                      {pct.toFixed(1)}%
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+                  );
+                })}
+              </div>
+            </>
+          )}
         </div>
 
         {/* Right: Collateral Linkage & Net Equity vs Loan */}

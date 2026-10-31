@@ -10,7 +10,8 @@
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
-    "test:logic": "tsx tests/logic.test.ts"
+    "test:logic": "tsx tests/logic.test.ts",
+    "test:phase1": "tsx tests/phase1.test.ts"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.2.0",

@@ -1,0 +1,1610 @@
+diff --git a/package.json b/package.json
+index 028fbad..72748c4 100644
+--- a/package.json
++++ b/package.json
+@@ -10,7 +10,8 @@
+     "preview": "vite preview",
+     "clean": "rm -rf dist server.js",
+     "lint": "tsc --noEmit",
+-    "test:logic": "tsx tests/logic.test.ts"
++    "test:logic": "tsx tests/logic.test.ts",
++    "test:phase1": "tsx tests/phase1.test.ts"
+   },
+   "dependencies": {
+     "@neondatabase/serverless": "^1.2.0",
+diff --git a/src/App.tsx b/src/App.tsx
+index 8bf6189..69b48fc 100644
+--- a/src/App.tsx
++++ b/src/App.tsx
+@@ -29,7 +29,10 @@ import {
+   formatVND,
+   recalculateFloatingDebt,
+   todayLocalStr,
++  checkPayable,
++  payLockLabel,
+ } from './utils/calculations';
++import { applyRevaluation, RevaluationInput } from './utils/pricing';
+ 
+ export type PendingAction = 'add_asset' | 'add_debt' | 'deposit' | null;
+ 
+@@ -308,29 +311,15 @@ function FinanceApp({
+     }));
+   };
+ 
+-  /** Định giá lại: đồng bộ cả thuộc tính chuyên biệt (giá/CP, NAV, giá/chỉ…) + lưu lịch sử. */
+-  const handleRevalueAsset = (assetId: string, newValue: number) => {
++  /**
++   * Định giá lại theo ĐƠN GIÁ (giá/CP, NAV/CCQ, giá/chỉ, giá/m²): tổng giá trị = số lượng × đơn giá.
++   * Tiết kiệm và tài sản khác không có đơn giá nên nhập tổng giá trị. Lưu cả đơn giá lẫn tổng vào lịch sử.
++   */
++  const handleRevalueAsset = (assetId: string, input: RevaluationInput) => {
++    const today = todayLocalStr();
+     setState((prev) => ({
+       ...prev,
+-      assets: prev.assets.map((a) => {
+-        if (a.id !== assetId) return a;
+-        const today = todayLocalStr();
+-        const md: any = { ...a.metadata };
+-        if (a.category === 'stock' && md.quantity > 0) md.currentPrice = Math.round(newValue / md.quantity);
+-        if (a.category === 'fund' && md.units > 0) md.currentNav = Math.round((newValue / md.units) * 100) / 100;
+-        if (a.category === 'gold' && md.quantityChi > 0) md.currentPerChi = Math.round(newValue / md.quantityChi);
+-        if (a.category === 'real_estate') md.estimatedMarketPrice = newValue;
+-        const history = [...(a.valuationHistory || [])];
+-        if (history.length && history[history.length - 1].date === today) history[history.length - 1] = { date: today, value: newValue };
+-        else history.push({ date: today, value: newValue });
+-        return {
+-          ...a,
+-          currentValue: newValue,
+-          lastValuationDate: today,
+-          metadata: md,
+-          valuationHistory: history.slice(-240),
+-        };
+-      }),
++      assets: prev.assets.map((a) => (a.id === assetId ? applyRevaluation(a, input, today) : a)),
+     }));
+   };
+ 
+@@ -462,6 +451,16 @@ function FinanceApp({
+       });
+       return false;
+     }
++    // Mỗi tháng chỉ trả một kỳ: kỳ đến hạn ở tháng sau chưa được trả
++    const lock = checkPayable(targetDebt, periodIndex);
++    if (lock.reason === 'month_locked') {
++      void dialog.alert({
++        tone: 'warning',
++        title: payLockLabel(lock),
++        message: `Kỳ #${item.period} của "${targetDebt.name}" đến hạn ngày ${lock.dueDate}, sẽ mở thanh toán từ ngày ${lock.unlockDate}.\n\nMỗi tháng chỉ trả một kỳ; kỳ quá hạn vẫn được trả bù.`,
++      });
++      return false;
++    }
+     if (deductFromWallet && insufficient(item.totalMonthlyPayment, `trả kỳ #${item.period} "${targetDebt.name}"`)) {
+       return false;
+     }
+@@ -494,6 +493,8 @@ function FinanceApp({
+     setState((prev) => {
+       const debt = prev.debts.find((d) => d.id === debtId);
+       if (!debt || !debt.schedule || !debt.schedule[periodIndex] || debt.schedule[periodIndex].isPaid) return prev;
++      // Kiểm tra lại trên dữ liệu mới nhất (bấm đúp / hai tab cùng mở)
++      if (!checkPayable(debt, periodIndex).ok) return prev;
+       const si = debt.schedule[periodIndex];
+       const today = todayLocalStr();
+       const updatedSchedule = [...debt.schedule];
+diff --git a/src/components/AllocationDonut.tsx b/src/components/AllocationDonut.tsx
+new file mode 100644
+index 0000000..6b78d32
+--- /dev/null
++++ b/src/components/AllocationDonut.tsx
+@@ -0,0 +1,64 @@
++import React from 'react';
++import { AllocationSlice } from '../utils/allocation';
++import { formatVND } from '../utils/calculations';
++
++interface AllocationDonutProps {
++  slices: AllocationSlice[];
++  total: number;
++}
++
++const SIZE = 120;
++const R = 46;
++const STROKE = 18;
++const C = 2 * Math.PI * R;
++/** Khe hở giữa các lát (đơn vị chiều dài cung) để lát cạnh nhau, màu gần giống vẫn phân biệt được. */
++const GAP = 1.2;
++
++/** Biểu đồ vành khuyên phân bổ danh mục bằng SVG thuần (không dùng thư viện). Giữa vòng là tổng tài sản đầu tư. */
++export const AllocationDonut: React.FC<AllocationDonutProps> = ({ slices, total }) => {
++  let offset = 0;
++  const arcs = slices.map((s) => {
++    const len = (s.pct / 100) * C;
++    const visible = slices.length > 1 ? Math.max(0, len - GAP) : len;
++    const arc = { slice: s, dash: `${visible.toFixed(3)} ${(C - visible).toFixed(3)}`, offset: -offset };
++    offset += len;
++    return arc;
++  });
++
++  return (
++    <div className="relative mx-auto h-44 w-44 shrink-0">
++      <svg
++        viewBox={`0 0 ${SIZE} ${SIZE}`}
++        className="h-full w-full"
++        role="img"
++        aria-label="Biểu đồ tròn phân bổ danh mục tài sản"
++      >
++        <circle cx={SIZE / 2} cy={SIZE / 2} r={R} fill="none" stroke="currentColor" strokeWidth={STROKE} className="text-slate-100" />
++        <g transform={`rotate(-90 ${SIZE / 2} ${SIZE / 2})`}>
++          {arcs.map(({ slice, dash, offset: off }) => (
++            <circle
++              key={slice.key}
++              data-slice={slice.key}
++              cx={SIZE / 2}
++              cy={SIZE / 2}
++              r={R}
++              fill="none"
++              stroke={slice.color}
++              strokeWidth={STROKE}
++              strokeDasharray={dash}
++              strokeDashoffset={off}
++            >
++              <title>{`${slice.label}: ${formatVND(slice.value, { compact: true })} (${slice.pct.toFixed(1)}%)`}</title>
++            </circle>
++          ))}
++        </g>
++      </svg>
++      <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center text-center">
++        <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Tổng tài sản</span>
++        <span className="mt-0.5 font-mono text-sm font-extrabold tabular-nums text-slate-900">
++          {formatVND(total, { compact: true })}
++        </span>
++      </div>
++    </div>
++  );
++};
+diff --git a/src/components/AssetsView.tsx b/src/components/AssetsView.tsx
+index 2463c50..848cd66 100644
+--- a/src/components/AssetsView.tsx
++++ b/src/components/AssetsView.tsx
+@@ -48,6 +48,7 @@ import { Modal, ModalBody, ModalFooter, FieldError } from './ui/Modal';
+ import { useDialog } from './ui/DialogProvider';
+ import { MAX_RATE, MAX_TENOR_MONTHS } from '../utils/validation';
+ import { getRecurringIncome } from '../utils/calendar';
++import { getUnitPricing, totalFromUnitPrice, RevaluationInput } from '../utils/pricing';
+ 
+ const CATEGORY_COLORS: Record<AssetCategory, string> = {
+   real_estate: '#0284c7',
+@@ -70,7 +71,7 @@ interface AssetsViewProps {
+   onAutoOpenConsumed?: () => void;
+   onUpdateAsset: (asset: Asset) => void;
+   onDeleteAsset: (assetId: string) => void;
+-  onRevalueAsset: (assetId: string, newValue: number, newPricePerUnit?: number) => void;
++  onRevalueAsset: (assetId: string, input: RevaluationInput) => void;
+   onSellAsset: (params: SellParams) => void;
+ }
+ 
+@@ -91,6 +92,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
+ 
+   // Modals state
+   const [revalueAsset, setRevalueAsset] = useState<Asset | null>(null);
++  // Đơn giá mới (cổ phiếu, CCQ, chỉ, m²) hoặc tổng giá trị mới (tiết kiệm, tài sản khác)
+   const [revaluePrice, setRevaluePrice] = useState<string>('');
+ 
+   const [sellAssetTarget, setSellAssetTarget] = useState<Asset | null>(null);
+@@ -152,6 +154,11 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
+     sellFees > 0 && sellFees >= sellProceeds ? 'Phí/thuế phải nhỏ hơn số tiền bán.' : '';
+   const canSell = sellProceeds > 0 && !sellQtyError && !sellFeesError;
+   const revalueNum = parseFloat(revaluePrice) || 0;
++  const revaluePricing = revalueAsset ? getUnitPricing(revalueAsset) : null;
++  // Tổng giá trị mới: có đơn giá thì = số lượng × đơn giá (tính, không nhập), không thì chính số nhập
++  const revalueTotal = revaluePricing ? totalFromUnitPrice(revaluePricing.quantity, revalueNum) : revalueNum;
++  const revaluePnL = revalueAsset ? revalueTotal - revalueAsset.initialCost : 0;
++  const revaluePnLPct = revalueAsset && revalueAsset.initialCost > 0 ? (revaluePnL / revalueAsset.initialCost) * 100 : 0;
+ 
+ 
+   // Categories config
+@@ -205,8 +212,9 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
+ 
+   // Open Revaluation Modal
+   const handleOpenRevalue = (asset: Asset) => {
++    const pricing = getUnitPricing(asset);
+     setRevalueAsset(asset);
+-    setRevaluePrice(asset.currentValue.toString());
++    setRevaluePrice((pricing ? pricing.unitPrice : asset.currentValue).toString());
+   };
+ 
+   // Confirm Revaluation
+@@ -214,7 +222,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
+     if (!revalueAsset) return;
+     const num = parseFloat(revaluePrice);
+     if (isNaN(num) || num <= 0) return;
+-    onRevalueAsset(revalueAsset.id, num);
++    onRevalueAsset(revalueAsset.id, revaluePricing ? { unitPrice: num } : { totalValue: num });
+     setRevalueAsset(null);
+   };
+ 
+@@ -695,25 +703,64 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
+           <ModalBody>
+             <div>
+               <label className="text-xs font-semibold text-slate-700 block mb-1">
+-                Tổng giá trị thị trường mới (VND)
++                {revaluePricing
++                  ? `Giá thị trường mới mỗi ${revaluePricing.unit} (VND)`
++                  : 'Tổng giá trị hiện tại (VND)'}
+               </label>
+               <CurrencyInput
+                 value={revalueNum}
++                allowDecimal={!!revaluePricing?.allowDecimal}
+                 onChange={(val) => setRevaluePrice(val.toString())}
+                 invalid={revalueNum <= 0}
+                 className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-slate-900"
+               />
+-              {revalueNum > 0 && revalueAsset.currentValue > 0 ? (
+-                <p className="mt-1.5 text-[11px] font-mono text-slate-500">
+-                  So với hiện tại ({formatVND(revalueAsset.currentValue)}):{' '}
+-                  <span className={revalueNum >= revalueAsset.currentValue ? 'text-emerald-600' : 'text-rose-600'}>
+-                    {formatPercent(((revalueNum - revalueAsset.currentValue) / revalueAsset.currentValue) * 100)}
+-                  </span>
+-                </p>
+-              ) : (
+-                <FieldError>Giá trị thị trường phải lớn hơn 0.</FieldError>
++              {revalueNum <= 0 && (
++                <FieldError>
++                  {revaluePricing ? 'Giá phải lớn hơn 0.' : 'Giá trị thị trường phải lớn hơn 0.'}
++                </FieldError>
+               )}
+             </div>
++
++            {revalueNum > 0 && (
++              <div
++                data-revalue-preview
++                className="divide-y divide-slate-100 rounded-lg border border-slate-200 bg-slate-50 text-xs"
++              >
++                {revaluePricing && (
++                  <div className="flex items-center justify-between px-3 py-2">
++                    <span className="text-slate-500">Số lượng nắm giữ</span>
++                    <span className="font-mono font-semibold text-slate-800">
++                      {revaluePricing.quantity.toLocaleString('vi-VN')} {revaluePricing.unit}
++                    </span>
++                  </div>
++                )}
++                <div className="flex items-center justify-between px-3 py-2">
++                  <span className="text-slate-500">Tổng giá trị mới</span>
++                  <span className="font-mono font-bold text-slate-900">{formatVND(revalueTotal)}</span>
++                </div>
++                {revalueAsset.currentValue > 0 && (
++                  <div className="flex items-center justify-between px-3 py-2">
++                    <span className="text-slate-500">So với hiện tại ({formatVND(revalueAsset.currentValue)})</span>
++                    <span
++                      className={`font-mono font-semibold ${
++                        revalueTotal >= revalueAsset.currentValue ? 'text-emerald-600' : 'text-rose-600'
++                      }`}
++                    >
++                      {formatPercent(((revalueTotal - revalueAsset.currentValue) / revalueAsset.currentValue) * 100)}
++                    </span>
++                  </div>
++                )}
++                <div className="flex items-center justify-between px-3 py-2">
++                  <span className="text-slate-500">Lãi/lỗ sổ sách mới</span>
++                  <span
++                    className={`font-mono font-bold ${revaluePnL >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}
++                  >
++                    {revaluePnL >= 0 ? '+' : ''}
++                    {formatVND(revaluePnL)} ({formatPercent(revaluePnLPct)})
++                  </span>
++                </div>
++              </div>
++            )}
+           </ModalBody>
+           <ModalFooter>
+             <button
+diff --git a/src/components/CalendarView.tsx b/src/components/CalendarView.tsx
+index 2472116..d9a470b 100644
+--- a/src/components/CalendarView.tsx
++++ b/src/components/CalendarView.tsx
+@@ -441,6 +441,16 @@ const EventCard: React.FC<{
+           {e.payable && short > 0 && (
+             <span className="text-[11px] font-medium text-rose-600">Ví thiếu {formatVND(short)}</span>
+           )}
++          {e.payLocked && (
++            <button
++              type="button"
++              disabled
++              title={`Mở thanh toán từ ${e.payLocked.unlockDate}`}
++              className="rounded-lg bg-amber-600 px-3 py-1 text-[11px] font-bold text-white shadow-sm disabled:cursor-not-allowed disabled:opacity-40"
++            >
++              {e.payLocked.paidThisMonth ? 'Đã trả tháng này' : 'Chưa đến kỳ'}
++            </button>
++          )}
+           {isDebt && (
+             <button
+               type="button"
+diff --git a/src/components/DashboardView.tsx b/src/components/DashboardView.tsx
+index 963c755..c544196 100644
+--- a/src/components/DashboardView.tsx
++++ b/src/components/DashboardView.tsx
+@@ -19,7 +19,11 @@ import {
+   getUpcomingMaturities,
+   formatVND,
+   formatPercent,
++  checkPayable,
++  payLockLabel,
+ } from '../utils/calculations';
++import { buildAllocation, CATEGORY_META } from '../utils/allocation';
++import { AllocationDonut } from './AllocationDonut';
+ import { NavTab } from './Sidebar';
+ 
+ interface DashboardViewProps {
+@@ -69,15 +73,13 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
+     return { W, H, points: pts.join(' '), change, from: snaps[0].date, to: snaps[snaps.length - 1].date };
+   })();
+ 
+-  // Colors for asset breakdown
+-  const categoryLabels: Record<string, { label: string; color: string; bg: string }> = {
+-    real_estate: { label: 'Bất động sản', color: '#0284c7', bg: 'bg-sky-500' },
+-    stock: { label: 'Cổ phiếu niêm yết', color: '#16a34a', bg: 'bg-emerald-500' },
+-    fund: { label: 'Chứng chỉ quỹ', color: '#8b5cf6', bg: 'bg-purple-500' },
+-    savings: { label: 'Tiền gửi / Trái phiếu', color: '#f59e0b', bg: 'bg-amber-500' },
+-    gold: { label: 'Vàng & Kim loại quý', color: '#eab308', bg: 'bg-yellow-500' },
+-    other: { label: 'Khác', color: '#64748b', bg: 'bg-slate-500' },
+-  };
++  // Phân bổ danh mục (chỉ tài sản đang nắm giữ, không gồm tiền khả dụng)
++  const allocation = buildAllocation(summary.categoryBreakdown);
++
++  // Quy tắc mỗi tháng chỉ trả một kỳ: khóa nút khi kỳ tới đến hạn ở tháng sau
++  const payCheck = nextPayment ? checkPayable(nextPayment.debt, nextPayment.periodIndex) : null;
++  const payLocked = !!payCheck && !payCheck.ok;
++  const cashShort = !!nextPayment && summary.availableCash < nextPayment.total;
+ 
+   // Calculate leveraged assets (assets linked to a debt)
+   const leveragedItems = state.debts
+@@ -100,23 +102,20 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
+         </div>
+       )}
+ 
+-      {/* 1. TOP STATS ROW */}
+-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+-        {/* Net Worth */}
+-        <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm relative overflow-hidden">
++      {/* 1. TOP STATS ROW: Tiền khả dụng + Tài sản đầu tư − Dư nợ = Tài sản ròng; Lãi/Lỗ */}
++      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-4">
++        {/* Available cash */}
++        <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm lg:col-span-2">
+           <div className="flex items-center justify-between text-xs text-slate-500 mb-2">
+-            <span className="font-semibold uppercase tracking-wider">Tài sản ròng (Net Worth)</span>
++            <span className="font-semibold uppercase tracking-wider">Tiền khả dụng</span>
+           </div>
+           <div className="text-2xl font-extrabold text-slate-900 font-mono tabular-nums">
+-            {formatVND(summary.netWorth)}
+-          </div>
+-          <div className="mt-2 text-xs text-slate-600 flex items-center gap-1.5">
+-            <span>Đã bao gồm: {formatVND(summary.availableCash, { compact: true })} tiền mặt ví</span>
++            {formatVND(summary.availableCash)}
+           </div>
+         </div>
+ 
+         {/* Total Assets & Book PnL */}
+-        <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
++        <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm lg:col-span-2">
+           <div className="flex items-center justify-between text-xs text-slate-500 mb-2">
+             <span className="font-semibold uppercase tracking-wider">Tổng Tài sản Đầu tư</span>
+             <span
+@@ -137,7 +136,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
+         </div>
+ 
+         {/* Total Active Debts */}
+-        <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
++        <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm lg:col-span-2">
+           <div className="flex items-center justify-between text-xs text-slate-500 mb-2">
+             <span className="font-semibold uppercase tracking-wider">Tổng Dư nợ Đang vay</span>
+             <span className="text-rose-700 font-semibold bg-rose-50 px-2 py-0.5 rounded text-[11px]">
+@@ -157,8 +156,22 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
+           </div>
+         </div>
+ 
++        {/* Net Worth */}
++        <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm relative overflow-hidden lg:col-span-3">
++          <div className="flex items-center justify-between text-xs text-slate-500 mb-2">
++            <span className="font-semibold uppercase tracking-wider">Tài sản ròng (Net Worth)</span>
++          </div>
++          <div
++            className={`text-3xl font-extrabold font-mono tabular-nums ${
++              summary.netWorth < 0 ? 'text-rose-600' : 'text-slate-900'
++            }`}
++          >
++            {formatVND(summary.netWorth)}
++          </div>
++        </div>
++
+         {/* Lãi Lỗ Sổ Sách vs Thực Tế */}
+-        <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
++        <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm sm:col-span-2 lg:col-span-3">
+           <div className="flex items-center justify-between text-xs text-slate-500 mb-2">
+             <span className="font-semibold uppercase tracking-wider">Hiệu quả Lãi / Lỗ</span>
+           </div>
+@@ -236,7 +249,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
+               <span className="text-lg font-extrabold text-amber-700 font-mono tabular-nums">
+                 {formatVND(nextPayment.total)}
+               </span>
+-              {summary.availableCash < nextPayment.total && (
++              {!payLocked && cashShort && (
+                 <span className="block text-[11px] font-medium text-rose-600">
+                   Ví thiếu {formatVND(nextPayment.total - summary.availableCash)}
+                 </span>
+@@ -244,12 +257,18 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
+             </div>
+             <button
+               onClick={() => onOpenPayDebtModal(nextPayment.debt)}
+-              disabled={summary.availableCash < nextPayment.total}
+-              title={summary.availableCash < nextPayment.total ? 'Ví không đủ tiền – hãy nạp thêm vào ví' : undefined}
++              disabled={payLocked || cashShort}
++              title={
++                payLocked
++                  ? `Kỳ tiếp theo ngày ${payCheck?.dueDate} – mở thanh toán từ ${payCheck?.unlockDate}`
++                  : cashShort
++                  ? 'Ví không đủ tiền – hãy nạp thêm vào ví'
++                  : undefined
++              }
+               className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold rounded-lg shadow-sm transition-colors flex items-center gap-1.5 whitespace-nowrap disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-amber-600"
+             >
+               <CheckCircle2 className="w-4 h-4" />
+-              <span>Xác nhận trả kỳ này</span>
++              <span>{payLocked && payCheck ? payLockLabel(payCheck) : 'Xác nhận trả kỳ này'}</span>
+             </button>
+           </div>
+         </div>
+@@ -313,70 +332,57 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
+             </button>
+           </div>
+ 
+-          {/* Allocation Progress Bar */}
+-          <div className="h-4 w-full bg-slate-100 rounded-lg overflow-hidden flex mb-5">
+-            {Object.entries(summary.categoryBreakdown).map(([catKey, data]) => {
+-              if (data.value <= 0 || summary.totalAssetValue <= 0) return null;
+-              const pct = (data.value / summary.totalAssetValue) * 100;
+-              const meta = categoryLabels[catKey] || { label: catKey, color: '#64748b' };
+-              return (
+-                <div
+-                  key={catKey}
+-                  style={{ width: `${pct}%`, backgroundColor: meta.color }}
+-                  className="h-full transition-all relative group"
+-                  title={`${meta.label}: ${pct.toFixed(1)}%`}
+-                />
+-              );
+-            })}
+-          </div>
+-
+-          {/* Breakdown Table */}
+-          <div className="space-y-3">
+-            {Object.entries(summary.categoryBreakdown).map(([catKey, data]) => {
+-              if (data.count === 0) return null;
+-              const pct =
+-                summary.totalAssetValue > 0 ? (data.value / summary.totalAssetValue) * 100 : 0;
+-              const pnl = data.value - data.cost;
+-              const meta = categoryLabels[catKey] || { label: catKey, color: '#64748b' };
+-
+-              return (
+-                <div
+-                  key={catKey}
+-                  className="flex items-center justify-between text-xs py-2 border-b border-slate-50 last:border-0 hover:bg-slate-50/50 px-2 rounded transition-colors"
+-                >
+-                  <div className="flex items-center gap-2.5">
+-                    <span
+-                      className="w-3 h-3 rounded-sm shrink-0"
+-                      style={{ backgroundColor: meta.color }}
+-                    />
+-                    <div>
+-                      <span className="font-semibold text-slate-900">{meta.label}</span>
+-                      <span className="text-slate-400 ml-1.5 font-mono">({data.count} mục)</span>
+-                    </div>
+-                  </div>
++          {allocation.slices.length === 0 ? (
++            <div className="py-10 text-center text-xs text-slate-400">Chưa có tài sản đang nắm giữ.</div>
++          ) : (
++            <>
++              <AllocationDonut slices={allocation.slices} total={allocation.total} />
+ 
+-                  <div className="flex items-center gap-4 text-right">
+-                    <div>
+-                      <div className="font-bold text-slate-900 font-mono tabular-nums">
+-                        {formatVND(data.value, { compact: true })}
++              {/* Chú giải: nhóm, giá trị, lãi/lỗ %, tỷ trọng */}
++              <div className="mt-5 space-y-1">
++                {allocation.slices.map((slice) => {
++                  const pnl = slice.value - slice.cost;
++                  return (
++                    <div
++                      key={slice.key}
++                      data-legend={slice.key}
++                      title={
++                        slice.members.length > 1
++                          ? `Gồm: ${slice.members.map((k) => CATEGORY_META[k].label).join(', ')}`
++                          : undefined
++                      }
++                      className="flex items-center justify-between text-xs py-2 border-b border-slate-50 last:border-0 hover:bg-slate-50/50 px-2 rounded transition-colors"
++                    >
++                      <div className="flex items-center gap-2.5 min-w-0">
++                        <span className="w-3 h-3 rounded-sm shrink-0" style={{ backgroundColor: slice.color }} />
++                        <div className="truncate">
++                          <span className="font-semibold text-slate-900">{slice.label}</span>
++                          <span className="text-slate-400 ml-1.5 font-mono">({slice.count} mục)</span>
++                        </div>
+                       </div>
+-                      <div
+-                        className={`text-[11px] font-mono ${
+-                          pnl >= 0 ? 'text-emerald-600' : 'text-rose-600'
+-                        }`}
+-                      >
+-                        {pnl >= 0 ? '+' : ''}
+-                        {formatVND(pnl, { compact: true })}
++
++                      <div className="flex items-center gap-4 text-right shrink-0">
++                        <div>
++                          <div className="font-bold text-slate-900 font-mono tabular-nums">
++                            {formatVND(slice.value, { compact: true })}
++                          </div>
++                          <div
++                            className={`text-[11px] font-mono ${pnl >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}
++                          >
++                            {formatPercent(slice.pnlPct)} ({pnl >= 0 ? '+' : ''}
++                            {formatVND(pnl, { compact: true })})
++                          </div>
++                        </div>
++                        <div className="w-14 text-right font-mono font-bold text-slate-600">
++                          {slice.pct.toFixed(1)}%
++                        </div>
+                       </div>
+                     </div>
+-                    <div className="w-14 text-right font-mono font-bold text-slate-600">
+-                      {pct.toFixed(1)}%
+-                    </div>
+-                  </div>
+-                </div>
+-              );
+-            })}
+-          </div>
++                  );
++                })}
++              </div>
++            </>
++          )}
+         </div>
+ 
+         {/* Right: Collateral Linkage & Net Equity vs Loan */}
+diff --git a/src/components/DebtsView.tsx b/src/components/DebtsView.tsx
+index 73dfb79..3450192 100644
+--- a/src/components/DebtsView.tsx
++++ b/src/components/DebtsView.tsx
+@@ -30,6 +30,8 @@ import {
+   formatVND,
+   formatPercent,
+   getNextDuePayment,
++  checkPayable,
++  payLockLabel,
+   generateAmortizationSchedule,
+   calculateCollateralMetrics,
+   recalculateFloatingDebt,
+@@ -268,6 +270,9 @@ export const DebtsView: React.FC<DebtsViewProps> = ({
+         <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+           {filteredDebts.map((debt) => {
+             const nextPay = getNextDuePayment(debt);
++            // Mỗi tháng chỉ trả một kỳ: kỳ tới đến hạn ở tháng sau thì khóa nút
++            const payCheck = nextPay ? checkPayable(debt, nextPay.periodIndex) : null;
++            const payLocked = !!payCheck && payCheck.reason === 'month_locked';
+             const collateralAsset = state.assets.find((a) => a.id === debt.collateralAssetId);
+             const collateralMetrics = collateralAsset
+               ? calculateCollateralMetrics(collateralAsset, debt)
+@@ -427,7 +432,7 @@ export const DebtsView: React.FC<DebtsViewProps> = ({
+                         <span className="font-bold text-slate-900 font-mono tabular-nums text-sm">
+                           {formatVND(nextPay.total)}
+                         </span>
+-                        {state.wallet.availableCash < nextPay.total && (
++                        {!payLocked && state.wallet.availableCash < nextPay.total && (
+                           <span className="block text-[11px] font-medium text-rose-600">
+                             Ví thiếu {formatVND(nextPay.total - state.wallet.availableCash)}
+                           </span>
+@@ -461,16 +466,18 @@ export const DebtsView: React.FC<DebtsViewProps> = ({
+                         onClick={() =>
+                           onPayDebtPeriod(debt.id, nextPay.periodIndex, true)
+                         }
+-                        disabled={state.wallet.availableCash < nextPay.total}
++                        disabled={payLocked || state.wallet.availableCash < nextPay.total}
+                         title={
+-                          state.wallet.availableCash < nextPay.total
++                          payLocked && payCheck
++                            ? `Kỳ tiếp theo ngày ${payCheck.dueDate} – mở thanh toán từ ${payCheck.unlockDate}`
++                            : state.wallet.availableCash < nextPay.total
+                             ? `Ví thiếu ${formatVND(nextPay.total - state.wallet.availableCash)} – hãy nạp thêm tiền vào ví`
+                             : undefined
+                         }
+                         className="px-3 py-1.5 text-xs font-bold text-white bg-amber-600 hover:bg-amber-700 rounded-lg shadow-sm transition-colors flex items-center gap-1 whitespace-nowrap disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-amber-600"
+                       >
+                         <CheckCircle2 className="w-3.5 h-3.5" />
+-                        <span>Trả kỳ này</span>
++                        <span>{payLocked && payCheck ? payLockLabel(payCheck) : 'Trả kỳ này'}</span>
+                       </button>
+                     )}
+                   </div>
+@@ -579,6 +586,8 @@ const AmortizationModal: React.FC<AmortizationModalProps> = ({
+           <tbody className="divide-y divide-slate-100 font-mono">
+             {schedule.map((item, idx) => {
+               const short = item.totalMonthlyPayment - availableCash;
++              const lock = idx === firstUnpaidIdx ? checkPayable(debt, idx) : null;
++              const locked = !!lock && lock.reason === 'month_locked';
+               return (
+                 <tr
+                   key={item.period}
+@@ -604,12 +613,13 @@ const AmortizationModal: React.FC<AmortizationModalProps> = ({
+                       <div className="flex flex-col items-center gap-0.5">
+                         <button
+                           onClick={() => onPayPeriod(idx, true)}
+-                          disabled={short > 0}
++                          disabled={locked || short > 0}
++                          title={locked && lock ? `Mở thanh toán từ ${lock.unlockDate}` : undefined}
+                           className="px-2.5 py-1 text-[11px] font-bold text-white bg-amber-600 hover:bg-amber-700 rounded shadow-xs disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-amber-600"
+                         >
+-                          Thanh toán
++                          {locked && lock ? payLockLabel(lock) : 'Thanh toán'}
+                         </button>
+-                        {short > 0 && (
++                        {!locked && short > 0 && (
+                           <span className="text-[10px] font-medium text-rose-600">Ví thiếu {formatVND(short)}</span>
+                         )}
+                       </div>
+diff --git a/src/components/WalletView.tsx b/src/components/WalletView.tsx
+index b17d465..c6fe61a 100644
+--- a/src/components/WalletView.tsx
++++ b/src/components/WalletView.tsx
+@@ -13,6 +13,16 @@ import {
+ import { UserFinancialState, TransactionType } from '../types/finance';
+ import type { IncomeParams } from '../App';
+ import { formatVND, todayLocalStr } from '../utils/calculations';
++import {
++  INFLOW_TYPES,
++  OUTFLOW_TYPES,
++  RANGE_PRESETS,
++  RangePreset,
++  inRange,
++  isRangeInvalid,
++  rangeForPreset,
++  summarizeLedger,
++} from '../utils/ledger';
+ import { CurrencyInput } from './CurrencyInput';
+ import { Modal, ModalBody, ModalFooter, FieldError } from './ui/Modal';
+ 
+@@ -36,6 +46,10 @@ export const WalletView: React.FC<WalletViewProps> = ({
+   const [isDepositModalOpen, setIsDepositModalOpen] = useState(false);
+   const [isWithdrawModalOpen, setIsWithdrawModalOpen] = useState(false);
+   const [filterType, setFilterType] = useState<string>('all');
++  // Bộ lọc thời gian: lọc nhanh (tháng này, quý này…) hoặc tự chọn Từ ngày – Đến ngày
++  const [rangePreset, setRangePreset] = useState<RangePreset>('all');
++  const [dateFrom, setDateFrom] = useState('');
++  const [dateTo, setDateTo] = useState('');
+   const [isIncomeOpen, setIsIncomeOpen] = useState(false);
+   const [incomeType, setIncomeType] = useState<IncomeParams['type']>('dividend');
+   const [incomeAssetId, setIncomeAssetId] = useState('');
+@@ -100,7 +114,16 @@ export const WalletView: React.FC<WalletViewProps> = ({
+     setIncomeAssetId('');
+   };
+ 
+-  const POSITIVE_TYPES: string[] = ['deposit', 'sell_asset', 'dividend', 'rental_income', 'interest_income', 'loan_disbursement'];
++  const POSITIVE_TYPES: string[] = INFLOW_TYPES;
++
++  const pickPreset = (preset: Exclude<RangePreset, 'custom'>) => {
++    const r = rangeForPreset(preset, todayLocalStr());
++    setRangePreset(preset);
++    setDateFrom(r.from);
++    setDateTo(r.to);
++  };
++  const dateRange = { from: dateFrom, to: dateTo };
++  const rangeInvalid = isRangeInvalid(dateRange);
+ 
+   const handleConfirmDeposit = (e: React.FormEvent) => {
+     e.preventDefault();
+@@ -134,16 +157,19 @@ export const WalletView: React.FC<WalletViewProps> = ({
+     });
+   }, [state.transactions, state.wallet.availableCash]);
+ 
++  // "Số dư sau biến động" đã tính trên TOÀN BỘ sổ ở trên; lọc chỉ ẩn bớt dòng, không đổi số dư.
+   const filteredTransactions = transactionsWithRunningBalance.filter((tx) => {
++    if (!inRange(tx.date, dateRange)) return false;
+     if (filterType === 'all') return true;
+     if (filterType === 'inflow') {
+       return POSITIVE_TYPES.includes(tx.type);
+     }
+     if (filterType === 'outflow') {
+-      return ['withdraw', 'buy_asset', 'debt_payment'].includes(tx.type);
++      return (OUTFLOW_TYPES as string[]).includes(tx.type);
+     }
+     return tx.type === filterType;
+   });
++  const ledgerSummary = summarizeLedger(state.transactions, filteredTransactions, state.wallet.availableCash, dateRange);
+ 
+   const getTxTypeBadge = (type: TransactionType) => {
+     switch (type) {
+@@ -271,6 +297,109 @@ export const WalletView: React.FC<WalletViewProps> = ({
+           </div>
+         </div>
+ 
++        {/* Bộ lọc thời gian */}
++        <div className="px-4 py-3 border-b border-slate-200 flex flex-col xl:flex-row xl:items-center justify-between gap-3">
++          <div className="flex flex-wrap items-center gap-1 text-xs bg-slate-100 p-1 rounded-lg w-fit">
++            {RANGE_PRESETS.map((p) => (
++              <button
++                key={p.id}
++                type="button"
++                data-range={p.id}
++                onClick={() => pickPreset(p.id)}
++                className={`px-2.5 py-1 rounded text-xs font-medium transition-colors ${
++                  rangePreset === p.id
++                    ? 'bg-white text-slate-900 font-semibold shadow-xs'
++                    : 'text-slate-500 hover:text-slate-900'
++                }`}
++              >
++                {p.label}
++              </button>
++            ))}
++          </div>
++
++          <div className="flex flex-wrap items-center gap-2 text-xs">
++            <label htmlFor="ledger-from" className="font-semibold text-slate-700">
++              Từ ngày
++            </label>
++            <input
++              id="ledger-from"
++              type="date"
++              value={dateFrom}
++              max={todayLocalStr()}
++              aria-invalid={rangeInvalid ? true : undefined}
++              onChange={(e) => {
++                setDateFrom(e.target.value);
++                setRangePreset('custom');
++              }}
++              className="px-2.5 py-1.5 text-xs border border-slate-300 rounded-lg"
++            />
++            <label htmlFor="ledger-to" className="font-semibold text-slate-700">
++              Đến ngày
++            </label>
++            <input
++              id="ledger-to"
++              type="date"
++              value={dateTo}
++              max={todayLocalStr()}
++              aria-invalid={rangeInvalid ? true : undefined}
++              onChange={(e) => {
++                setDateTo(e.target.value);
++                setRangePreset('custom');
++              }}
++              className="px-2.5 py-1.5 text-xs border border-slate-300 rounded-lg"
++            />
++            {rangeInvalid && (
++              <span role="alert" className="text-[11px] font-medium text-rose-600">
++                Ngày bắt đầu phải trước ngày kết thúc.
++              </span>
++            )}
++          </div>
++        </div>
++
++        {/* Dòng tổng cho khoảng đã lọc */}
++        {!rangeInvalid && (
++          <div
++            data-ledger-summary
++            className={`grid grid-cols-2 ${filterType === 'all' ? 'md:grid-cols-5' : 'md:grid-cols-3'} gap-px bg-slate-100 border-b border-slate-200 text-xs`}
++          >
++            <div className="bg-white px-4 py-2.5">
++              <span className="block text-[11px] text-slate-500">Tổng vào</span>
++              <span className="font-mono font-bold tabular-nums text-emerald-600">+{formatVND(ledgerSummary.inflow)}</span>
++            </div>
++            <div className="bg-white px-4 py-2.5">
++              <span className="block text-[11px] text-slate-500">Tổng ra</span>
++              <span className="font-mono font-bold tabular-nums text-slate-900">-{formatVND(ledgerSummary.outflow)}</span>
++            </div>
++            <div className="bg-white px-4 py-2.5">
++              <span className="block text-[11px] text-slate-500">Chênh lệch</span>
++              <span
++                className={`font-mono font-bold tabular-nums ${
++                  ledgerSummary.net >= 0 ? 'text-emerald-600' : 'text-rose-600'
++                }`}
++              >
++                {ledgerSummary.net >= 0 ? '+' : '-'}
++                {formatVND(Math.abs(ledgerSummary.net))}
++              </span>
++            </div>
++            {filterType === 'all' && (
++              <>
++                <div className="bg-white px-4 py-2.5">
++                  <span className="block text-[11px] text-slate-500">Số dư đầu kỳ</span>
++                  <span className="font-mono font-bold tabular-nums text-slate-900">
++                    {formatVND(ledgerSummary.openingBalance)}
++                  </span>
++                </div>
++                <div className="bg-white px-4 py-2.5">
++                  <span className="block text-[11px] text-slate-500">Số dư cuối kỳ</span>
++                  <span className="font-mono font-bold tabular-nums text-slate-900">
++                    {formatVND(ledgerSummary.closingBalance)}
++                  </span>
++                </div>
++              </>
++            )}
++          </div>
++        )}
++
+         {/* Ledger Table */}
+         {filteredTransactions.length === 0 ? (
+           <div className="py-12 text-center text-xs text-slate-400">
+diff --git a/src/types/finance.ts b/src/types/finance.ts
+index 5611f3b..8fef019 100644
+--- a/src/types/finance.ts
++++ b/src/types/finance.ts
+@@ -84,7 +84,7 @@ export interface Asset {
+   realizedPnL: number;             // Lãi lỗ thực tế đã chốt (VND) từ bán/cổ tức
+   lastValuationDate: string;       // Ngày cập nhật định giá gần nhất
+   linkedDebtId?: string;           // ID khoản nợ đòn bẩy liên kết (nếu mua bằng vốn vay)
+-  valuationHistory?: { date: string; value: number }[]; // Lịch sử định giá (để vẽ xu hướng)
++  valuationHistory?: { date: string; value: number; unitPrice?: number }[]; // Lịch sử định giá: tổng giá trị + đơn giá (CP, CCQ, chỉ, m²) nếu có
+ }
+ 
+ export type DebtCategory =
+diff --git a/src/utils/allocation.ts b/src/utils/allocation.ts
+new file mode 100644
+index 0000000..9aff08d
+--- /dev/null
++++ b/src/utils/allocation.ts
+@@ -0,0 +1,92 @@
++import { AssetCategory } from '../types/finance';
++
++/** Nhãn + màu CỐ ĐỊNH theo nhóm tài sản (dùng chung cho biểu đồ và chú giải). */
++export const CATEGORY_META: Record<AssetCategory, { label: string; color: string }> = {
++  real_estate: { label: 'Bất động sản', color: '#0284c7' },
++  stock: { label: 'Cổ phiếu niêm yết', color: '#16a34a' },
++  fund: { label: 'Chứng chỉ quỹ', color: '#8b5cf6' },
++  savings: { label: 'Tiền gửi / Trái phiếu', color: '#f59e0b' },
++  gold: { label: 'Vàng & Kim loại quý', color: '#eab308' },
++  other: { label: 'Khác', color: '#64748b' },
++};
++
++/** Nhóm chiếm dưới ngưỡng này (%) được gộp vào lát "Khác". */
++export const MIN_SLICE_PCT = 3;
++
++export interface AllocationSlice {
++  key: AssetCategory;
++  label: string;
++  color: string;
++  /** Thị giá của lát (VND). */
++  value: number;
++  /** Giá vốn của lát (VND). */
++  cost: number;
++  count: number;
++  /** Tỷ trọng trên tổng tài sản đầu tư (%). */
++  pct: number;
++  /** Lãi/lỗ sổ sách của lát (%). */
++  pnlPct: number;
++  /** Các nhóm gốc nằm trong lát (nhiều hơn 1 khi là lát "Khác" đã gộp). */
++  members: AssetCategory[];
++}
++
++export interface Allocation {
++  total: number;
++  slices: AllocationSlice[];
++}
++
++/**
++ * Dựng các lát của biểu đồ tròn từ categoryBreakdown (chỉ tài sản đang nắm giữ → KHÔNG gồm tiền khả dụng).
++ * Nhóm dưới `minPct`% gộp vào "Khác"; chỉ gộp khi có ít nhất 2 nhóm để gộp (một nhóm nhỏ đứng riêng
++ * giữ nguyên tên, không bị đổi thành "Khác"). Lát "Khác" luôn đứng cuối, các lát còn lại xếp theo giá trị giảm dần.
++ */
++export function buildAllocation(
++  breakdown: Record<string, { value: number; count: number; cost: number }>,
++  minPct: number = MIN_SLICE_PCT
++): Allocation {
++  const entries = (Object.keys(CATEGORY_META) as AssetCategory[])
++    .map((key) => ({ key, ...(breakdown[key] || { value: 0, count: 0, cost: 0 }) }))
++    .filter((e) => e.value > 0);
++  const total = entries.reduce((s, e) => s + e.value, 0);
++  if (total <= 0) return { total: 0, slices: [] };
++
++  const make = (e: { key: AssetCategory; value: number; count: number; cost: number }, members: AssetCategory[], label?: string): AllocationSlice => ({
++    key: e.key,
++    label: label || CATEGORY_META[e.key].label,
++    color: CATEGORY_META[e.key].color,
++    value: e.value,
++    cost: e.cost,
++    count: e.count,
++    pct: (e.value / total) * 100,
++    pnlPct: e.cost > 0 ? ((e.value - e.cost) / e.cost) * 100 : 0,
++    members,
++  });
++
++  const small = entries.filter((e) => e.key !== 'other' && (e.value / total) * 100 < minPct);
++  const otherEntry = entries.find((e) => e.key === 'other');
++  const toMerge = [...small, ...(otherEntry ? [otherEntry] : [])];
++
++  const keep = entries
++    .filter((e) => !toMerge.some((m) => m.key === e.key))
++    .sort((a, b) => b.value - a.value)
++    .map((e) => make(e, [e.key]));
++
++  if (toMerge.length === 0) return { total, slices: keep };
++  if (toMerge.length === 1) {
++    // Một nhóm lẻ: giữ nguyên tên. Nếu là chính nhóm "Khác" thì vẫn đứng cuối.
++    const only = toMerge[0];
++    const slice = make(only, [only.key]);
++    return { total, slices: only.key === 'other' ? [...keep, slice] : [...keep, slice].sort((a, b) => b.value - a.value) };
++  }
++  const merged = make(
++    {
++      key: 'other',
++      value: toMerge.reduce((s, e) => s + e.value, 0),
++      cost: toMerge.reduce((s, e) => s + e.cost, 0),
++      count: toMerge.reduce((s, e) => s + e.count, 0),
++    },
++    toMerge.map((e) => e.key),
++    'Khác'
++  );
++  return { total, slices: [...keep, merged] };
++}
+diff --git a/src/utils/calculations.ts b/src/utils/calculations.ts
+index 2db21d2..c5a33c6 100644
+--- a/src/utils/calculations.ts
++++ b/src/utils/calculations.ts
+@@ -327,6 +327,61 @@ export function recalculateFloatingDebt(
+ }
+ 
+ 
++/** Ngày cuối cùng của tháng chứa ngày `s` (YYYY-MM-DD). */
++export function endOfMonthStr(s: string): string {
++  const { y, m } = parseYMD(s);
++  return `${y}-${String(m).padStart(2, '0')}-${String(daysInMonth(y, m)).padStart(2, '0')}`;
++}
++
++export type PayBlockReason =
++  | 'closed' // khoản vay đã tất toán
++  | 'missing' // không có kỳ này
++  | 'paid' // kỳ này đã trả
++  | 'out_of_order' // còn kỳ chưa trả ở trước
++  | 'month_locked'; // kỳ này đến hạn ở tháng sau: chưa được trả
++
++export interface PayCheck {
++  ok: boolean;
++  reason?: PayBlockReason;
++  /** (month_locked) ngày đến hạn của kỳ này. */
++  dueDate?: string;
++  /** (month_locked) ngày đầu tiên được phép trả kỳ này (mùng 1 của tháng đến hạn). */
++  unlockDate?: string;
++  /** (month_locked) khoản vay đã có kỳ được ghi nhận trả trong tháng hiện tại. */
++  paidThisMonth?: boolean;
++}
++
++/**
++ * Quy tắc "mỗi tháng chỉ trả một kỳ": chỉ trả được kỳ có ngày đến hạn KHÔNG MUỘN HƠN cuối tháng hiện tại.
++ * Trả xong kỳ của tháng này thì kỳ sau (đến hạn tháng sau) bị khóa đến mùng 1 tháng sau.
++ * Kỳ quá hạn vẫn trả bù được, nhiều kỳ quá hạn trả liên tiếp được. Vẫn phải trả đúng thứ tự.
++ * Đây là hàm kiểm tra ở lớp xử lý chính (giao diện chỉ dùng lại để khóa nút).
++ */
++export function checkPayable(debt: Debt, periodIndex: number, today: string = todayLocalStr()): PayCheck {
++  if (debt.status !== 'active') return { ok: false, reason: 'closed' };
++  const schedule = debt.schedule || [];
++  const item = schedule[periodIndex];
++  if (!item) return { ok: false, reason: 'missing' };
++  if (item.isPaid) return { ok: false, reason: 'paid' };
++  if (schedule.findIndex((i) => !i.isPaid) !== periodIndex) return { ok: false, reason: 'out_of_order' };
++  if (item.dueDate > endOfMonthStr(today)) {
++    const ym = today.slice(0, 7);
++    return {
++      ok: false,
++      reason: 'month_locked',
++      dueDate: item.dueDate,
++      unlockDate: `${item.dueDate.slice(0, 7)}-01`,
++      paidThisMonth: schedule.some((i) => i.isPaid && (i.paidDate || '').slice(0, 7) === ym),
++    };
++  }
++  return { ok: true };
++}
++
++/** Nhãn nút khi kỳ tiếp theo đang bị khóa theo quy tắc mỗi tháng một kỳ. */
++export function payLockLabel(check: PayCheck): string {
++  return check.paidThisMonth ? 'Đã trả tháng này' : 'Chưa đến kỳ';
++}
++
+ /**
+  * Calculate next payment due date, countdown in days, and amount.
+  */
+diff --git a/src/utils/calendar.ts b/src/utils/calendar.ts
+index 1fd91df..b7e8871 100644
+--- a/src/utils/calendar.ts
++++ b/src/utils/calendar.ts
+@@ -1,5 +1,5 @@
+ import { Asset, UserFinancialState } from '../types/finance';
+-import { diffDays, dueDateFor, formatVND, getSavingsAccrual, todayLocalStr } from './calculations';
++import { checkPayable, diffDays, dueDateFor, formatVND, getSavingsAccrual, todayLocalStr } from './calculations';
+ 
+ /**
+  * Dựng các sự kiện thu / chi của MỘT THÁNG từ dữ liệu sẵn có – không lưu thêm gì:
+@@ -31,8 +31,10 @@ export interface CalendarEvent {
+   balanceAfter?: number; // dư nợ gốc còn lại sau kỳ (khoản nợ)
+   debtId?: string;
+   periodIndex?: number;
+-  /** Là kỳ chưa trả đầu tiên của khoản vay → có thể bấm "Trả kỳ này" ngay trên lịch. */
++  /** Là kỳ chưa trả đầu tiên của khoản vay và được phép trả (mỗi tháng một kỳ) → bấm "Trả kỳ này" ngay trên lịch. */
+   payable?: boolean;
++  /** Là kỳ chưa trả đầu tiên nhưng đang bị khóa vì đến hạn ở tháng sau (mỗi tháng chỉ trả một kỳ). */
++  payLocked?: { paidThisMonth: boolean; unlockDate: string };
+   assetId?: string;
+ }
+ 
+@@ -86,6 +88,8 @@ export function buildMonthEvents(
+         : item.dueDate < today
+         ? 'debt_overdue'
+         : 'debt_due';
++      const check =
++        !item.isPaid && idx === firstUnpaid && debt.status === 'active' ? checkPayable(debt, idx, today) : null;
+       events.push({
+         id: `debt-${debt.id}-${item.period}`,
+         date: item.dueDate,
+@@ -99,7 +103,11 @@ export function buildMonthEvents(
+         balanceAfter: item.remainingBalance,
+         debtId: debt.id,
+         periodIndex: idx,
+-        payable: !item.isPaid && idx === firstUnpaid && debt.status === 'active',
++        payable: !!check && check.ok,
++        payLocked:
++          check && check.reason === 'month_locked'
++            ? { paidThisMonth: !!check.paidThisMonth, unlockDate: check.unlockDate || '' }
++            : undefined,
+       });
+     });
+   }
+diff --git a/src/utils/ledger.ts b/src/utils/ledger.ts
+new file mode 100644
+index 0000000..59811ea
+--- /dev/null
++++ b/src/utils/ledger.ts
+@@ -0,0 +1,113 @@
++import { CashTransaction, TransactionType } from '../types/finance';
++import { daysInMonth, parseYMD } from './calculations';
++
++/** Loại giao dịch làm TĂNG tiền ví. */
++export const INFLOW_TYPES: TransactionType[] = [
++  'deposit',
++  'sell_asset',
++  'dividend',
++  'rental_income',
++  'interest_income',
++  'loan_disbursement',
++];
++/** Loại giao dịch làm GIẢM tiền ví. */
++export const OUTFLOW_TYPES: TransactionType[] = ['withdraw', 'buy_asset', 'debt_payment'];
++
++export const isInflow = (type: TransactionType): boolean => INFLOW_TYPES.includes(type);
++const signed = (tx: CashTransaction): number => (isInflow(tx.type) ? tx.amount : -tx.amount);
++
++export type RangePreset = 'all' | 'this_month' | 'last_month' | 'last_30' | 'this_quarter' | 'this_year' | 'custom';
++
++export const RANGE_PRESETS: { id: Exclude<RangePreset, 'custom'>; label: string }[] = [
++  { id: 'all', label: 'Mọi thời gian' },
++  { id: 'this_month', label: 'Tháng này' },
++  { id: 'last_month', label: 'Tháng trước' },
++  { id: 'last_30', label: '30 ngày' },
++  { id: 'this_quarter', label: 'Quý này' },
++  { id: 'this_year', label: 'Năm nay' },
++];
++
++/** Khoảng ngày (YYYY-MM-DD, gồm cả hai đầu). Chuỗi rỗng = không giới hạn phía đó. */
++export interface DateRange {
++  from: string;
++  to: string;
++}
++
++const ymd = (y: number, m: number, d: number) =>
++  `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
++
++/** Cộng/trừ ngày theo lịch (không phụ thuộc múi giờ). */
++export function addDaysStr(s: string, n: number): string {
++  const { y, m, d } = parseYMD(s);
++  const t = new Date(Date.UTC(y, m - 1, d + n));
++  return ymd(t.getUTCFullYear(), t.getUTCMonth() + 1, t.getUTCDate());
++}
++
++/** Khoảng ngày của bộ lọc nhanh. Các kỳ đang diễn ra (tháng này, quý này, năm nay) kết thúc ở hôm nay. */
++export function rangeForPreset(preset: Exclude<RangePreset, 'custom'>, today: string): DateRange {
++  const { y, m } = parseYMD(today);
++  switch (preset) {
++    case 'all':
++      return { from: '', to: '' };
++    case 'this_month':
++      return { from: ymd(y, m, 1), to: today };
++    case 'last_month': {
++      const py = m === 1 ? y - 1 : y;
++      const pm = m === 1 ? 12 : m - 1;
++      return { from: ymd(py, pm, 1), to: ymd(py, pm, daysInMonth(py, pm)) };
++    }
++    case 'last_30':
++      return { from: addDaysStr(today, -29), to: today };
++    case 'this_quarter':
++      return { from: ymd(y, Math.floor((m - 1) / 3) * 3 + 1, 1), to: today };
++    case 'this_year':
++      return { from: ymd(y, 1, 1), to: today };
++  }
++}
++
++export function inRange(date: string, range: DateRange): boolean {
++  const d = (date || '').slice(0, 10);
++  if (range.from && d < range.from) return false;
++  if (range.to && d > range.to) return false;
++  return true;
++}
++
++/** Ngày bắt đầu sau ngày kết thúc. */
++export const isRangeInvalid = (range: DateRange): boolean => !!range.from && !!range.to && range.from > range.to;
++
++export interface LedgerSummary {
++  /** Tổng tiền vào / ra của các dòng ĐANG HIỂN THỊ (đã qua cả bộ lọc loại). */
++  inflow: number;
++  outflow: number;
++  net: number;
++  /** Số dư ví đầu ngày `from` và cuối ngày `to`, tính trên TOÀN BỘ sổ (không phụ thuộc bộ lọc loại). */
++  openingBalance: number;
++  closingBalance: number;
++  count: number;
++}
++
++/**
++ * Dòng tổng cho khoảng đã lọc. Số dư đầu/cuối kỳ suy ngược từ tiền ví hiện tại theo NGÀY giao dịch
++ * nên đúng cả khi thứ tự nhập trong sổ không trùng thứ tự ngày.
++ */
++export function summarizeLedger(
++  allTransactions: CashTransaction[],
++  visible: CashTransaction[],
++  availableCash: number,
++  range: DateRange
++): LedgerSummary {
++  const inflow = visible.filter((t) => isInflow(t.type)).reduce((s, t) => s + t.amount, 0);
++  const outflow = visible.filter((t) => !isInflow(t.type)).reduce((s, t) => s + t.amount, 0);
++  const after = (d: string) => allTransactions.filter((t) => (t.date || '').slice(0, 10) > d).reduce((s, t) => s + signed(t), 0);
++  const fromOnward = allTransactions
++    .filter((t) => !range.from || (t.date || '').slice(0, 10) >= range.from)
++    .reduce((s, t) => s + signed(t), 0);
++  return {
++    inflow,
++    outflow,
++    net: inflow - outflow,
++    openingBalance: availableCash - fromOnward,
++    closingBalance: range.to ? availableCash - after(range.to) : availableCash,
++    count: visible.length,
++  };
++}
+diff --git a/src/utils/pricing.ts b/src/utils/pricing.ts
+new file mode 100644
+index 0000000..3f83077
+--- /dev/null
++++ b/src/utils/pricing.ts
+@@ -0,0 +1,96 @@
++import { Asset } from '../types/finance';
++
++/**
++ * Cập nhật giá theo ĐƠN GIÁ của từng loại tài sản. Tổng giá trị là kết quả tính (số lượng × đơn giá),
++ * không phải số người dùng nhập.
++ *   Cổ phiếu: giá mỗi cổ phiếu · Quỹ: NAV mỗi CCQ · Vàng: giá mỗi chỉ · Bất động sản: giá/m² (nếu có diện tích).
++ * Tiết kiệm, tài sản khác (và BĐS chưa khai diện tích) không có đơn giá → vẫn nhập tổng giá trị.
++ */
++export interface UnitPricing {
++  /** Tên đơn vị đứng sau "mỗi": cổ phiếu, CCQ, chỉ, m². */
++  unit: string;
++  /** Số lượng nhân với đơn giá. */
++  quantity: number;
++  /** Đơn giá hiện tại (suy từ tổng giá trị hiện tại ÷ số lượng). */
++  unitPrice: number;
++  /** Cho phép nhập số thập phân (NAV của quỹ). */
++  allowDecimal: boolean;
++}
++
++const UNIT_SPEC: Record<string, { key: string; unit: string; allowDecimal: boolean } | undefined> = {
++  stock: { key: 'quantity', unit: 'cổ phiếu', allowDecimal: false },
++  fund: { key: 'units', unit: 'CCQ', allowDecimal: true },
++  gold: { key: 'quantityChi', unit: 'chỉ', allowDecimal: false },
++  real_estate: { key: 'areaM2', unit: 'm²', allowDecimal: false },
++};
++
++const round2 = (n: number) => Math.round(n * 100) / 100;
++
++/** Trả về null nếu tài sản không có đơn giá để cập nhật (nhập tổng giá trị). */
++export function getUnitPricing(asset: Asset): UnitPricing | null {
++  const spec = UNIT_SPEC[asset.category];
++  if (!spec) return null;
++  const quantity = Number((asset.metadata as any)?.[spec.key]) || 0;
++  if (!(quantity > 0)) return null;
++  const raw = asset.currentValue / quantity;
++  return {
++    unit: spec.unit,
++    quantity,
++    unitPrice: spec.allowDecimal ? round2(raw) : Math.round(raw),
++    allowDecimal: spec.allowDecimal,
++  };
++}
++
++/** Tổng giá trị = số lượng × đơn giá (làm tròn đến đồng). */
++export function totalFromUnitPrice(quantity: number, unitPrice: number): number {
++  return Math.round(quantity * unitPrice);
++}
++
++export interface RevaluationInput {
++  /** Đơn giá mới (dùng khi tài sản có đơn giá). */
++  unitPrice?: number;
++  /** Tổng giá trị mới (chỉ dùng cho tài sản không có đơn giá: tiết kiệm, tài sản khác). */
++  totalValue?: number;
++}
++
++/**
++ * Áp một lần định giá lên tài sản: cập nhật tổng giá trị, đơn giá trong thuộc tính chuyên biệt
++ * và ghi lịch sử định giá (đơn giá + tổng). Trả về chính tài sản cũ nếu dữ liệu không hợp lệ.
++ */
++export function applyRevaluation(asset: Asset, input: RevaluationInput, today: string): Asset {
++  const pricing = getUnitPricing(asset);
++  const md: any = { ...asset.metadata };
++  let value: number;
++  let unitPrice: number | undefined;
++
++  if (pricing && input.unitPrice !== undefined) {
++    if (!(input.unitPrice > 0) || !Number.isFinite(input.unitPrice)) return asset;
++    unitPrice = input.unitPrice;
++    value = totalFromUnitPrice(pricing.quantity, unitPrice);
++  } else if (input.totalValue !== undefined) {
++    if (!(input.totalValue > 0) || !Number.isFinite(input.totalValue)) return asset;
++    value = Math.round(input.totalValue);
++    unitPrice = pricing ? (pricing.allowDecimal ? round2(value / pricing.quantity) : Math.round(value / pricing.quantity)) : undefined;
++  } else {
++    return asset;
++  }
++  if (!(value > 0)) return asset;
++
++  if (asset.category === 'stock') md.currentPrice = unitPrice;
++  if (asset.category === 'fund') md.currentNav = unitPrice;
++  if (asset.category === 'gold') md.currentPerChi = unitPrice;
++  if (asset.category === 'real_estate') md.estimatedMarketPrice = value;
++
++  const entry = unitPrice !== undefined ? { date: today, value, unitPrice } : { date: today, value };
++  const history = [...(asset.valuationHistory || [])];
++  if (history.length && history[history.length - 1].date === today) history[history.length - 1] = entry;
++  else history.push(entry);
++
++  return {
++    ...asset,
++    currentValue: value,
++    lastValuationDate: today,
++    metadata: md,
++    valuationHistory: history.slice(-240),
++  };
++}
+diff --git a/tests/phase1.test.ts b/tests/phase1.test.ts
+new file mode 100644
+index 0000000..e8f1078
+--- /dev/null
++++ b/tests/phase1.test.ts
+@@ -0,0 +1,329 @@
++/**
++ * Test giai đoạn 1: R3 (tiền khả dụng vào KPI), R5 (giá theo đơn vị), R6 (mỗi tháng một kỳ nợ),
++ * R8 (lọc lịch sử giao dịch theo thời gian), R9 (biểu đồ tròn phân bổ).
++ * Run: npx tsx tests/phase1.test.ts   (đặt TZ=... để đổi múi giờ)
++ */
++import {
++  generateAmortizationSchedule, calculateFinancialSummary, checkPayable, endOfMonthStr, payLockLabel,
++} from '../src/utils/calculations';
++import { buildAllocation } from '../src/utils/allocation';
++import { getUnitPricing, applyRevaluation, totalFromUnitPrice } from '../src/utils/pricing';
++import { rangeForPreset, inRange, isRangeInvalid, summarizeLedger, addDaysStr, RANGE_PRESETS } from '../src/utils/ledger';
++import { buildMonthEvents } from '../src/utils/calendar';
++import { INITIAL_DEMO_STATE, normalizeState } from '../src/utils/storage';
++import type { Asset, CashTransaction, Debt } from '../src/types/finance';
++
++let pass = 0, fail = 0;
++function t(id: string, name: string, fn: () => true | string) {
++  let r: true | string;
++  try { r = fn(); } catch (e: any) { r = 'THROW ' + e.message; }
++  if (r === true) { pass++; console.log(`PASS ${id} ${name}`); }
++  else { fail++; console.log(`FAIL ${id} ${name}\n       ${r}`); }
++}
++const M = 1_000_000;
++
++// (localStorage giả cho storage.ts)
++const store: Record<string, string> = {};
++(globalThis as any).localStorage = {
++  getItem: (k: string) => (k in store ? store[k] : null),
++  setItem: (k: string, v: string) => { store[k] = v; },
++  removeItem: (k: string) => { delete store[k]; },
++};
++console.log('TZ =', process.env.TZ || 'default');
++
++function asset(id: string, category: Asset['category'], cost: number, value: number, metadata: any, extra: Partial<Asset> = {}): Asset {
++  return {
++    id, name: id, category, initialCost: cost, currentValue: value, purchaseDate: '2026-01-01', status: 'active',
++    metadata, realizedPnL: 0, lastValuationDate: '2026-01-01', ...extra,
++  };
++}
++
++// ================= R3: KPI =================
++t('R3a', 'Tài sản ròng = Tiền khả dụng + Tài sản đầu tư − Dư nợ (dữ liệu mẫu)', () => {
++  const st = normalizeState(JSON.parse(JSON.stringify(INITIAL_DEMO_STATE)))!;
++  const s = calculateFinancialSummary(st);
++  const expect = s.availableCash + s.totalAssetValue - s.totalDebtBalance;
++  return s.netWorth === expect && s.availableCash === st.wallet.availableCash ? true : `${s.netWorth} vs ${expect}`;
++});
++t('R3b', 'Tài sản bán rồi và nợ đã tất toán không vào KPI', () => {
++  const st = normalizeState({
++    wallet: { availableCash: 50 * M, totalDeposited: 0, totalWithdrawn: 0 },
++    assets: [asset('a', 'stock', 10 * M, 12 * M, { quantity: 10 }), asset('b', 'gold', 5 * M, 0, { quantityChi: 1 }, { status: 'sold' })],
++    debts: [], transactions: [],
++  })!;
++  const s = calculateFinancialSummary(st);
++  return s.netWorth === 62 * M && s.totalAssetValue === 12 * M ? true : JSON.stringify([s.netWorth, s.totalAssetValue]);
++});
++
++// ================= R9: phân bổ =================
++const br = (o: Record<string, number>) => {
++  const r: Record<string, { value: number; count: number; cost: number }> = {};
++  for (const [k, v] of Object.entries(o)) r[k] = { value: v * M, count: 1, cost: v * M * 0.8 };
++  return r;
++};
++t('R9a', 'Tổng tỷ trọng = 100%, xếp giảm dần theo giá trị', () => {
++  const a = buildAllocation(br({ real_estate: 60, stock: 25, fund: 15 }));
++  const sum = a.slices.reduce((s, x) => s + x.pct, 0);
++  const desc = a.slices.every((x, i) => i === 0 || a.slices[i - 1].value >= x.value);
++  return Math.abs(sum - 100) < 1e-9 && desc && a.total === 100 * M ? true : JSON.stringify(a.slices.map(x => [x.key, x.pct]));
++});
++t('R9b', 'Hai nhóm dưới 3% gộp thành "Khác" (đứng cuối, có danh sách nhóm gộp)', () => {
++  const a = buildAllocation(br({ real_estate: 90, stock: 7, gold: 1.5, savings: 1.5 }));
++  const last = a.slices[a.slices.length - 1];
++  return a.slices.length === 3 && last.label === 'Khác' && last.members.length === 2 &&
++    last.members.includes('gold') && last.members.includes('savings') && Math.abs(last.pct - 3) < 1e-9 && last.count === 2
++    ? true : JSON.stringify(a.slices.map(x => [x.key, x.label, x.pct, x.members]));
++});
++t('R9c', 'Đúng 3% thì KHÔNG gộp (chỉ gộp khi dưới 3%)', () => {
++  const a = buildAllocation(br({ real_estate: 94, stock: 3, gold: 3 }));
++  return a.slices.length === 3 && a.slices.every((x) => x.members.length === 1) ? true : JSON.stringify(a.slices.map(x => [x.key, x.pct]));
++});
++t('R9d', 'Một nhóm nhỏ đứng riêng giữ nguyên tên (không bị đổi thành "Khác")', () => {
++  const a = buildAllocation(br({ real_estate: 60, stock: 38, gold: 2 }));
++  return a.slices.length === 3 && a.slices.some(x => x.key === 'gold' && x.label === 'Vàng & Kim loại quý') ? true : JSON.stringify(a.slices.map(x => x.label));
++});
++t('R9e', 'Nhóm "Khác" gốc đứng cuối; nhóm nhỏ + "Khác" gốc gộp chung', () => {
++  const a = buildAllocation(br({ real_estate: 50, stock: 40, other: 10 }));
++  const b = buildAllocation(br({ real_estate: 90, stock: 7, gold: 2, other: 1 }));
++  const lb = b.slices[b.slices.length - 1];
++  return a.slices[a.slices.length - 1].key === 'other' && lb.label === 'Khác' && lb.members.length === 2 && Math.abs(lb.pct - 3) < 1e-9
++    ? true : JSON.stringify([a.slices.map(x => x.key), b.slices.map(x => [x.label, x.members])]);
++});
++t('R9f', 'Lãi/lỗ % của lát = (thị giá − giá vốn)/giá vốn; rỗng → không có lát', () => {
++  const a = buildAllocation(br({ stock: 100 }));
++  const e = buildAllocation({});
++  return Math.abs(a.slices[0].pnlPct - 25) < 1e-9 && e.slices.length === 0 && e.total === 0 ? true : JSON.stringify([a.slices[0].pnlPct, e]);
++});
++t('R9g', 'Dữ liệu mẫu: biểu đồ chỉ gồm tài sản (không gồm tiền ví), tổng = tổng tài sản đầu tư', () => {
++  const st = normalizeState(JSON.parse(JSON.stringify(INITIAL_DEMO_STATE)))!;
++  const s = calculateFinancialSummary(st);
++  const a = buildAllocation(s.categoryBreakdown);
++  return a.total === s.totalAssetValue ? true : `${a.total} vs ${s.totalAssetValue}`;
++});
++
++// ================= R5: giá theo đơn vị =================
++const stock = () => asset('fpt', 'stock', 287.5 * M, 345 * M, { symbol: 'FPT', quantity: 2500, avgCostPrice: 115000, currentPrice: 138000 });
++t('R5a', 'Cổ phiếu: đơn giá hiện tại = tổng ÷ số lượng; nhập giá/CP → tổng = SL × giá', () => {
++  const p = getUnitPricing(stock())!;
++  const a = applyRevaluation(stock(), { unitPrice: 150000 }, '2026-10-30');
++  const md = a.metadata as any;
++  return p.unit === 'cổ phiếu' && p.unitPrice === 138000 && p.quantity === 2500 &&
++    a.currentValue === 375 * M && md.currentPrice === 150000 && a.lastValuationDate === '2026-10-30' && a.initialCost === 287.5 * M
++    ? true : JSON.stringify([p, a.currentValue, md.currentPrice]);
++});
++t('R5b', 'Lịch sử định giá lưu cả đơn giá lẫn tổng; cùng ngày thì thay bản ghi cũ', () => {
++  let a = applyRevaluation(stock(), { unitPrice: 150000 }, '2026-10-30');
++  a = applyRevaluation(a, { unitPrice: 152000 }, '2026-10-30');
++  a = applyRevaluation(a, { unitPrice: 140000 }, '2026-10-31');
++  const h = a.valuationHistory!;
++  return h.length === 2 && h[0].unitPrice === 152000 && h[0].value === 380 * M && h[1].unitPrice === 140000 && h[1].value === 350 * M
++    ? true : JSON.stringify(h);
++});
++t('R5c', 'Quỹ: NAV có số lẻ (2 chữ số thập phân), nhập NAV → cập nhật currentNav', () => {
++  const f = asset('dcds', 'fund', 248 * M, 298 * M, { fundCode: 'DCDS', units: 4000, avgNav: 62000, currentNav: 74500 });
++  const p = getUnitPricing(f)!;
++  const a = applyRevaluation(f, { unitPrice: 74512.35 }, '2026-10-30');
++  return p.allowDecimal && p.unit === 'CCQ' && a.currentValue === 298_049_400 && (a.metadata as any).currentNav === 74512.35
++    ? true : JSON.stringify([p, a.currentValue, (a.metadata as any).currentNav]);
++});
++t('R5d', 'Vàng: số chỉ lẻ × giá/chỉ → làm tròn đến đồng', () => {
++  const g = asset('sjc', 'gold', 19 * M, 22 * M, { goldType: 'SJC', quantityChi: 2.5, costPerChi: 7_600_000, currentPerChi: 8_800_000 });
++  const a = applyRevaluation(g, { unitPrice: 8_850_000 }, '2026-10-30');
++  return getUnitPricing(g)!.unit === 'chỉ' && a.currentValue === 22_125_000 && (a.metadata as any).currentPerChi === 8_850_000
++    ? true : String(a.currentValue);
++});
++t('R5e', 'Bất động sản có diện tích: nhập giá/m²; không có diện tích: nhập tổng', () => {
++  const re = asset('bds', 'real_estate', 2800 * M, 3450 * M, { areaM2: 64.5, estimatedMarketPrice: 3450 * M });
++  const a = applyRevaluation(re, { unitPrice: 54_000_000 }, '2026-10-30');
++  const noArea = asset('dat', 'real_estate', 1000 * M, 1200 * M, { areaM2: 0 });
++  const b = applyRevaluation(noArea, { totalValue: 1300 * M }, '2026-10-30');
++  return getUnitPricing(re)!.unit === 'm²' && a.currentValue === 3_483_000_000 && (a.metadata as any).estimatedMarketPrice === 3_483_000_000 &&
++    getUnitPricing(noArea) === null && b.currentValue === 1300 * M
++    ? true : JSON.stringify([a.currentValue, b.currentValue]);
++});
++t('R5f', 'Tiết kiệm / tài sản khác: không có đơn giá → nhập tổng giá trị, lịch sử không có đơn giá', () => {
++  const sv = asset('sv', 'savings', 200 * M, 211.2 * M, { depositAmount: 200 * M });
++  const a = applyRevaluation(sv, { totalValue: 212 * M }, '2026-10-30');
++  return getUnitPricing(sv) === null && a.currentValue === 212 * M && a.valuationHistory![0].unitPrice === undefined && !('unitPrice' in a.valuationHistory![0])
++    ? true : JSON.stringify(a.valuationHistory);
++});
++t('R5g', 'Giá không hợp lệ (0, âm, NaN, thiếu) → giữ nguyên tài sản', () => {
++  const s0 = stock();
++  const bad = [{ unitPrice: 0 }, { unitPrice: -5 }, { unitPrice: NaN }, {}, { totalValue: 0 }];
++  const same = bad.every((b) => applyRevaluation(s0, b as any, '2026-10-30') === s0);
++  const sv = asset('sv', 'savings', 1, 1, {});
++  return same && applyRevaluation(sv, { unitPrice: 5 }, '2026-10-30') === sv ? true : 'có đầu vào xấu vẫn bị ghi';
++});
++t('R5h', 'Sau khi bán một phần: đơn giá tính theo số lượng còn lại', () => {
++  const left = asset('fpt', 'stock', 115 * M, 138 * M, { quantity: 1000, currentPrice: 138000 });
++  return getUnitPricing(left)!.unitPrice === 138000 && totalFromUnitPrice(1000, 140000) === 140 * M ? true : 'sai đơn giá';
++});
++t('R5i', 'Số lượng 0 / thiếu → không có đơn giá (không chia cho 0)', () => {
++  return getUnitPricing(asset('x', 'stock', 0, 0, { quantity: 0 })) === null && getUnitPricing(asset('y', 'gold', 0, 0, {})) === null ? true : 'lỗi';
++});
++
++// ================= R6: mỗi tháng chỉ trả một kỳ =================
++function debtWith(startDate: string, payday: number, paidCount: number, paidDate: string, tenor = 12): Debt {
++  const schedule = generateAmortizationSchedule(120 * M, 12, tenor, startDate, payday, 'declining_balance')
++    .map((it, i) => (i < paidCount ? { ...it, isPaid: true, paidDate: it.dueDate } : it));
++  return {
++    id: 'd', name: 'd', lender: 'NH', category: 'consumer_loan', securityType: 'unsecured', principalAmount: 120 * M,
++    remainingPrincipal: 120 * M, annualInterestRate: 12, rateType: 'fixed', tenorMonths: tenor, startDate, paymentDayOfMonth: payday,
++    method: 'declining_balance', status: 'active', schedule,
++  };
++}
++const payIdx = (d: Debt, idx: number, date: string): Debt => ({
++  ...d, schedule: d.schedule!.map((it, i) => (i === idx ? { ...it, isPaid: true, paidDate: date } : it)),
++});
++t('R6a', 'endOfMonthStr: tháng 2 thường/nhuận, tháng 12', () => {
++  return endOfMonthStr('2026-02-10') === '2026-02-28' && endOfMonthStr('2028-02-01') === '2028-02-29' && endOfMonthStr('2026-12-05') === '2026-12-31'
++    ? true : 'sai ngày cuối tháng';
++});
++t('R6b', 'Trả một kỳ xong thì bấm lại bị chặn (kỳ sau đến hạn tháng sau)', () => {
++  // kỳ 1..8 đã trả (đến hạn 10/02..10/09); kỳ 9 đến hạn 10/10 – tháng hiện tại 10/2026
++  let d = debtWith('2026-01-10', 10, 8, '2026-09-10');
++  const today = '2026-10-05';
++  if (!checkPayable(d, 8, today).ok) return 'kỳ 9 (đến hạn 10/10) phải trả được trong tháng 10';
++  d = payIdx(d, 8, today);
++  const c = checkPayable(d, 9, today);
++  return !c.ok && c.reason === 'month_locked' && c.dueDate === '2026-11-10' && c.unlockDate === '2026-11-01' && c.paidThisMonth === true && payLockLabel(c) === 'Đã trả tháng này'
++    ? true : JSON.stringify(c);
++});
++t('R6c', 'Sang tháng mới thì mở lại (đúng mùng 1, không sớm hơn)', () => {
++  let d = payIdx(debtWith('2026-01-10', 10, 8, '2026-09-10'), 8, '2026-10-05');
++  return !checkPayable(d, 9, '2026-10-31').ok && checkPayable(d, 9, '2026-11-01').ok && checkPayable(d, 9, '2026-11-20').ok
++    ? true : 'sai thời điểm mở khóa';
++});
++t('R6d', 'Hai kỳ quá hạn trả bù được liên tiếp trong cùng tháng, kỳ của tháng sau vẫn khóa', () => {
++  // kỳ 1..6 đã trả; 7 (10/08) và 8 (10/09) quá hạn, 9 đến hạn 10/10, 10 đến hạn 10/11. Hôm nay 05/10.
++  let d = debtWith('2026-01-10', 10, 6, '2026-07-10');
++  const today = '2026-10-05';
++  const log: string[] = [];
++  for (let idx = 6; idx <= 8; idx++) {
++    const c = checkPayable(d, idx, today);
++    log.push(`${idx + 1}:${c.ok}`);
++    if (!c.ok) return 'kỳ ' + (idx + 1) + ' bị chặn: ' + JSON.stringify(c);
++    d = payIdx(d, idx, today);
++  }
++  const c = checkPayable(d, 9, today);
++  return !c.ok && c.reason === 'month_locked' ? true : 'kỳ 10 phải bị khóa ' + JSON.stringify(c);
++});
++t('R6e', 'Vẫn phải trả đúng thứ tự: kỳ sau bị chặn "out_of_order" khi kỳ trước chưa trả', () => {
++  const d = debtWith('2026-01-10', 10, 6, '2026-07-10');
++  const c = checkPayable(d, 8, '2026-10-05');
++  return !c.ok && c.reason === 'out_of_order' ? true : JSON.stringify(c);
++});
++t('R6f', 'Khoản vay mới: kỳ 1 đến hạn tháng sau → khóa, nhãn "Chưa đến kỳ"', () => {
++  const d = debtWith('2026-10-15', 15, 0, '');
++  const c = checkPayable(d, 0, '2026-10-30');
++  return !c.ok && c.reason === 'month_locked' && c.paidThisMonth === false && payLockLabel(c) === 'Chưa đến kỳ' && c.unlockDate === '2026-11-01'
++    ? true : JSON.stringify(c);
++});
++t('R6g', 'Kỳ đến hạn đúng ngày cuối tháng (31) vẫn trả được trong tháng đó; qua năm: 31/12 → 01/01', () => {
++  const d = debtWith('2026-09-05', 31, 0, '');           // kỳ 1: 31/10
++  const e = debtWith('2026-11-05', 10, 0, '');           // kỳ 1: 10/12 ; kỳ 2: 10/01/2027
++  const e2 = payIdx(e, 0, '2026-12-02');
++  const c = checkPayable(e2, 1, '2026-12-31');
++  return checkPayable(d, 0, '2026-10-01').ok && !c.ok && c.unlockDate === '2027-01-01' && checkPayable(e2, 1, '2027-01-01').ok
++    ? true : JSON.stringify([d.schedule![0].dueDate, c]);
++});
++t('R6h', 'Đã trả / đã tất toán / không có kỳ → chặn đúng lý do', () => {
++  const d = debtWith('2026-01-10', 10, 8, '2026-09-10');
++  const paid = checkPayable(d, 0, '2026-10-05');
++  const miss = checkPayable(d, 99, '2026-10-05');
++  const closed = checkPayable({ ...d, status: 'paid_off' }, 8, '2026-10-05');
++  return paid.reason === 'paid' && miss.reason === 'missing' && closed.reason === 'closed' ? true : JSON.stringify([paid, miss, closed]);
++});
++t('R6i', 'Lịch (Calendar): kỳ bị khóa có payLocked, kỳ được trả có payable', () => {
++  const stBase = normalizeState({ wallet: { availableCash: 500 * M }, assets: [], debts: [], transactions: [] })!;
++  let d = payIdx(debtWith('2026-01-10', 10, 8, '2026-09-10'), 8, '2026-10-05');
++  const today = '2026-10-05';
++  const st = { ...stBase, debts: [d] };
++  const oct = buildMonthEvents(st, 2026, 10, today).filter((e) => e.kind.startsWith('debt'));
++  const nov = buildMonthEvents(st, 2026, 11, today).filter((e) => e.kind.startsWith('debt'));
++  const d1 = payIdx(debtWith('2026-01-10', 10, 8, '2026-09-10'), 7, '2026-09-10'); // chưa trả kỳ 9
++  const open = buildMonthEvents({ ...stBase, debts: [d1] }, 2026, 10, today).filter((e) => e.kind.startsWith('debt'));
++  return oct.length === 1 && !oct[0].payable && !oct[0].payLocked &&         // tháng 10: kỳ đã trả
++    nov.length === 1 && !nov[0].payable && nov[0].payLocked?.paidThisMonth === true && nov[0].payLocked.unlockDate === '2026-11-01' &&
++    open.length === 1 && open[0].payable === true && !open[0].payLocked
++    ? true : JSON.stringify([oct, nov, open].map(x => x.map(e => [e.kind, e.payable, e.payLocked])));
++});
++
++// ================= R8: lọc lịch sử giao dịch =================
++const tx = (id: string, date: string, type: CashTransaction['type'], amount: number): CashTransaction => ({ id, date, type, amount, title: id });
++// Sổ mới → cũ như app (unshift). Tiền ví hiện tại = 1.000
++const LEDGER = [
++  tx('t1', '2026-10-20', 'deposit', 500),
++  tx('t2', '2026-10-10', 'debt_payment', 200),
++  tx('t3', '2026-09-15', 'deposit', 700),
++];
++t('R8a', 'Bộ lọc nhanh: tháng này / tháng trước / 30 ngày / quý này / năm nay / tất cả', () => {
++  const today = '2026-10-30';
++  const r = (p: any) => rangeForPreset(p, today);
++  const ok =
++    JSON.stringify(r('this_month')) === JSON.stringify({ from: '2026-10-01', to: '2026-10-30' }) &&
++    JSON.stringify(r('last_month')) === JSON.stringify({ from: '2026-09-01', to: '2026-09-30' }) &&
++    JSON.stringify(r('last_30')) === JSON.stringify({ from: '2026-10-01', to: '2026-10-30' }) &&
++    JSON.stringify(r('this_quarter')) === JSON.stringify({ from: '2026-10-01', to: '2026-10-30' }) &&
++    JSON.stringify(r('this_year')) === JSON.stringify({ from: '2026-01-01', to: '2026-10-30' }) &&
++    JSON.stringify(r('all')) === JSON.stringify({ from: '', to: '' });
++  return ok && RANGE_PRESETS.length === 6 ? true : JSON.stringify(RANGE_PRESETS.map((p) => r(p.id)));
++});
++t('R8b', 'Biên: tháng trước của tháng 1 (qua năm) và của tháng 3 (tháng 2), quý 3', () => {
++  const a = rangeForPreset('last_month', '2026-01-15');
++  const b = rangeForPreset('last_month', '2026-03-10');
++  const c = rangeForPreset('this_quarter', '2026-08-05');
++  const d = rangeForPreset('last_month', '2028-03-01');
++  return a.from === '2025-12-01' && a.to === '2025-12-31' && b.to === '2026-02-28' && c.from === '2026-07-01' && d.to === '2028-02-29'
++    ? true : JSON.stringify([a, b, c, d]);
++});
++t('R8c', 'addDaysStr không lệch theo múi giờ, qua tháng/năm', () => {
++  return addDaysStr('2026-10-30', -29) === '2026-10-01' && addDaysStr('2026-03-01', -1) === '2026-02-28' && addDaysStr('2026-12-31', 1) === '2027-01-01'
++    ? true : 'sai';
++});
++t('R8d', 'inRange: gồm cả hai đầu; trống = không giới hạn; từ > đến là không hợp lệ', () => {
++  const r = { from: '2026-10-01', to: '2026-10-31' };
++  return inRange('2026-10-01', r) && inRange('2026-10-31', r) && !inRange('2026-09-30', r) && !inRange('2026-11-01', r) &&
++    inRange('1999-01-01', { from: '', to: '' }) && inRange('2026-10-20', { from: '2026-10-01', to: '' }) &&
++    isRangeInvalid({ from: '2026-10-31', to: '2026-10-01' }) && !isRangeInvalid({ from: '', to: '2026-10-01' })
++    ? true : 'sai';
++});
++t('R8e', 'Tổng khoảng "Tháng này": vào 500, ra 200, chênh 300, đầu kỳ 700, cuối kỳ 1.000', () => {
++  const range = rangeForPreset('this_month', '2026-10-30');
++  const vis = LEDGER.filter((x) => inRange(x.date, range));
++  const s = summarizeLedger(LEDGER, vis, 1000, range);
++  return vis.length === 2 && s.inflow === 500 && s.outflow === 200 && s.net === 300 && s.openingBalance === 700 && s.closingBalance === 1000 && s.count === 2
++    ? true : JSON.stringify(s);
++});
++t('R8f', 'Tổng khoảng "Tháng trước": đầu kỳ 0, cuối kỳ 700; đầu kỳ + chênh lệch = cuối kỳ', () => {
++  const range = rangeForPreset('last_month', '2026-10-30');
++  const vis = LEDGER.filter((x) => inRange(x.date, range));
++  const s = summarizeLedger(LEDGER, vis, 1000, range);
++  return s.openingBalance === 0 && s.closingBalance === 700 && s.openingBalance + s.net === s.closingBalance ? true : JSON.stringify(s);
++});
++t('R8g', 'Mọi thời gian: đầu kỳ = số dư trước giao dịch đầu tiên, cuối kỳ = tiền ví hiện tại', () => {
++  const range = rangeForPreset('all', '2026-10-30');
++  const s = summarizeLedger(LEDGER, LEDGER, 1000, range);
++  return s.openingBalance === 0 && s.closingBalance === 1000 && s.inflow === 1200 && s.outflow === 200 ? true : JSON.stringify(s);
++});
++t('R8h', 'Kết hợp bộ lọc loại: tổng vào/ra theo dòng đang hiện, số dư đầu/cuối vẫn theo toàn sổ', () => {
++  const range = rangeForPreset('this_month', '2026-10-30');
++  const vis = LEDGER.filter((x) => inRange(x.date, range) && x.type === 'debt_payment');
++  const s = summarizeLedger(LEDGER, vis, 1000, range);
++  return s.inflow === 0 && s.outflow === 200 && s.net === -200 && s.openingBalance === 700 && s.closingBalance === 1000 ? true : JSON.stringify(s);
++});
++t('R8i', 'Sổ nhập không theo thứ tự ngày: số dư đầu/cuối vẫn đúng (tính theo ngày giao dịch)', () => {
++  const shuffled = [LEDGER[2], LEDGER[0], LEDGER[1]];
++  const range = rangeForPreset('last_month', '2026-10-30');
++  const vis = shuffled.filter((x) => inRange(x.date, range));
++  const s = summarizeLedger(shuffled, vis, 1000, range);
++  return s.openingBalance === 0 && s.closingBalance === 700 ? true : JSON.stringify(s);
++});
++t('R8j', 'Khoảng không có giao dịch: tổng 0, đầu kỳ = cuối kỳ', () => {
++  const range = { from: '2026-05-01', to: '2026-05-31' };
++  const s = summarizeLedger(LEDGER, [], 1000, range);
++  return s.inflow === 0 && s.outflow === 0 && s.openingBalance === 0 && s.closingBalance === 0 ? true : JSON.stringify(s);
++});
++
++console.log(`\n==== phase1: ${pass} pass / ${fail} fail ====`);
++process.exit(fail ? 1 : 0);

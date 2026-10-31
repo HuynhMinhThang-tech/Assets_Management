@@ -1,5 +1,5 @@
 import { Asset, UserFinancialState } from '../types/finance';
-import { diffDays, dueDateFor, formatVND, getSavingsAccrual, todayLocalStr } from './calculations';
+import { checkPayable, diffDays, dueDateFor, formatVND, getSavingsAccrual, todayLocalStr } from './calculations';
 
 /**
  * Dựng các sự kiện thu / chi của MỘT THÁNG từ dữ liệu sẵn có – không lưu thêm gì:
@@ -31,8 +31,10 @@ export interface CalendarEvent {
   balanceAfter?: number; // dư nợ gốc còn lại sau kỳ (khoản nợ)
   debtId?: string;
   periodIndex?: number;
-  /** Là kỳ chưa trả đầu tiên của khoản vay → có thể bấm "Trả kỳ này" ngay trên lịch. */
+  /** Là kỳ chưa trả đầu tiên của khoản vay và được phép trả (mỗi tháng một kỳ) → bấm "Trả kỳ này" ngay trên lịch. */
   payable?: boolean;
+  /** Là kỳ chưa trả đầu tiên nhưng đang bị khóa vì đến hạn ở tháng sau (mỗi tháng chỉ trả một kỳ). */
+  payLocked?: { paidThisMonth: boolean; unlockDate: string };
   assetId?: string;
 }
 
@@ -86,6 +88,8 @@ export function buildMonthEvents(
         : item.dueDate < today
         ? 'debt_overdue'
         : 'debt_due';
+      const check =
+        !item.isPaid && idx === firstUnpaid && debt.status === 'active' ? checkPayable(debt, idx, today) : null;
       events.push({
         id: `debt-${debt.id}-${item.period}`,
         date: item.dueDate,
@@ -99,7 +103,11 @@ export function buildMonthEvents(
         balanceAfter: item.remainingBalance,
         debtId: debt.id,
         periodIndex: idx,
-        payable: !item.isPaid && idx === firstUnpaid && debt.status === 'active',
+        payable: !!check && check.ok,
+        payLocked:
+          check && check.reason === 'month_locked'
+            ? { paidThisMonth: !!check.paidThisMonth, unlockDate: check.unlockDate || '' }
+            : undefined,
       });
     });
   }

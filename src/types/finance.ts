@@ -84,7 +84,7 @@ export interface Asset {
   realizedPnL: number;             // Lãi lỗ thực tế đã chốt (VND) từ bán/cổ tức
   lastValuationDate: string;       // Ngày cập nhật định giá gần nhất
   linkedDebtId?: string;           // ID khoản nợ đòn bẩy liên kết (nếu mua bằng vốn vay)
-  valuationHistory?: { date: string; value: number }[]; // Lịch sử định giá (để vẽ xu hướng)
+  valuationHistory?: { date: string; value: number; unitPrice?: number }[]; // Lịch sử định giá: tổng giá trị + đơn giá (CP, CCQ, chỉ, m²) nếu có
 }
 
 export type DebtCategory =

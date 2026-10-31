@@ -29,7 +29,10 @@ import {
   formatVND,
   recalculateFloatingDebt,
   todayLocalStr,
+  checkPayable,
+  payLockLabel,
 } from './utils/calculations';
+import { applyRevaluation, RevaluationInput } from './utils/pricing';
 
 export type PendingAction = 'add_asset' | 'add_debt' | 'deposit' | null;
 
@@ -308,29 +311,15 @@ function FinanceApp({
     }));
   };
 
-  /** Định giá lại: đồng bộ cả thuộc tính chuyên biệt (giá/CP, NAV, giá/chỉ…) + lưu lịch sử. */
-  const handleRevalueAsset = (assetId: string, newValue: number) => {
+  /**
+   * Định giá lại theo ĐƠN GIÁ (giá/CP, NAV/CCQ, giá/chỉ, giá/m²): tổng giá trị = số lượng × đơn giá.
+   * Tiết kiệm và tài sản khác không có đơn giá nên nhập tổng giá trị. Lưu cả đơn giá lẫn tổng vào lịch sử.
+   */
+  const handleRevalueAsset = (assetId: string, input: RevaluationInput) => {
+    const today = todayLocalStr();
     setState((prev) => ({
       ...prev,
-      assets: prev.assets.map((a) => {
-        if (a.id !== assetId) return a;
-        const today = todayLocalStr();
-        const md: any = { ...a.metadata };
-        if (a.category === 'stock' && md.quantity > 0) md.currentPrice = Math.round(newValue / md.quantity);
-        if (a.category === 'fund' && md.units > 0) md.currentNav = Math.round((newValue / md.units) * 100) / 100;
-        if (a.category === 'gold' && md.quantityChi > 0) md.currentPerChi = Math.round(newValue / md.quantityChi);
-        if (a.category === 'real_estate') md.estimatedMarketPrice = newValue;
-        const history = [...(a.valuationHistory || [])];
-        if (history.length && history[history.length - 1].date === today) history[history.length - 1] = { date: today, value: newValue };
-        else history.push({ date: today, value: newValue });
-        return {
-          ...a,
-          currentValue: newValue,
-          lastValuationDate: today,
-          metadata: md,
-          valuationHistory: history.slice(-240),
-        };
-      }),
+      assets: prev.assets.map((a) => (a.id === assetId ? applyRevaluation(a, input, today) : a)),
     }));
   };
 
@@ -462,6 +451,16 @@ function FinanceApp({
       });
       return false;
     }
+    // Mỗi tháng chỉ trả một kỳ: kỳ đến hạn ở tháng sau chưa được trả
+    const lock = checkPayable(targetDebt, periodIndex);
+    if (lock.reason === 'month_locked') {
+      void dialog.alert({
+        tone: 'warning',
+        title: payLockLabel(lock),
+        message: `Kỳ #${item.period} của "${targetDebt.name}" đến hạn ngày ${lock.dueDate}, sẽ mở thanh toán từ ngày ${lock.unlockDate}.\n\nMỗi tháng chỉ trả một kỳ; kỳ quá hạn vẫn được trả bù.`,
+      });
+      return false;
+    }
     if (deductFromWallet && insufficient(item.totalMonthlyPayment, `trả kỳ #${item.period} "${targetDebt.name}"`)) {
       return false;
     }
@@ -494,6 +493,8 @@ function FinanceApp({
     setState((prev) => {
       const debt = prev.debts.find((d) => d.id === debtId);
       if (!debt || !debt.schedule || !debt.schedule[periodIndex] || debt.schedule[periodIndex].isPaid) return prev;
+      // Kiểm tra lại trên dữ liệu mới nhất (bấm đúp / hai tab cùng mở)
+      if (!checkPayable(debt, periodIndex).ok) return prev;
       const si = debt.schedule[periodIndex];
       const today = todayLocalStr();
       const updatedSchedule = [...debt.schedule];

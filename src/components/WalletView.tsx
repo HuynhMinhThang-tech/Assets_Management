@@ -13,6 +13,16 @@ import {
 import { UserFinancialState, TransactionType } from '../types/finance';
 import type { IncomeParams } from '../App';
 import { formatVND, todayLocalStr } from '../utils/calculations';
+import {
+  INFLOW_TYPES,
+  OUTFLOW_TYPES,
+  RANGE_PRESETS,
+  RangePreset,
+  inRange,
+  isRangeInvalid,
+  rangeForPreset,
+  summarizeLedger,
+} from '../utils/ledger';
 import { CurrencyInput } from './CurrencyInput';
 import { Modal, ModalBody, ModalFooter, FieldError } from './ui/Modal';
 
@@ -36,6 +46,10 @@ export const WalletView: React.FC<WalletViewProps> = ({
   const [isDepositModalOpen, setIsDepositModalOpen] = useState(false);
   const [isWithdrawModalOpen, setIsWithdrawModalOpen] = useState(false);
   const [filterType, setFilterType] = useState<string>('all');
+  // Bộ lọc thời gian: lọc nhanh (tháng này, quý này…) hoặc tự chọn Từ ngày – Đến ngày
+  const [rangePreset, setRangePreset] = useState<RangePreset>('all');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
   const [isIncomeOpen, setIsIncomeOpen] = useState(false);
   const [incomeType, setIncomeType] = useState<IncomeParams['type']>('dividend');
   const [incomeAssetId, setIncomeAssetId] = useState('');
@@ -100,7 +114,16 @@ export const WalletView: React.FC<WalletViewProps> = ({
     setIncomeAssetId('');
   };
 
-  const POSITIVE_TYPES: string[] = ['deposit', 'sell_asset', 'dividend', 'rental_income', 'interest_income', 'loan_disbursement'];
+  const POSITIVE_TYPES: string[] = INFLOW_TYPES;
+
+  const pickPreset = (preset: Exclude<RangePreset, 'custom'>) => {
+    const r = rangeForPreset(preset, todayLocalStr());
+    setRangePreset(preset);
+    setDateFrom(r.from);
+    setDateTo(r.to);
+  };
+  const dateRange = { from: dateFrom, to: dateTo };
+  const rangeInvalid = isRangeInvalid(dateRange);
 
   const handleConfirmDeposit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -134,16 +157,19 @@ export const WalletView: React.FC<WalletViewProps> = ({
     });
   }, [state.transactions, state.wallet.availableCash]);
 
+  // "Số dư sau biến động" đã tính trên TOÀN BỘ sổ ở trên; lọc chỉ ẩn bớt dòng, không đổi số dư.
   const filteredTransactions = transactionsWithRunningBalance.filter((tx) => {
+    if (!inRange(tx.date, dateRange)) return false;
     if (filterType === 'all') return true;
     if (filterType === 'inflow') {
       return POSITIVE_TYPES.includes(tx.type);
     }
     if (filterType === 'outflow') {
-      return ['withdraw', 'buy_asset', 'debt_payment'].includes(tx.type);
+      return (OUTFLOW_TYPES as string[]).includes(tx.type);
     }
     return tx.type === filterType;
   });
+  const ledgerSummary = summarizeLedger(state.transactions, filteredTransactions, state.wallet.availableCash, dateRange);
 
   const getTxTypeBadge = (type: TransactionType) => {
     switch (type) {
@@ -270,6 +296,109 @@ export const WalletView: React.FC<WalletViewProps> = ({
             ))}
           </div>
         </div>
+
+        {/* Bộ lọc thời gian */}
+        <div className="px-4 py-3 border-b border-slate-200 flex flex-col xl:flex-row xl:items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-1 text-xs bg-slate-100 p-1 rounded-lg w-fit">
+            {RANGE_PRESETS.map((p) => (
+              <button
+                key={p.id}
+                type="button"
+                data-range={p.id}
+                onClick={() => pickPreset(p.id)}
+                className={`px-2.5 py-1 rounded text-xs font-medium transition-colors ${
+                  rangePreset === p.id
+                    ? 'bg-white text-slate-900 font-semibold shadow-xs'
+                    : 'text-slate-500 hover:text-slate-900'
+                }`}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2 text-xs">
+            <label htmlFor="ledger-from" className="font-semibold text-slate-700">
+              Từ ngày
+            </label>
+            <input
+              id="ledger-from"
+              type="date"
+              value={dateFrom}
+              max={todayLocalStr()}
+              aria-invalid={rangeInvalid ? true : undefined}
+              onChange={(e) => {
+                setDateFrom(e.target.value);
+                setRangePreset('custom');
+              }}
+              className="px-2.5 py-1.5 text-xs border border-slate-300 rounded-lg"
+            />
+            <label htmlFor="ledger-to" className="font-semibold text-slate-700">
+              Đến ngày
+            </label>
+            <input
+              id="ledger-to"
+              type="date"
+              value={dateTo}
+              max={todayLocalStr()}
+              aria-invalid={rangeInvalid ? true : undefined}
+              onChange={(e) => {
+                setDateTo(e.target.value);
+                setRangePreset('custom');
+              }}
+              className="px-2.5 py-1.5 text-xs border border-slate-300 rounded-lg"
+            />
+            {rangeInvalid && (
+              <span role="alert" className="text-[11px] font-medium text-rose-600">
+                Ngày bắt đầu phải trước ngày kết thúc.
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* Dòng tổng cho khoảng đã lọc */}
+        {!rangeInvalid && (
+          <div
+            data-ledger-summary
+            className={`grid grid-cols-2 ${filterType === 'all' ? 'md:grid-cols-5' : 'md:grid-cols-3'} gap-px bg-slate-100 border-b border-slate-200 text-xs`}
+          >
+            <div className="bg-white px-4 py-2.5">
+              <span className="block text-[11px] text-slate-500">Tổng vào</span>
+              <span className="font-mono font-bold tabular-nums text-emerald-600">+{formatVND(ledgerSummary.inflow)}</span>
+            </div>
+            <div className="bg-white px-4 py-2.5">
+              <span className="block text-[11px] text-slate-500">Tổng ra</span>
+              <span className="font-mono font-bold tabular-nums text-slate-900">-{formatVND(ledgerSummary.outflow)}</span>
+            </div>
+            <div className="bg-white px-4 py-2.5">
+              <span className="block text-[11px] text-slate-500">Chênh lệch</span>
+              <span
+                className={`font-mono font-bold tabular-nums ${
+                  ledgerSummary.net >= 0 ? 'text-emerald-600' : 'text-rose-600'
+                }`}
+              >
+                {ledgerSummary.net >= 0 ? '+' : '-'}
+                {formatVND(Math.abs(ledgerSummary.net))}
+              </span>
+            </div>
+            {filterType === 'all' && (
+              <>
+                <div className="bg-white px-4 py-2.5">
+                  <span className="block text-[11px] text-slate-500">Số dư đầu kỳ</span>
+                  <span className="font-mono font-bold tabular-nums text-slate-900">
+                    {formatVND(ledgerSummary.openingBalance)}
+                  </span>
+                </div>
+                <div className="bg-white px-4 py-2.5">
+                  <span className="block text-[11px] text-slate-500">Số dư cuối kỳ</span>
+                  <span className="font-mono font-bold tabular-nums text-slate-900">
+                    {formatVND(ledgerSummary.closingBalance)}
+                  </span>
+                </div>
+              </>
+            )}
+          </div>
+        )}
 
         {/* Ledger Table */}
         {filteredTransactions.length === 0 ? (
