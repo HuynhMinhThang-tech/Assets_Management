@@ -7,6 +7,12 @@ import {
   SavingsMetadata,
 } from '../types/finance';
 
+/** Kỳ còn phải trả: chưa trả và chưa bị hủy (hủy do tất toán sớm / trả trước rút ngắn kỳ hạn). */
+export const isOpenItem = (i: { isPaid: boolean; status?: string }): boolean => !i.isPaid && i.status !== 'cancelled';
+
+/** Giao dịch "thật sự xảy ra": bỏ dòng đã hủy và bút toán đảo của nó (hai dòng triệt tiêu nhau). */
+export const isLiveTx = (t: { status?: string; reversalOf?: string }): boolean => t.status !== 'voided' && !t.reversalOf;
+
 /**
  * Format currency in VND with readable compact units (Tỷ, Triệu) or exact comma format.
  */
@@ -182,7 +188,7 @@ export function applyHistoricalPayments(
   today: string = todayLocalStr()
 ): Debt {
   const schedule = (debt.schedule || []).map((it) =>
-    !it.isPaid && it.dueDate < today ? { ...it, isPaid: true, paidDate: it.dueDate } : it
+    !it.isPaid && it.dueDate < today ? { ...it, isPaid: true, paidDate: it.dueDate, preTracking: true } : it
   );
   let result: Debt = { ...debt, schedule };
 
@@ -363,7 +369,8 @@ export function checkPayable(debt: Debt, periodIndex: number, today: string = to
   const item = schedule[periodIndex];
   if (!item) return { ok: false, reason: 'missing' };
   if (item.isPaid) return { ok: false, reason: 'paid' };
-  if (schedule.findIndex((i) => !i.isPaid) !== periodIndex) return { ok: false, reason: 'out_of_order' };
+  if (item.status === 'cancelled') return { ok: false, reason: 'closed' };
+  if (schedule.findIndex(isOpenItem) !== periodIndex) return { ok: false, reason: 'out_of_order' };
   if (item.dueDate > endOfMonthStr(today)) {
     const ym = today.slice(0, 7);
     return {
@@ -394,12 +401,12 @@ export function getNextDuePayment(debt: Debt): {
   isOverdue: boolean;
   periodIndex: number;
 } | null {
-  if (debt.status === 'paid_off' || debt.remainingPrincipal <= 0) return null;
+  if (debt.status !== 'active' || debt.remainingPrincipal <= 0) return null;
 
   const today = todayLocalStr();
 
   if (debt.schedule && debt.schedule.length > 0) {
-    const nextItemIndex = debt.schedule.findIndex((item) => !item.isPaid);
+    const nextItemIndex = debt.schedule.findIndex(isOpenItem);
     if (nextItemIndex !== -1) {
       const nextItem = debt.schedule[nextItemIndex];
       const diffDaysVal = diffDays(nextItem.dueDate, today);
@@ -448,6 +455,16 @@ export function getSavingsAccrual(asset: Asset, today: string = todayLocalStr())
   };
 }
 
+/**
+ * Giá trị hiện tại của sổ tiết kiệm = gốc + lãi đã phát sinh nhưng CHƯA nhận (lãi đã nhận về ví không còn nằm trong sổ).
+ * Không có "giá thị trường" để nhập: giá trị suy ra từ gốc, lãi suất và ngày.
+ */
+export function savingsCurrentValue(asset: Asset, today: string = todayLocalStr()): number {
+  const m = asset.metadata as SavingsMetadata;
+  const { principal, accruedInterest } = getSavingsAccrual(asset, today);
+  return principal + Math.max(0, accruedInterest - (m.interestReceived || 0));
+}
+
 /** Các sổ tiết kiệm đáo hạn trong `withinDays` ngày tới (hoặc đã quá hạn chưa xử lý). */
 export function getUpcomingMaturities(state: UserFinancialState, withinDays = 45) {
   return state.assets
@@ -473,15 +490,15 @@ export function calculateFinancialSummary(state: UserFinancialState) {
   const bookPnL = totalAssetValue - totalAssetCost;
   const bookPnLPercent = totalAssetCost > 0 ? (bookPnL / totalAssetCost) * 100 : 0;
 
-  const realizedFromSales = state.assets.reduce((sum, a) => sum + (a.realizedPnL || 0), 0);
+  const realizedFromSales = state.assets.filter((a) => a.status !== 'voided').reduce((sum, a) => sum + (a.realizedPnL || 0), 0);
   const incomeTypes = ['dividend', 'rental_income', 'interest_income'];
   const incomeReceived = state.transactions
-    .filter((t) => incomeTypes.includes(t.type))
+    .filter((t) => isLiveTx(t) && incomeTypes.includes(t.type))
     .reduce((sum, t) => sum + t.amount, 0);
   const totalRealizedPnL = realizedFromSales + incomeReceived;
 
   const interestPaid = state.transactions
-    .filter((t) => t.type === 'debt_payment')
+    .filter((t) => isLiveTx(t) && t.type === 'debt_payment')
     .reduce((sum, t) => sum + (t.interestPortion || 0), 0);
 
   const activeDebts = state.debts.filter((d) => d.status === 'active');

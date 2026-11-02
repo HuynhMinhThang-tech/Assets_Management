@@ -4,7 +4,8 @@ import {
   TrendingUp,
   RefreshCw,
   DollarSign,
-  Trash2,
+  Undo2,
+  Repeat,
   Edit2,
   Building,
   LineChart,
@@ -40,6 +41,7 @@ import {
   formatPercent,
   generateAmortizationSchedule,
   applyHistoricalPayments,
+  getSavingsAccrual,
   todayLocalStr,
 } from '../utils/calculations';
 import type { SellParams } from '../App';
@@ -49,6 +51,8 @@ import { useDialog } from './ui/DialogProvider';
 import { MAX_RATE, MAX_TENOR_MONTHS } from '../utils/validation';
 import { getRecurringIncome } from '../utils/calendar';
 import { getUnitPricing, totalFromUnitPrice, RevaluationInput } from '../utils/pricing';
+import { canVoidAsset, checkTxDate, previewSell, SellPreview } from '../utils/ops';
+import { RolloverInput } from '../utils/savingsOps';
 
 const CATEGORY_COLORS: Record<AssetCategory, string> = {
   real_estate: '#0284c7',
@@ -70,10 +74,187 @@ interface AssetsViewProps {
   autoOpenAdd?: boolean;
   onAutoOpenConsumed?: () => void;
   onUpdateAsset: (asset: Asset) => void;
-  onDeleteAsset: (assetId: string) => void;
+  /** Hủy bản ghi nhập nhầm (thay cho xóa): dữ liệu được giữ lại, tiền ví hoàn bằng bút toán đảo. */
+  onVoidAsset: (assetId: string) => void;
   onRevalueAsset: (assetId: string, input: RevaluationInput) => void;
-  onSellAsset: (params: SellParams) => void;
+  onSellAsset: (params: SellParams) => boolean | void;
+  /** Nhận lãi sổ tiết kiệm về ví. */
+  onReceiveInterest: (p: { assetId: string; amount: number; date: string; note?: string }) => boolean | void;
+  /** Tái tục sổ tiết kiệm (đổi kỳ hạn, lãi suất; nhập lãi vào gốc hoặc rút lãi về ví). */
+  onRolloverSavings: (p: RolloverInput) => boolean | void;
 }
+
+const PAYOUT_LABEL: Record<string, string> = { maturity: 'cuối kỳ', monthly: 'hàng tháng', upfront: 'đầu kỳ' };
+
+/** Nhận lãi tiết kiệm về ví: gợi ý số lãi đã phát sinh chưa nhận; số thực nhận do ngân hàng đưa. */
+const ReceiveInterestModal: React.FC<{
+  asset: Asset;
+  onClose: () => void;
+  onSave: (p: { assetId: string; amount: number; date: string; note?: string }) => void;
+}> = ({ asset, onClose, onSave }) => {
+  const today = todayLocalStr();
+  const m = asset.metadata as SavingsMetadata;
+  const acc = getSavingsAccrual(asset, today);
+  const suggested = Math.max(0, acc.accruedInterest - (m.interestReceived || 0));
+  const [amount, setAmount] = useState<number>(suggested);
+  const [date, setDate] = useState(today);
+  const dateError = checkTxDate(date, asset.purchaseDate, today, 'ngày gửi');
+  const error = !(amount > 0) ? 'Nhập số lãi nhận được lớn hơn 0.' : dateError;
+  return (
+    <Modal title="Nhận lãi tiết kiệm" subtitle={`${asset.name} · trả lãi ${PAYOUT_LABEL[m.interestPayout || 'maturity']}`} onClose={onClose}>
+      <ModalBody>
+        <div className="divide-y divide-slate-100 rounded-lg border border-slate-200 bg-slate-50 text-xs">
+          <div className="flex items-center justify-between px-3 py-2">
+            <span className="text-slate-500">Lãi đã phát sinh đến nay</span>
+            <span className="font-mono font-semibold">{formatVND(acc.accruedInterest)}</span>
+          </div>
+          <div className="flex items-center justify-between px-3 py-2">
+            <span className="text-slate-500">Lãi đã nhận trước đó</span>
+            <span className="font-mono font-semibold">{formatVND(m.interestReceived || 0)}</span>
+          </div>
+        </div>
+        <div>
+          <label className="text-xs font-semibold text-slate-700 block mb-1">Số lãi nhận được (VND)</label>
+          <CurrencyInput
+            value={amount}
+            onChange={setAmount}
+            invalid={!(amount > 0)}
+            className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-slate-900"
+          />
+        </div>
+        <div>
+          <label className="text-xs font-semibold text-slate-700 block mb-1">Ngày nhận</label>
+          <input
+            type="date"
+            data-testid="interest-date"
+            value={date}
+            max={today}
+            onChange={(e) => setDate(e.target.value)}
+            className="w-full px-3 py-1.5 text-xs border border-slate-300 rounded-lg"
+          />
+        </div>
+        <FieldError>{error}</FieldError>
+      </ModalBody>
+      <ModalFooter>
+        <button type="button" onClick={onClose} className="px-4 py-2 text-xs text-slate-600 hover:bg-slate-100 rounded-lg font-medium">
+          Hủy
+        </button>
+        <button
+          type="button"
+          disabled={!!error}
+          onClick={() => onSave({ assetId: asset.id, amount, date })}
+          className="px-5 py-2 text-xs font-bold text-white bg-slate-900 hover:bg-slate-800 rounded-lg disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          Nhận lãi vào ví
+        </button>
+      </ModalFooter>
+    </Modal>
+  );
+};
+
+/** Tái tục sổ tiết kiệm: lãi kỳ vừa qua nhập vào gốc hoặc rút về ví; mở kỳ gửi mới. */
+const RolloverModal: React.FC<{
+  asset: Asset;
+  onClose: () => void;
+  onSave: (p: RolloverInput) => void;
+}> = ({ asset, onClose, onSave }) => {
+  const today = todayLocalStr();
+  const m = asset.metadata as SavingsMetadata;
+  const acc = getSavingsAccrual(asset, today);
+  const [date, setDate] = useState(today >= acc.maturityDate ? today : acc.maturityDate);
+  const [interest, setInterest] = useState<number>(Math.max(0, acc.interestAtMaturity - (m.interestReceived || 0)));
+  const [capitalize, setCapitalize] = useState(true);
+  const [term, setTerm] = useState<string>(String(m.termMonths || 12));
+  const [rate, setRate] = useState<string>(String(m.annualInterestRate || 0));
+  const termNum = parseInt(term) || 0;
+  const rateNum = parseFloat(rate);
+  const error =
+    checkTxDate(date, asset.purchaseDate, today, 'ngày gửi') ||
+    (date < acc.maturityDate ? `Chỉ tái tục từ ngày đáo hạn (${acc.maturityDate}). Muốn lấy tiền trước hạn hãy chọn Rút.` : '') ||
+    (termNum < 1 ? 'Nhập kỳ hạn mới (số tháng).' : '') ||
+    (!Number.isFinite(rateNum) || rateNum < 0 || rateNum > MAX_RATE ? `Lãi suất phải trong khoảng 0% – ${MAX_RATE}%/năm.` : '');
+  const newPrincipal = (m.depositAmount || asset.initialCost) + (capitalize ? interest : 0);
+  return (
+    <Modal title="Tái tục sổ tiết kiệm" subtitle={`${asset.name} · đáo hạn ${acc.maturityDate}`} onClose={onClose}>
+      <ModalBody>
+        <div>
+          <label className="text-xs font-semibold text-slate-700 block mb-1">Ngày tái tục</label>
+          <input
+            type="date"
+            data-testid="rollover-date"
+            value={date}
+            max={today}
+            onChange={(e) => setDate(e.target.value)}
+            className="w-full px-3 py-1.5 text-xs border border-slate-300 rounded-lg"
+          />
+        </div>
+        <div>
+          <label className="text-xs font-semibold text-slate-700 block mb-1">Lãi nhận được của kỳ gửi vừa qua (VND)</label>
+          <CurrencyInput
+            value={interest}
+            onChange={setInterest}
+            className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-slate-900"
+          />
+        </div>
+        <div>
+          <label className="text-xs font-semibold text-slate-700 block mb-1">Tái tục</label>
+          <select
+            data-testid="rollover-capitalize"
+            value={capitalize ? 'both' : 'principal'}
+            onChange={(e) => setCapitalize(e.target.value === 'both')}
+            className="w-full px-3 py-1.5 text-xs border border-slate-300 rounded-lg bg-white"
+          >
+            <option value="both">Gốc + lãi (nhập lãi vào gốc)</option>
+            <option value="principal">Chỉ gốc (lãi về ví)</option>
+          </select>
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="text-xs font-semibold text-slate-700 block mb-1">Kỳ hạn mới (tháng)</label>
+            <input
+              type="number"
+              data-testid="rollover-term"
+              value={term}
+              onChange={(e) => setTerm(e.target.value)}
+              className="w-full px-3 py-1.5 text-xs border border-slate-300 rounded-lg font-mono"
+            />
+          </div>
+          <div>
+            <label className="text-xs font-semibold text-slate-700 block mb-1">Lãi suất mới (%/năm)</label>
+            <input
+              type="number"
+              step="0.1"
+              data-testid="rollover-rate"
+              value={rate}
+              onChange={(e) => setRate(e.target.value)}
+              className="w-full px-3 py-1.5 text-xs border border-slate-300 rounded-lg font-mono"
+            />
+          </div>
+        </div>
+        <div data-preview="rollover" className="divide-y divide-slate-100 rounded-lg border border-slate-200 bg-slate-50 text-xs">
+          <div className="flex items-center justify-between px-3 py-2">
+            <span className="text-slate-500">Gốc kỳ gửi mới</span>
+            <span className="font-mono font-bold text-slate-900">{formatVND(newPrincipal)}</span>
+          </div>
+        </div>
+        <FieldError>{error}</FieldError>
+      </ModalBody>
+      <ModalFooter>
+        <button type="button" onClick={onClose} className="px-4 py-2 text-xs text-slate-600 hover:bg-slate-100 rounded-lg font-medium">
+          Hủy
+        </button>
+        <button
+          type="button"
+          disabled={!!error}
+          onClick={() => onSave({ assetId: asset.id, date, interest, capitalize, termMonths: termNum, annualRate: rateNum })}
+          className="px-5 py-2 text-xs font-bold text-white bg-slate-900 hover:bg-slate-800 rounded-lg disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          Xác nhận tái tục
+        </button>
+      </ModalFooter>
+    </Modal>
+  );
+};
 
 export const AssetsView: React.FC<AssetsViewProps> = ({
   state,
@@ -81,14 +262,16 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
   onAutoOpenConsumed,
   onAddAsset,
   onUpdateAsset,
-  onDeleteAsset,
+  onVoidAsset,
+  onReceiveInterest,
+  onRolloverSavings,
   onRevalueAsset,
   onSellAsset,
 }) => {
   const { confirm: confirmDialog } = useDialog();
   const [selectedCategory, setSelectedCategory] = useState<AssetCategory | 'all'>('all');
   const [searchQuery, setSearchQuery] = useState('');
-  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'sold'>('active');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'sold' | 'voided'>('active');
 
   // Modals state
   const [revalueAsset, setRevalueAsset] = useState<Asset | null>(null);
@@ -96,12 +279,19 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
   const [revaluePrice, setRevaluePrice] = useState<string>('');
 
   const [sellAssetTarget, setSellAssetTarget] = useState<Asset | null>(null);
-  const [sellValueInput, setSellValueInput] = useState<string>('');
   const [sellNote, setSellNote] = useState<string>('');
+  const [interestAsset, setInterestAsset] = useState<Asset | null>(null);
+  const [rolloverAsset, setRolloverAsset] = useState<Asset | null>(null);
+  // Bán: số lượng, giá bán mỗi đơn vị (hoặc giá bán tổng với BĐS/tài sản khác), thực nhận, ngày bán
+  const [sellUnitPrice, setSellUnitPrice] = useState<number>(0);
+  const [sellRecognizedInput, setSellRecognizedInput] = useState<number>(0);
+  const [sellReceived, setSellReceived] = useState<number>(0);
+  const [sellReceivedTouched, setSellReceivedTouched] = useState(false);
+  const [sellDate, setSellDate] = useState<string>(todayLocalStr());
+  const [sellReprice, setSellReprice] = useState(false);
 
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [sellQty, setSellQty] = useState<number>(0);
-  const [sellFees, setSellFees] = useState<number>(0);
 
   // Thu nhập định kỳ hàng tháng (cho thuê nhà / xe…) – hiển thị trên trang Lịch
   const [incomeEditAsset, setIncomeEditAsset] = useState<Asset | null>(null);
@@ -142,17 +332,25 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
   };
   const sellUnit = sellAssetTarget ? UNIT_KEY[sellAssetTarget.category] : undefined;
   const sellTotalUnits = sellAssetTarget && sellUnit ? ((sellAssetTarget.metadata as any)[sellUnit.key] as number) || 0 : 0;
-  const sellRatio = sellUnit && sellTotalUnits > 0 && sellQty > 0 ? Math.min(1, sellQty / sellTotalUnits) : 1;
-
-  // ---- Ràng buộc tiền khi bán / định giá: sai thì khóa nút xác nhận ----
-  const sellProceeds = parseFloat(sellValueInput) || 0;
-  const sellQtyError =
-    sellUnit && sellQty > sellTotalUnits
-      ? `Chỉ có ${sellTotalUnits.toLocaleString('vi-VN')} ${sellUnit.label} để bán.`
-      : '';
-  const sellFeesError =
-    sellFees > 0 && sellFees >= sellProceeds ? 'Phí/thuế phải nhỏ hơn số tiền bán.' : '';
-  const canSell = sellProceeds > 0 && !sellQtyError && !sellFeesError;
+  const sellUnitPriced = !!sellUnit && sellTotalUnits > 0;
+  const sellQtyEffective = sellUnitPriced ? (sellQty > 0 ? Math.min(sellQty, sellTotalUnits) : sellTotalUnits) : 1;
+  // Giá trị ghi nhận = số lượng × giá bán (tài sản có đơn vị) hoặc giá bán nhập tay (BĐS, tài sản khác)
+  const sellRecognizedAuto = sellUnitPriced ? Math.round(sellQtyEffective * sellUnitPrice) : sellRecognizedInput;
+  // Thực nhận mặc định = giá trị ghi nhận cho đến khi người dùng tự nhập (số do ngân hàng / công ty chứng khoán đưa ra)
+  const sellReceivedValue = sellReceivedTouched ? sellReceived : sellRecognizedAuto;
+  const sellPreview = sellAssetTarget
+    ? previewSell(sellAssetTarget, {
+        quantity: sellQty > 0 ? sellQty : undefined,
+        unitPrice: sellUnitPrice,
+        recognizedValue: sellRecognizedInput,
+        received: sellReceivedValue,
+      })
+    : '';
+  const sellError = typeof sellPreview === 'string' ? sellPreview : '';
+  const sellDateError = sellAssetTarget
+    ? checkTxDate(sellDate, sellAssetTarget.purchaseDate, todayLocalStr(), 'ngày mua tài sản')
+    : '';
+  const canSell = !!sellAssetTarget && typeof sellPreview !== 'string' && !sellDateError;
   const revalueNum = parseFloat(revaluePrice) || 0;
   const revaluePricing = revalueAsset ? getUnitPricing(revalueAsset) : null;
   // Tổng giá trị mới: có đơn giá thì = số lượng × đơn giá (tính, không nhập), không thì chính số nhập
@@ -206,7 +404,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
     })
     .filter((c) => c.value > 0)
     .sort((x, y) => y.value - x.value);
-  const countByStatus = (st: 'all' | 'active' | 'sold') =>
+  const countByStatus = (st: 'all' | 'active' | 'sold' | 'voided') =>
     state.assets.filter((a) => st === 'all' || a.status === st).length;
   const filtersActive = selectedCategory !== 'all' || statusFilter !== 'active' || searchQuery.trim() !== '';
 
@@ -228,21 +426,26 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
 
   // Open Sell Modal
   const handleOpenSell = (asset: Asset) => {
+    const pricing = getUnitPricing(asset);
     setSellAssetTarget(asset);
-    setSellValueInput(asset.currentValue.toString());
+    setSellUnitPrice(pricing ? pricing.unitPrice : 0);
+    setSellRecognizedInput(asset.currentValue);
+    setSellReceived(0);
+    setSellReceivedTouched(false);
+    setSellDate(todayLocalStr());
+    setSellReprice(false);
     setSellNote(`Thanh lý chốt lời tài sản ${asset.name}`);
     setSellQty(0);
-    setSellFees(0);
   };
 
   // Confirm Sell
   const handleConfirmSell = async () => {
-    if (!sellAssetTarget || !canSell) return;
-    const isFull = sellRatio >= 1;
+    if (!sellAssetTarget || !canSell || typeof sellPreview === 'string') return;
+    const pv: SellPreview = sellPreview;
     const pledgedDebts = state.debts.filter(
       (d) => d.status === 'active' && d.collateralAssetId === sellAssetTarget.id
     );
-    if (isFull && pledgedDebts.length > 0) {
+    if (!pv.isPartial && pledgedDebts.length > 0) {
       const names = pledgedDebts.map((d) => `• ${d.name} – dư nợ ${formatVND(d.remainingPrincipal)}`).join('\n');
       const ok = await confirmDialog({
         tone: 'warning',
@@ -254,14 +457,26 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
       });
       if (!ok) return;
     }
-    onSellAsset({
+    if (pv.fees < 0) {
+      const ok = await confirmDialog({
+        tone: 'warning',
+        title: 'Thực nhận lớn hơn giá trị ghi nhận',
+        message: `Bạn nhập thực nhận ${formatVND(sellReceivedValue)}, lớn hơn giá trị ghi nhận ${formatVND(pv.recognized)} ${formatVND(-pv.fees)}.\n\nChênh lệch này được tính vào lãi chốt. Tiếp tục?`,
+        confirmText: 'Vẫn ghi nhận',
+      });
+      if (!ok) return;
+    }
+    const done = onSellAsset({
       assetId: sellAssetTarget.id,
-      sellQuantity: sellUnit && sellQty > 0 ? sellQty : undefined,
-      proceeds: sellProceeds,
-      fees: sellFees || 0,
+      quantity: sellUnitPriced && sellQty > 0 ? sellQty : undefined,
+      unitPrice: sellUnitPriced ? sellUnitPrice : undefined,
+      recognizedValue: sellUnitPriced ? undefined : sellRecognizedInput,
+      received: sellReceivedValue,
+      date: sellDate,
       note: sellNote,
+      repriceRemainder: sellReprice && pv.isPartial && sellUnitPriced,
     });
-    setSellAssetTarget(null);
+    if (done !== false) setSellAssetTarget(null);
   };
 
   return (
@@ -373,11 +588,12 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
           <select
             id="asset-status-filter"
             value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value as 'all' | 'active' | 'sold')}
+            onChange={(e) => setStatusFilter(e.target.value as 'all' | 'active' | 'sold' | 'voided')}
             className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-800 focus:outline-none focus:ring-1 focus:ring-slate-900"
           >
             <option value="active">Đang nắm giữ ({countByStatus('active')})</option>
             <option value="sold">Đã thanh lý ({countByStatus('sold')})</option>
+            <option value="voided">Đã hủy ({countByStatus('voided')})</option>
             <option value="all">Tất cả trạng thái ({countByStatus('all')})</option>
           </select>
         </div>
@@ -445,6 +661,8 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                   const pnl = asset.currentValue - asset.initialCost;
                   const pnlPct = asset.initialCost > 0 ? (pnl / asset.initialCost) * 100 : 0;
                   const isSold = asset.status === 'sold';
+                  const isVoided = asset.status === 'voided';
+                  const voidCheck = canVoidAsset(state, asset.id);
 
                   return (
                     <tr key={asset.id} className="hover:bg-slate-50/60 transition-colors">
@@ -455,6 +673,11 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                           {isSold && (
                             <span className="text-[10px] text-slate-500 bg-slate-100 border border-slate-200 px-1.5 py-0.2 rounded">
                               Đã bán
+                            </span>
+                          )}
+                          {isVoided && (
+                            <span className="text-[10px] text-rose-700 bg-rose-50 border border-rose-200 px-1.5 py-0.2 rounded">
+                              Đã hủy
                             </span>
                           )}
                         </div>
@@ -636,7 +859,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                       {/* Actions */}
                       <td className="py-3 px-4 text-center">
                         <div className="flex items-center justify-center gap-1.5">
-                          {!isSold && (
+                          {!isSold && !isVoided && (
                             <>
                               {(asset.category === 'real_estate' || asset.category === 'other') && (
                                 <button
@@ -648,17 +871,38 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                                 </button>
                               )}
 
-                              <button
-                                onClick={() => handleOpenRevalue(asset)}
-                                title="Cập nhật định giá thị trường mới"
-                                className="p-1.5 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded transition-colors"
-                              >
-                                <RefreshCw className="w-3.5 h-3.5" />
-                              </button>
+                              {asset.category === 'savings' ? (
+                                <>
+                                  <button
+                                    data-savings-action="interest"
+                                    onClick={() => setInterestAsset(asset)}
+                                    title="Nhận lãi về ví"
+                                    className="p-1.5 text-amber-600 hover:text-amber-700 hover:bg-amber-50 rounded transition-colors"
+                                  >
+                                    <Coins className="w-3.5 h-3.5" />
+                                  </button>
+                                  <button
+                                    data-savings-action="rollover"
+                                    onClick={() => setRolloverAsset(asset)}
+                                    title="Tái tục sổ tiết kiệm"
+                                    className="p-1.5 text-sky-600 hover:text-sky-700 hover:bg-sky-50 rounded transition-colors"
+                                  >
+                                    <Repeat className="w-3.5 h-3.5" />
+                                  </button>
+                                </>
+                              ) : (
+                                <button
+                                  onClick={() => handleOpenRevalue(asset)}
+                                  title="Cập nhật định giá thị trường mới"
+                                  className="p-1.5 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded transition-colors"
+                                >
+                                  <RefreshCw className="w-3.5 h-3.5" />
+                                </button>
+                              )}
 
                               <button
                                 onClick={() => handleOpenSell(asset)}
-                                title="Bán / Chốt lời về ví"
+                                title={asset.category === 'savings' ? 'Rút tiền tiết kiệm' : 'Bán / Chốt lời về ví'}
                                 className="p-1.5 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 rounded transition-colors"
                               >
                                 <DollarSign className="w-3.5 h-3.5" />
@@ -666,22 +910,16 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                             </>
                           )}
 
-                          <button
-                            onClick={async () => {
-                              const ok = await confirmDialog({
-                                tone: 'danger',
-                                title: `Xóa "${asset.name}" khỏi danh mục?`,
-                                message:
-                                  'Đây là xóa dữ liệu nhập nhầm: tiền ví, giao dịch và khoản nợ liên quan KHÔNG bị đảo ngược.\n\nNếu đã bán tài sản, hãy dùng nút "Bán / Chốt lời" để ghi nhận đúng lãi lỗ.',
-                                confirmText: 'Xóa tài sản',
-                              });
-                              if (ok) onDeleteAsset(asset.id);
-                            }}
-                            title="Xóa tài sản"
-                            className="p-1.5 text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded transition-colors"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
+                          {voidCheck.ok && (
+                            <button
+                              data-void-asset={asset.id}
+                              onClick={() => onVoidAsset(asset.id)}
+                              title="Hủy bản ghi nhập nhầm"
+                              className="p-1.5 text-slate-500 hover:text-rose-700 hover:bg-rose-50 rounded transition-colors"
+                            >
+                              <Undo2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -785,84 +1023,154 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
       {/* MODAL 2: SELL / REALIZE PnL */}
       {sellAssetTarget && (
         <Modal
-          title="Thanh lý / Bán Chốt Lời"
+          title={sellAssetTarget.category === 'savings' ? 'Rút tiền tiết kiệm' : 'Thanh lý / Bán Chốt Lời'}
           subtitle={sellAssetTarget.name}
           onClose={() => setSellAssetTarget(null)}
         >
           <ModalBody>
-            {sellUnit && (
+            {sellUnitPriced && sellUnit && (
+              <>
+                <div>
+                  <label className="text-xs font-semibold text-slate-700 block mb-1">
+                    Số lượng bán ({sellUnit.label}) – tối đa {sellTotalUnits.toLocaleString('vi-VN')}; để trống = bán hết
+                  </label>
+                  <CurrencyInput
+                    allowDecimal={sellAssetTarget.category !== 'stock'}
+                    value={sellQty}
+                    invalid={sellQty > sellTotalUnits}
+                    onChange={setSellQty}
+                    className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-slate-900"
+                  />
+                  {sellQty > sellTotalUnits && (
+                    <FieldError>{`Chỉ có ${sellTotalUnits.toLocaleString('vi-VN')} ${sellUnit.label} để bán.`}</FieldError>
+                  )}
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-slate-700 block mb-1">
+                    Giá bán mỗi {sellUnit.label} (VND)
+                  </label>
+                  <CurrencyInput
+                    allowDecimal={sellAssetTarget.category === 'fund'}
+                    value={sellUnitPrice}
+                    invalid={sellUnitPrice <= 0}
+                    onChange={setSellUnitPrice}
+                    className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-slate-900"
+                  />
+                  {sellUnitPrice <= 0 && <FieldError>{`Nhập giá bán mỗi ${sellUnit.label}.`}</FieldError>}
+                </div>
+              </>
+            )}
+            {!sellUnitPriced && (
               <div>
                 <label className="text-xs font-semibold text-slate-700 block mb-1">
-                  Số lượng bán ({sellUnit.label}) – tối đa {sellTotalUnits.toLocaleString('vi-VN')}; để trống = bán hết
+                  {sellAssetTarget.category === 'savings' ? 'Số tiền rút gồm gốc và lãi theo sổ (VND)' : 'Giá bán (VND)'}
                 </label>
                 <CurrencyInput
-                  allowDecimal={sellAssetTarget.category !== 'stock'}
-                  value={sellQty}
-                  invalid={!!sellQtyError}
-                  onChange={(q) => {
-                    setSellQty(q);
-                    const r = q > 0 && sellTotalUnits > 0 ? Math.min(1, q / sellTotalUnits) : 1;
-                    setSellValueInput(Math.round(sellAssetTarget.currentValue * r).toString());
-                  }}
+                  value={sellRecognizedInput}
+                  invalid={sellRecognizedInput <= 0}
+                  onChange={setSellRecognizedInput}
                   className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-slate-900"
                 />
-                <FieldError>{sellQtyError}</FieldError>
+                {sellRecognizedInput <= 0 && <FieldError>Nhập giá bán lớn hơn 0.</FieldError>}
               </div>
             )}
+
             <div>
               <label className="text-xs font-semibold text-slate-700 block mb-1">
-                Tổng tiền bán (VND, trước phí/thuế)
-              </label>
-              <CurrencyInput
-                value={sellProceeds}
-                invalid={sellProceeds <= 0}
-                onChange={(val) => setSellValueInput(val.toString())}
-                className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-slate-900"
-              />
-              {sellProceeds <= 0 && <FieldError>Nhập số tiền bán lớn hơn 0.</FieldError>}
-            </div>
-            <div>
-              <label className="text-xs font-semibold text-slate-700 block mb-1">
-                Phí môi giới + thuế (VND)
+                Số tiền thực nhận vào ví (VND, sau phí và thuế)
               </label>
               <div className="flex items-center gap-2">
                 <CurrencyInput
-                  value={sellFees}
-                  onChange={setSellFees}
-                  invalid={!!sellFeesError}
+                  value={sellReceivedValue}
+                  invalid={sellReceivedValue <= 0}
+                  onChange={(v) => {
+                    setSellReceived(v);
+                    setSellReceivedTouched(true);
+                  }}
                   className="flex-1 px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-slate-900"
                 />
                 {(sellAssetTarget.category === 'stock' || sellAssetTarget.category === 'fund') && (
                   <button
                     type="button"
-                    onClick={() => setSellFees(Math.round(sellProceeds * 0.001))}
+                    onClick={() => {
+                      setSellReceived(sellRecognizedAuto - Math.round(sellRecognizedAuto * 0.001));
+                      setSellReceivedTouched(true);
+                    }}
                     className="px-2.5 py-2 text-[11px] font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg whitespace-nowrap"
-                    title="Thuế TNCN chuyển nhượng chứng khoán 0,1% giá trị bán – cộng thêm phí môi giới của công ty chứng khoán"
+                    title="Trừ thuế TNCN chuyển nhượng chứng khoán 0,1% giá trị bán"
                   >
-                    Điền thuế 0,1%
+                    Trừ thuế 0,1%
                   </button>
                 )}
               </div>
-              <FieldError>{sellFeesError}</FieldError>
-              <div className="flex items-center justify-between text-[11px] mt-2 font-mono">
-                <span className="text-slate-500">
-                  Giá vốn phần bán: {formatVND(Math.round(sellAssetTarget.initialCost * sellRatio))}
-                </span>
-                <span
-                  className={`font-bold ${
-                    sellProceeds - sellFees - sellAssetTarget.initialCost * sellRatio >= 0
-                      ? 'text-emerald-600'
-                      : 'text-rose-600'
-                  }`}
-                >
-                  Lãi chốt thực tế:{' '}
-                  {formatVND(Math.round(sellProceeds - sellFees - sellAssetTarget.initialCost * sellRatio))}
-                </span>
-              </div>
-              <div className="text-[11px] text-slate-500 mt-1">
-                Tiền thực vào ví: <strong>{formatVND(Math.max(0, sellProceeds - sellFees))}</strong>
-              </div>
+              {sellReceivedValue <= 0 && <FieldError>Nhập số tiền thực nhận lớn hơn 0.</FieldError>}
             </div>
+
+            <div>
+              <label className="text-xs font-semibold text-slate-700 block mb-1">Ngày bán</label>
+              <input
+                type="date"
+                data-testid="sell-date"
+                value={sellDate}
+                max={todayLocalStr()}
+                min={sellAssetTarget.purchaseDate}
+                aria-invalid={sellDateError ? true : undefined}
+                onChange={(e) => setSellDate(e.target.value)}
+                className="w-full px-3 py-1.5 text-xs border border-slate-300 rounded-lg"
+              />
+              <FieldError>{sellDateError}</FieldError>
+            </div>
+
+            {sellUnitPriced && typeof sellPreview !== 'string' && sellPreview.isPartial && (
+              <label className="flex items-start gap-2 text-xs text-slate-700">
+                <input
+                  type="checkbox"
+                  data-testid="sell-reprice"
+                  checked={sellReprice}
+                  onChange={(e) => setSellReprice(e.target.checked)}
+                  className="mt-0.5"
+                />
+                <span>Cập nhật giá thị trường phần còn lại theo giá bán</span>
+              </label>
+            )}
+
+            {typeof sellPreview !== 'string' ? (
+              <div
+                data-sell-preview
+                className="divide-y divide-slate-100 rounded-lg border border-slate-200 bg-slate-50 text-xs"
+              >
+                <div className="flex items-center justify-between px-3 py-2">
+                  <span className="text-slate-500">Giá trị ghi nhận</span>
+                  <span className="font-mono font-semibold text-slate-900">{formatVND(sellPreview.recognized)}</span>
+                </div>
+                <div className="flex items-center justify-between px-3 py-2">
+                  <span className="text-slate-500">Phí và thuế</span>
+                  <span className={`font-mono font-semibold ${sellPreview.fees < 0 ? 'text-amber-700' : 'text-slate-900'}`}>
+                    {formatVND(sellPreview.fees)}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between px-3 py-2">
+                  <span className="text-slate-500">Giá vốn phần bán</span>
+                  <span className="font-mono font-semibold text-slate-900">{formatVND(sellPreview.costSold)}</span>
+                </div>
+                <div className="flex items-center justify-between px-3 py-2">
+                  <span className="text-slate-500">Lãi/lỗ sổ sách (trước phí)</span>
+                  <span className={`font-mono font-semibold ${sellPreview.bookPnL >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                    {sellPreview.bookPnL >= 0 ? '+' : ''}
+                    {formatVND(sellPreview.bookPnL)}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between px-3 py-2">
+                  <span className="text-slate-500">Lãi chốt thực tế</span>
+                  <span className={`font-mono font-bold ${sellPreview.realizedPnL >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                    {sellPreview.realizedPnL >= 0 ? '+' : ''}
+                    {formatVND(sellPreview.realizedPnL)}
+                  </span>
+                </div>
+              </div>
+            ) : (
+              sellError && <FieldError>{sellError}</FieldError>
+            )}
 
             <div>
               <label className="text-xs font-semibold text-slate-700 block mb-1">
@@ -894,6 +1202,25 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
             </button>
           </ModalFooter>
         </Modal>
+      )}
+
+      {interestAsset && (
+        <ReceiveInterestModal
+          asset={interestAsset}
+          onClose={() => setInterestAsset(null)}
+          onSave={(p) => {
+            if (onReceiveInterest(p) !== false) setInterestAsset(null);
+          }}
+        />
+      )}
+      {rolloverAsset && (
+        <RolloverModal
+          asset={rolloverAsset}
+          onClose={() => setRolloverAsset(null)}
+          onSave={(p) => {
+            if (onRolloverSavings(p) !== false) setRolloverAsset(null);
+          }}
+        />
       )}
 
       {/* MODAL: THU NHẬP ĐỊNH KỲ HÀNG THÁNG */}
@@ -1026,6 +1353,7 @@ const AddAssetModal: React.FC<AddAssetModalProps> = ({ availableCash, onClose, o
 
   // Savings
   const [bankName, setBankName] = useState('');
+  const [interestPayout, setInterestPayout] = useState<'maturity' | 'monthly' | 'upfront'>('maturity');
   const [termMonths, setTermMonths] = useState<number>(12);
   const [rate, setRate] = useState<number>(5.5);
   const [maturityDate, setMaturityDate] = useState('');
@@ -1214,6 +1542,7 @@ const AddAssetModal: React.FC<AddAssetModalProps> = ({ availableCash, onClose, o
         startDate: purchaseDate,
         maturityDate: maturityDate || purchaseDate,
         rolloverOption: 'principal_and_interest',
+        interestPayout,
       } as SavingsMetadata;
     } else if (category === 'gold') {
       metadata = {
@@ -1570,6 +1899,21 @@ const AddAssetModal: React.FC<AddAssetModalProps> = ({ availableCash, onClose, o
                     className="w-full px-2.5 py-1.5 text-xs bg-white border border-slate-300 rounded"
                   />
                 </div>
+              </div>
+            )}
+            {category === 'savings' && (
+              <div>
+                <label className="text-xs text-slate-600 block mb-1">Trả lãi</label>
+                <select
+                  data-testid="interest-payout"
+                  value={interestPayout}
+                  onChange={(e) => setInterestPayout(e.target.value as 'maturity' | 'monthly' | 'upfront')}
+                  className="w-full px-2.5 py-1.5 text-xs bg-white border border-slate-300 rounded"
+                >
+                  <option value="maturity">Cuối kỳ</option>
+                  <option value="monthly">Hàng tháng</option>
+                  <option value="upfront">Đầu kỳ</option>
+                </select>
               </div>
             )}
             {category === 'savings' && <FieldError>{savingsError}</FieldError>}

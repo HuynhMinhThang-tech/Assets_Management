@@ -9,12 +9,14 @@ interface AccountModalProps {
   onClose: () => void;
   /** Cập nhật người dùng đang đăng nhập sau khi đổi tên. */
   onUserChanged: (user: PublicUser) => void;
+  /** Tải bản sao lưu toàn bộ dữ liệu tài chính (JSON). */
+  onDownloadBackup?: () => void;
 }
 
 const inputClass =
   'w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-slate-900';
 
-export const AccountModal: React.FC<AccountModalProps> = ({ user, onClose, onUserChanged }) => {
+export const AccountModal: React.FC<AccountModalProps> = ({ user, onClose, onUserChanged, onDownloadBackup }) => {
   const { toast } = useDialog();
   const [displayName, setDisplayName] = useState(user.displayName);
   const [nameError, setNameError] = useState('');
@@ -94,6 +96,19 @@ export const AccountModal: React.FC<AccountModalProps> = ({ user, onClose, onUse
             </button>
           </div>
         </form>
+
+        {onDownloadBackup && (
+          <div className="space-y-3 border-t border-slate-100 pt-5">
+            <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700">Sao lưu dữ liệu</h4>
+            <button
+              type="button"
+              onClick={onDownloadBackup}
+              className="rounded-lg border border-slate-300 bg-white px-4 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+            >
+              Tải bản sao lưu (JSON)
+            </button>
+          </div>
+        )}
 
         <form onSubmit={savePassword} noValidate className="space-y-3 border-t border-slate-100 pt-5">
           <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700">Đổi mật khẩu</h4>

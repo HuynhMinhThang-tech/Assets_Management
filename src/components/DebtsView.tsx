@@ -9,12 +9,11 @@ import {
   CheckCircle2,
   Table,
   Link as LinkIcon,
-  Trash2,
+  Undo2,
   Edit2,
   ChevronRight,
   TrendingDown,
   Info,
-  RefreshCw,
   ShieldCheck,
 } from 'lucide-react';
 import {
@@ -25,6 +24,8 @@ import {
   InterestRateType,
   UserFinancialState,
   Asset,
+  FundUse,
+  FundUseKind,
 } from '../types/finance';
 import {
   formatVND,
@@ -40,8 +41,10 @@ import {
 } from '../utils/calculations';
 import { CurrencyInput } from './CurrencyInput';
 import { Modal, ModalBody, ModalFooter, FieldError } from './ui/Modal';
-import { useDialog } from './ui/DialogProvider';
 import { MAX_RATE, MAX_TENOR_MONTHS } from '../utils/validation';
+import { canVoidDebt } from '../utils/ops';
+import { buildTrackedDebt } from '../utils/debtCore';
+import { DebtActionHandlers, DebtDetailModal } from './DebtActions';
 
 const DEBT_CATEGORY_OPTIONS: { id: DebtCategory; label: string }[] = [
   { id: 'mortgage', label: 'Vay nhà / BĐS' },
@@ -56,36 +59,44 @@ const isSecuredDebt = (d: Debt) => d.securityType === 'secured' || !!d.collatera
 
 interface DebtsViewProps {
   state: UserFinancialState;
-  onAddDebt: (debt: Debt, disburseToWallet?: boolean) => void;
+  onAddDebt: (debt: Debt, disburseToWallet?: boolean) => boolean | void;
   onUpdateDebt: (debt: Debt) => void;
-  onDeleteDebt: (debtId: string) => void;
+  /** Hủy bản ghi nhập nhầm (thay cho xóa): dữ liệu được giữ lại, tiền ví hoàn bằng bút toán đảo. */
+  onVoidDebt: (debtId: string) => void;
+  /** Bổ sung nơi dùng vốn cho khoản nợ cũ: chỉ gắn nhãn, không đổi ví. */
+  onSetFundUse: (debtId: string, fundUse: FundUse) => boolean | void;
   onPayDebtPeriod: (debtId: string, periodIndex: number, deductFromWallet: boolean) => boolean | void | Promise<boolean | void>;
   autoOpenAdd?: boolean;
   onAutoOpenConsumed?: () => void;
-  onAdjustFloatingRate: (
-    debtId: string,
-    newRate: number,
-    newPrincipal?: number,
-    baseRate?: number,
-    margin?: number
-  ) => void;
+  onAddRateChange: DebtActionHandlers['onAddRateChange'];
+  onRemoveRateChange: DebtActionHandlers['onRemoveRateChange'];
+  onSettleDebt: DebtActionHandlers['onSettle'];
+  onPrepayDebt: DebtActionHandlers['onPrepay'];
+  onReconcileDebt: DebtActionHandlers['onReconcile'];
+  onUndoReconcile: DebtActionHandlers['onUndoReconcile'];
 }
 
 export const DebtsView: React.FC<DebtsViewProps> = ({
   state,
   onAddDebt,
   onUpdateDebt,
-  onDeleteDebt,
+  onVoidDebt,
+  onSetFundUse,
   onPayDebtPeriod,
-  onAdjustFloatingRate,
+  onAddRateChange,
+  onRemoveRateChange,
+  onSettleDebt,
+  onPrepayDebt,
+  onReconcileDebt,
+  onUndoReconcile,
   autoOpenAdd,
   onAutoOpenConsumed,
 }) => {
-  const { confirm: confirmDialog } = useDialog();
   const [scheduleDebtId, setScheduleDebtId] = useState<string | null>(null);
   const selectedDebtForSchedule = scheduleDebtId ? state.debts.find((d) => d.id === scheduleDebtId) || null : null;
-  const [debtToAdjustFloating, setDebtToAdjustFloating] = useState<Debt | null>(null);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [fundUseDebtId, setFundUseDebtId] = useState<string | null>(null);
+  const [showVoided, setShowVoided] = useState(false);
 
   useEffect(() => {
     if (autoOpenAdd) {
@@ -107,7 +118,13 @@ export const DebtsView: React.FC<DebtsViewProps> = ({
   const totalSecuredDebt = securedDebts.reduce((sum, d) => sum + d.remainingPrincipal, 0);
   const totalUnsecuredDebt = unsecuredDebts.reduce((sum, d) => sum + d.remainingPrincipal, 0);
 
+  // Tài sản chưa gắn với khoản vay đang hoạt động nào: được chọn làm "nơi dùng vốn = mua tài sản"
+  const unlinkedAssets = state.assets.filter(
+    (a) => a.status === 'active' && !(a.linkedDebtId && state.debts.some((d) => d.id === a.linkedDebtId && d.status === 'active'))
+  );
+  const voidedCount = state.debts.filter((d) => d.status === 'voided').length;
   const filteredDebts = state.debts.filter((debt) => {
+    if (debt.status === 'voided' && !showVoided) return false;
     if (categoryFilter !== 'all' && debt.category !== categoryFilter) return false;
     const isSecured = debt.securityType === 'secured' || !!debt.collateralAssetId;
     if (securityFilter === 'secured' && !isSecured) return false;
@@ -242,6 +259,12 @@ export const DebtsView: React.FC<DebtsViewProps> = ({
         </div>
 
         <div className="flex items-center gap-3 sm:ml-auto sm:pb-2">
+          {voidedCount > 0 && (
+            <label className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-600">
+              <input type="checkbox" checked={showVoided} onChange={(e) => setShowVoided(e.target.checked)} />
+              Hiện khoản đã hủy ({voidedCount})
+            </label>
+          )}
           <span className="text-[11px] text-slate-500">
             Hiển thị <strong className="text-slate-800">{filteredDebts.length}</strong>/{state.debts.length} khoản nợ
           </span>
@@ -297,6 +320,11 @@ export const DebtsView: React.FC<DebtsViewProps> = ({
                           Đã tất toán
                         </span>
                       )}
+                      {debt.status === 'voided' && (
+                        <span className="text-[10px] text-rose-700 bg-rose-50 border border-rose-200 px-1.5 py-0.5 rounded font-semibold">
+                          Đã hủy
+                        </span>
+                      )}
                     </div>
                     <div className="text-xs text-slate-500 mt-0.5 flex items-center gap-2">
                       <span>{debt.lender}</span>
@@ -310,24 +338,39 @@ export const DebtsView: React.FC<DebtsViewProps> = ({
                         {debt.category === 'other' && 'Khoản vay khác'}
                       </span>
                     </div>
+                    <div className="mt-1.5" data-fund-use={debt.fundUse?.kind || 'unspecified'}>
+                      {!debt.fundUse || debt.fundUse.kind === 'unspecified' ? (
+                        debt.status === 'voided' ? null : (
+                          <button
+                            type="button"
+                            onClick={() => setFundUseDebtId(debt.id)}
+                            className="text-[11px] font-semibold text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-0.5 hover:bg-amber-100"
+                          >
+                            Chưa xác định nơi dùng vốn · Bổ sung
+                          </button>
+                        )
+                      ) : (
+                        <span className="text-[11px] font-semibold text-slate-600 bg-slate-100 border border-slate-200 rounded px-2 py-0.5">
+                          {debt.fundUse.kind === 'wallet' &&
+                            (debt.fundUse.cashRecorded ? 'Nơi dùng vốn: vào ví đầu tư' : 'Nơi dùng vốn: vào ví (chỉ ghi nợ)')}
+                          {debt.fundUse.kind === 'asset' &&
+                            `Nơi dùng vốn: mua ${state.assets.find((a) => a.id === debt.fundUse?.assetId)?.name || 'tài sản'}`}
+                          {debt.fundUse.kind === 'spent' && 'Nơi dùng vốn: đã chi tiêu'}
+                        </span>
+                      )}
+                    </div>
                   </div>
 
-                  <button
-                    onClick={async () => {
-                      const ok = await confirmDialog({
-                        tone: 'danger',
-                        title: `Xóa khoản nợ "${debt.name}"?`,
-                        message:
-                          'Lịch trả nợ của khoản này sẽ bị xóa. Các giao dịch trả nợ đã ghi trong ví KHÔNG bị đảo ngược.',
-                        confirmText: 'Xóa khoản nợ',
-                      });
-                      if (ok) onDeleteDebt(debt.id);
-                    }}
-                    title="Xóa khoản nợ"
-                    className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded transition-colors"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
+                  {canVoidDebt(state, debt.id).ok && (
+                    <button
+                      data-void-debt={debt.id}
+                      onClick={() => onVoidDebt(debt.id)}
+                      title="Hủy bản ghi nhập nhầm"
+                      className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded transition-colors"
+                    >
+                      <Undo2 className="w-3.5 h-3.5" />
+                    </button>
+                  )}
                 </div>
 
                 {/* Progress Bar of Loan Repayment */}
@@ -445,20 +488,11 @@ export const DebtsView: React.FC<DebtsViewProps> = ({
 
                   <div className="flex items-center gap-2">
                     <button
-                      onClick={() => setDebtToAdjustFloating(debt)}
-                      title="Cập nhật lãi suất thả nổi hoặc số dư nợ mới, tự động tính lại toàn bộ lịch trả nợ"
-                      className="px-2.5 py-1.5 text-xs font-semibold text-sky-700 bg-sky-50 hover:bg-sky-100 border border-sky-200 rounded-lg transition-colors flex items-center gap-1.5 whitespace-nowrap"
-                    >
-                      <RefreshCw className="w-3.5 h-3.5 text-sky-600" />
-                      <span>Cập nhật Lãi & Dư nợ</span>
-                    </button>
-
-                    <button
                       onClick={() => setScheduleDebtId(debt.id)}
                       className="px-3 py-1.5 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors flex items-center gap-1.5 whitespace-nowrap"
                     >
                       <Table className="w-3.5 h-3.5" />
-                      <span>Lịch trả nợ</span>
+                      <span>Chi tiết & lịch trả</span>
                     </button>
 
                     {nextPay && (
@@ -488,14 +522,23 @@ export const DebtsView: React.FC<DebtsViewProps> = ({
         </div>
       )}
 
-      {/* MODAL 1: FULL AMORTIZATION SCHEDULE DRAWER */}
+      {/* MODAL 1: CHI TIẾT KHOẢN VAY (lịch trả, lịch sử thanh toán, lãi suất, thao tác) */}
       {selectedDebtForSchedule && (
-        <AmortizationModal
+        <DebtDetailModal
           debt={selectedDebtForSchedule}
-          availableCash={state.wallet.availableCash}
+          cash={state.wallet.availableCash}
+          transactions={state.transactions}
           onClose={() => setScheduleDebtId(null)}
-          onPayPeriod={(periodIndex, deduct) => {
-            onPayDebtPeriod(selectedDebtForSchedule.id, periodIndex, deduct);
+          handlers={{
+            onPayPeriod: (periodIndex, deduct) => {
+              onPayDebtPeriod(selectedDebtForSchedule.id, periodIndex, deduct);
+            },
+            onAddRateChange,
+            onRemoveRateChange,
+            onSettle: onSettleDebt,
+            onPrepay: onPrepayDebt,
+            onReconcile: onReconcileDebt,
+            onUndoReconcile,
           }}
         />
       )}
@@ -504,143 +547,89 @@ export const DebtsView: React.FC<DebtsViewProps> = ({
       {isAddModalOpen && (
         <AddDebtModal
           assets={state.assets.filter((a) => a.status === 'active')}
+          fundAssets={unlinkedAssets}
           onClose={() => setIsAddModalOpen(false)}
           onAdd={(debt, disburse) => {
-            onAddDebt(debt, disburse);
-            setIsAddModalOpen(false);
+            if (onAddDebt(debt, disburse) !== false) setIsAddModalOpen(false);
           }}
         />
       )}
 
-      {/* MODAL 3: ADJUST FLOATING INTEREST RATE & PRINCIPAL */}
-      {debtToAdjustFloating && (
-        <AdjustFloatingModal
-          debt={debtToAdjustFloating}
-          onClose={() => setDebtToAdjustFloating(null)}
-          onConfirm={(newRate, newPrincipal, baseRate, margin) => {
-            onAdjustFloatingRate(debtToAdjustFloating.id, newRate, newPrincipal, baseRate, margin);
-            setDebtToAdjustFloating(null);
+      {/* MODAL: BỔ SUNG NƠI DÙNG VỐN CHO KHOẢN NỢ CŨ */}
+      {fundUseDebtId && (
+        <FundUseModal
+          debt={state.debts.find((d) => d.id === fundUseDebtId)!}
+          assets={unlinkedAssets}
+          onClose={() => setFundUseDebtId(null)}
+          onSave={(fu) => {
+            if (onSetFundUse(fundUseDebtId, fu) !== false) setFundUseDebtId(null);
           }}
         />
       )}
+
     </div>
   );
 };
 
-interface AmortizationModalProps {
+interface FundUseModalProps {
   debt: Debt;
-  availableCash: number;
+  assets: Asset[];
   onClose: () => void;
-  onPayPeriod: (periodIndex: number, deductFromWallet: boolean) => void;
+  onSave: (fundUse: FundUse) => void;
 }
 
-const AmortizationModal: React.FC<AmortizationModalProps> = ({
-  debt,
-  availableCash,
-  onClose,
-  onPayPeriod,
-}) => {
-  const schedule = debt.schedule || [];
-  const firstUnpaidIdx = schedule.findIndex((i) => !i.isPaid);
-  const totalInterest = schedule.reduce((sum, item) => sum + item.interestPayable, 0);
-
+/** Bổ sung nơi dùng vốn cho khoản nợ cũ: chỉ gắn nhãn, không cộng tiền vào ví. */
+const FundUseModal: React.FC<FundUseModalProps> = ({ debt, assets, onClose, onSave }) => {
+  const [kind, setKind] = useState<FundUseKind | ''>('');
+  const [assetId, setAssetId] = useState('');
+  const missing = !kind ? 'Chọn nơi dùng vốn.' : kind === 'asset' && !assetId ? 'Chọn tài sản được mua bằng vốn vay.' : '';
   return (
-    <Modal
-      title="Lịch Khấu Hao & Trả Nợ Chi Tiết"
-      subtitle={`${debt.name} · ${debt.lender} · ${
-        debt.method === 'declining_balance' ? 'Dư nợ giảm dần' : 'Trả đều hàng tháng'
-      } · Lãi suất: ${debt.annualInterestRate}%/năm`}
-      size="2xl"
-      onClose={onClose}
-    >
-      {/* Stats Row (đứng yên) */}
-      <div className="grid shrink-0 grid-cols-3 border-b border-slate-200 bg-slate-50 p-4 text-xs">
+    <Modal title="Nơi dùng vốn của khoản vay" subtitle={debt.name} onClose={onClose}>
+      <ModalBody>
         <div>
-          <span className="text-slate-400 block">Gốc vay ban đầu</span>
-          <span className="font-bold text-slate-900 font-mono text-sm">{formatVND(debt.principalAmount)}</span>
+          <label className="text-xs font-semibold text-slate-700 block mb-1">Tiền vay đã đi đâu? *</label>
+          <select
+            data-testid="fund-kind-edit"
+            value={kind}
+            onChange={(e) => {
+              setKind(e.target.value as FundUseKind | '');
+              setAssetId('');
+            }}
+            className="w-full px-3 py-1.5 text-xs border border-slate-300 rounded-lg bg-white"
+          >
+            <option value="">-- Chọn nơi dùng vốn --</option>
+            <option value="wallet">Vào ví đầu tư</option>
+            <option value="asset">Mua tài sản</option>
+            <option value="spent">Đã chi tiêu (không có tài sản đối ứng)</option>
+          </select>
+          {kind === 'asset' && (
+            <select
+              data-testid="fund-asset-edit"
+              value={assetId}
+              onChange={(e) => setAssetId(e.target.value)}
+              className="mt-2 w-full px-3 py-1.5 text-xs border border-slate-300 rounded-lg bg-white"
+            >
+              <option value="">-- Chọn tài sản --</option>
+              {assets.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.name}
+                </option>
+              ))}
+            </select>
+          )}
         </div>
-        <div>
-          <span className="text-slate-400 block">Tổng tiền lãi cả chu kỳ</span>
-          <span className="font-bold text-rose-600 font-mono text-sm">{formatVND(totalInterest)}</span>
-        </div>
-        <div>
-          <span className="text-slate-400 block">Dư nợ gốc còn lại</span>
-          <span className="font-bold text-slate-900 font-mono text-sm">{formatVND(debt.remainingPrincipal)}</span>
-        </div>
-      </div>
-
-      {/* Bảng (cuộn) */}
-      <div className="min-h-0 flex-1 overflow-auto p-4">
-        <table className="w-full text-left text-xs border-collapse">
-          <thead className="sticky top-0 bg-white shadow-xs">
-            <tr className="border-b border-slate-200 text-slate-500 font-semibold">
-              <th className="py-2.5 px-3">Kỳ</th>
-              <th className="py-2.5 px-3">Ngày đến hạn</th>
-              <th className="py-2.5 px-3 text-right">Tiền gốc</th>
-              <th className="py-2.5 px-3 text-right">Tiền lãi</th>
-              <th className="py-2.5 px-3 text-right">Tổng thanh toán</th>
-              <th className="py-2.5 px-3 text-right">Dư nợ còn lại</th>
-              <th className="py-2.5 px-3 text-center">Trạng thái</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100 font-mono">
-            {schedule.map((item, idx) => {
-              const short = item.totalMonthlyPayment - availableCash;
-              const lock = idx === firstUnpaidIdx ? checkPayable(debt, idx) : null;
-              const locked = !!lock && lock.reason === 'month_locked';
-              return (
-                <tr
-                  key={item.period}
-                  className={`hover:bg-slate-50 transition-colors ${
-                    item.isPaid ? 'bg-slate-50/40 text-slate-400' : 'text-slate-800'
-                  }`}
-                >
-                  <td className="py-2.5 px-3 font-semibold">#{item.period}</td>
-                  <td className="py-2.5 px-3 font-sans">{item.dueDate}</td>
-                  <td className="py-2.5 px-3 text-right">{formatVND(item.principalPayable)}</td>
-                  <td className="py-2.5 px-3 text-right text-rose-600">{formatVND(item.interestPayable)}</td>
-                  <td className="py-2.5 px-3 text-right font-bold text-slate-900">
-                    {formatVND(item.totalMonthlyPayment)}
-                  </td>
-                  <td className="py-2.5 px-3 text-right">{formatVND(item.remainingBalance)}</td>
-                  <td className="py-2.5 px-3 text-center font-sans">
-                    {item.isPaid ? (
-                      <span className="text-[11px] text-emerald-700 font-semibold flex items-center justify-center gap-1">
-                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                        Đã trả
-                      </span>
-                    ) : idx === firstUnpaidIdx ? (
-                      <div className="flex flex-col items-center gap-0.5">
-                        <button
-                          onClick={() => onPayPeriod(idx, true)}
-                          disabled={locked || short > 0}
-                          title={locked && lock ? `Mở thanh toán từ ${lock.unlockDate}` : undefined}
-                          className="px-2.5 py-1 text-[11px] font-bold text-white bg-amber-600 hover:bg-amber-700 rounded shadow-xs disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-amber-600"
-                        >
-                          {locked && lock ? payLockLabel(lock) : 'Thanh toán'}
-                        </button>
-                        {!locked && short > 0 && (
-                          <span className="text-[10px] font-medium text-rose-600">Ví thiếu {formatVND(short)}</span>
-                        )}
-                      </div>
-                    ) : (
-                      <span className="text-[11px] text-slate-400">Chưa đến lượt</span>
-                    )}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-
-      <ModalFooter>
+      </ModalBody>
+      <ModalFooter hint={missing ? <span className="font-semibold text-rose-600">{missing}</span> : undefined}>
+        <button type="button" onClick={onClose} className="px-4 py-2 text-xs text-slate-600 hover:bg-slate-100 rounded-lg font-medium">
+          Hủy
+        </button>
         <button
           type="button"
-          onClick={onClose}
-          className="px-4 py-2 text-xs font-semibold text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-100"
+          disabled={!!missing}
+          onClick={() => onSave({ kind: kind as FundUseKind, assetId: kind === 'asset' ? assetId : undefined })}
+          className="px-5 py-2 text-xs font-bold text-white bg-slate-900 hover:bg-slate-800 rounded-lg disabled:cursor-not-allowed disabled:opacity-50"
         >
-          Đóng
+          Lưu
         </button>
       </ModalFooter>
     </Modal>
@@ -649,11 +638,13 @@ const AmortizationModal: React.FC<AmortizationModalProps> = ({
 
 interface AddDebtModalProps {
   assets: Asset[];
+  /** Tài sản có thể chọn làm nơi dùng vốn (chưa gắn khoản vay khác). */
+  fundAssets: Asset[];
   onClose: () => void;
   onAdd: (debt: Debt, disburseToWallet: boolean) => void;
 }
 
-const AddDebtModal: React.FC<AddDebtModalProps> = ({ assets, onClose, onAdd }) => {
+const AddDebtModal: React.FC<AddDebtModalProps> = ({ assets, fundAssets, onClose, onAdd }) => {
   const [name, setName] = useState('');
   const [lender, setLender] = useState('');
   const [category, setCategory] = useState<DebtCategory>('mortgage');
@@ -667,6 +658,11 @@ const AddDebtModal: React.FC<AddDebtModalProps> = ({ assets, onClose, onAdd }) =
   const [startDate, setStartDate] = useState(todayLocalStr());
   const [graceMonths, setGraceMonths] = useState('0');
   const [disburse, setDisburse] = useState(false);
+  // Khoản vay đang trả dở: theo dõi từ hôm nay, lịch chỉ gồm các kỳ còn lại (không dựng lịch sử từ lúc giải ngân)
+  const [mode, setMode] = useState<'new' | 'tracked'>('tracked');
+  // Nơi dùng vốn: bắt buộc chọn (tiền vay đã đi đâu)
+  const [fundKind, setFundKind] = useState<FundUseKind | ''>('');
+  const [fundAssetId, setFundAssetId] = useState('');
   const [paymentDayOfMonth, setPaymentDayOfMonth] = useState('15');
   const [method, setMethod] = useState<PaymentMethod>('declining_balance');
   const [collateralAssetId, setCollateralAssetId] = useState('');
@@ -676,7 +672,7 @@ const AddDebtModal: React.FC<AddDebtModalProps> = ({ assets, onClose, onAdd }) =
   const principal = principalAmount || 0;
   const tenor = parseInt(tenorMonths) || 0;
   const rate = parseFloat(annualInterestRate);
-  const day = parseInt(paymentDayOfMonth) || 0;
+  const day = mode === 'tracked' ? parseInt(startDate.slice(8, 10)) || 0 : parseInt(paymentDayOfMonth) || 0;
   const grace = Math.max(0, parseInt(graceMonths) || 0);
   // Bỏ trống = tự tính theo lịch trả đến hôm nay (không tự điền bằng gốc: sẽ sai với khoản vay đã trả một phần)
   const remainingInput = remainingPrincipal > 0 ? remainingPrincipal : undefined;
@@ -684,11 +680,14 @@ const AddDebtModal: React.FC<AddDebtModalProps> = ({ assets, onClose, onAdd }) =
   const missing: string[] = [];
   if (!name.trim()) missing.push('Nhập tên khoản vay.');
   if (!lender.trim()) missing.push('Nhập ngân hàng / tổ chức cho vay.');
-  if (principal <= 0) missing.push('Nhập số gốc vay ban đầu.');
-  if (!startDate) missing.push('Chọn ngày giải ngân.');
+  if (mode === 'new' && principal <= 0) missing.push('Nhập số gốc vay ban đầu.');
+  if (mode === 'tracked' && !(remainingPrincipal > 0)) missing.push('Nhập dư nợ gốc còn lại.');
+  if (!startDate) missing.push(mode === 'tracked' ? 'Chọn ngày đến hạn kỳ tiếp theo.' : 'Chọn ngày giải ngân.');
+  if (!fundKind) missing.push('Chọn nơi dùng vốn của khoản vay.');
+  if (fundKind === 'asset' && !fundAssetId) missing.push('Chọn tài sản được mua bằng vốn vay.');
 
   const remainingError =
-    principal > 0 && remainingInput !== undefined && remainingInput > principal
+    mode === 'new' && principal > 0 && remainingInput !== undefined && remainingInput > principal
       ? 'Dư nợ còn lại không thể lớn hơn số gốc vay ban đầu.'
       : '';
   const rateError = Number.isNaN(rate)
@@ -707,6 +706,36 @@ const AddDebtModal: React.FC<AddDebtModalProps> = ({ assets, onClose, onAdd }) =
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (hasProblems) return;
+
+    if (mode === 'tracked') {
+      const trackedDebt = buildTrackedDebt(
+        {
+          id: `debt-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`,
+          name: name || `Khoản vay ${lender}`,
+          lender,
+          category,
+          securityType: collateralAssetId ? 'secured' : 'unsecured',
+          collateralAssetId: collateralAssetId || undefined,
+          fundUse: { kind: fundKind as FundUseKind, assetId: fundKind === 'asset' ? fundAssetId : undefined },
+          notes,
+        },
+        {
+          balance: remainingPrincipal,
+          periods: tenor,
+          firstDueDate: startDate,
+          trackingStart: todayLocalStr(),
+          paymentDay: day,
+          annualRate: rate,
+          rateType,
+          baseRate: parseFloat(baseRate) || 0,
+          margin: parseFloat(floatingMargin) || 0,
+          method,
+          graceLeft: grace,
+        }
+      );
+      onAdd(trackedDebt, false);
+      return;
+    }
 
     const schedule = generateAmortizationSchedule(principal, rate, tenor, startDate, day, method, grace);
 
@@ -728,13 +757,14 @@ const AddDebtModal: React.FC<AddDebtModalProps> = ({ assets, onClose, onAdd }) =
       method,
       graceMonths: grace || undefined,
       collateralAssetId: collateralAssetId || undefined,
+      fundUse: { kind: fundKind as FundUseKind, assetId: fundKind === 'asset' ? fundAssetId : undefined },
       notes,
       status: 'active',
       schedule,
     };
     // Khoản vay đã giải ngân trong quá khứ: kỳ đã qua = đã trả; các kỳ còn lại căn theo dư nợ thực tế người dùng nhập
     const newDebt = applyHistoricalPayments(rawDebt, remainingInput);
-    onAdd(newDebt, disburse && startDate >= todayLocalStr());
+    onAdd(newDebt, fundKind === 'wallet' && disburse && startDate <= todayLocalStr());
   };
 
   return (
@@ -745,6 +775,24 @@ const AddDebtModal: React.FC<AddDebtModalProps> = ({ assets, onClose, onAdd }) =
     >
       <form onSubmit={handleSubmit} noValidate className="flex min-h-0 flex-1 flex-col">
         <ModalBody>
+          {/* Loại khoản vay: mới giải ngân hoặc đang trả dở */}
+          <div className="flex gap-1 rounded-lg bg-slate-100 p-1 text-xs">
+            {([['tracked', 'Khoản vay đang trả dở'], ['new', 'Khoản vay mới giải ngân']] as const).map(([k, label]) => (
+              <button
+                key={k}
+                type="button"
+                data-debt-mode={k}
+                onClick={() => {
+                  setMode(k);
+                  setDisburse(false);
+                }}
+                className={`flex-1 rounded-md px-3 py-1.5 font-semibold transition-colors ${mode === k ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-500 hover:text-slate-900'}`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
           {/* Category */}
           <div>
             <label className="text-xs font-semibold text-slate-700 block mb-1.5">Mục đích vay</label>
@@ -802,7 +850,8 @@ const AddDebtModal: React.FC<AddDebtModalProps> = ({ assets, onClose, onAdd }) =
           </div>
 
           {/* Principal & Remaining */}
-          <div className="grid grid-cols-2 gap-3">
+          <div className={mode === 'new' ? 'grid grid-cols-2 gap-3' : ''}>
+            {mode === 'new' && (
             <div>
               <label className="text-xs font-semibold text-slate-700 block mb-1">
                 Số gốc vay ban đầu (VND) *
@@ -817,9 +866,10 @@ const AddDebtModal: React.FC<AddDebtModalProps> = ({ assets, onClose, onAdd }) =
                 {principalAmount > 0 ? formatVND(principalAmount) : ''}
               </span>
             </div>
+            )}
             <div>
               <label className="text-xs font-semibold text-slate-700 block mb-1">
-                Dư nợ gốc còn lại hiện tại (VND)
+                {mode === 'tracked' ? 'Dư nợ gốc còn lại hiện tại (VND) *' : 'Dư nợ gốc còn lại hiện tại (VND)'}
               </label>
               <CurrencyInput
                 value={remainingPrincipal}
@@ -929,7 +979,7 @@ const AddDebtModal: React.FC<AddDebtModalProps> = ({ assets, onClose, onAdd }) =
 
             <div>
               <label className="text-xs font-semibold text-slate-700 block mb-1">
-                Thời hạn vay (tháng)
+                {mode === 'tracked' ? 'Số kỳ còn lại (tháng)' : 'Thời hạn vay (tháng)'}
               </label>
               <input
                 type="number"
@@ -942,7 +992,7 @@ const AddDebtModal: React.FC<AddDebtModalProps> = ({ assets, onClose, onAdd }) =
 
             <div>
               <label className="text-xs font-semibold text-slate-700 block mb-1">
-                Ngày giải ngân (bắt đầu vay) *
+                {mode === 'tracked' ? 'Ngày đến hạn kỳ tiếp theo *' : 'Ngày giải ngân (bắt đầu vay) *'}
               </label>
               <input
                 type="date"
@@ -955,7 +1005,7 @@ const AddDebtModal: React.FC<AddDebtModalProps> = ({ assets, onClose, onAdd }) =
 
             <div>
               <label className="text-xs font-semibold text-slate-700 block mb-1">
-                Ân hạn gốc (tháng, chỉ trả lãi)
+                {mode === 'tracked' ? 'Ân hạn gốc còn lại (tháng, chỉ trả lãi)' : 'Ân hạn gốc (tháng, chỉ trả lãi)'}
               </label>
               <input
                 type="number"
@@ -966,6 +1016,7 @@ const AddDebtModal: React.FC<AddDebtModalProps> = ({ assets, onClose, onAdd }) =
               />
             </div>
 
+            {mode === 'new' && (
             <div>
               <label className="text-xs font-semibold text-slate-700 block mb-1">
                 Ngày trả hàng tháng
@@ -980,17 +1031,66 @@ const AddDebtModal: React.FC<AddDebtModalProps> = ({ assets, onClose, onAdd }) =
                 className="w-full px-2.5 py-1.5 text-xs border border-slate-300 rounded-lg font-mono"
               />
             </div>
+            )}
           </div>
 
-          {startDate >= todayLocalStr() && (
-            <label className="flex items-start gap-2 text-xs text-slate-700 bg-sky-50 border border-sky-200 rounded-lg p-3 cursor-pointer">
-              <input type="checkbox" checked={disburse} onChange={(e) => setDisburse(e.target.checked)} className="mt-0.5" />
-              <span>
-                <strong>Tiền vay được giải ngân vào ví đầu tư</strong> (vay tiêu dùng / kinh doanh nhận tiền mặt).
-                Bỏ chọn nếu tiền chuyển thẳng cho bên bán (vay mua nhà, xe).
-              </span>
-            </label>
-          )}
+          {/* Nơi dùng vốn: bắt buộc */}
+          <div>
+            <label className="text-xs font-semibold text-slate-700 block mb-1">Nơi dùng vốn *</label>
+            <select
+              data-testid="fund-kind"
+              value={fundKind}
+              onChange={(e) => {
+                const k = e.target.value as FundUseKind | '';
+                setFundKind(k);
+                setFundAssetId('');
+                setDisburse(k === 'wallet' && startDate === todayLocalStr());
+              }}
+              className="w-full px-3 py-1.5 text-xs border border-slate-300 rounded-lg bg-white"
+            >
+              <option value="">-- Chọn tiền vay đã đi đâu --</option>
+              <option value="wallet">Vào ví đầu tư</option>
+              <option value="asset">Mua tài sản (gắn với tài sản trong danh mục)</option>
+              <option value="spent">Đã chi tiêu (không có tài sản đối ứng)</option>
+            </select>
+            {fundKind === 'asset' && (
+              <div className="mt-2">
+                <select
+                  data-testid="fund-asset"
+                  value={fundAssetId}
+                  onChange={(e) => setFundAssetId(e.target.value)}
+                  className="w-full px-3 py-1.5 text-xs border border-slate-300 rounded-lg bg-white"
+                >
+                  <option value="">-- Chọn tài sản --</option>
+                  {fundAssets.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.name} ({formatVND(a.currentValue, { compact: true })})
+                    </option>
+                  ))}
+                </select>
+                {fundAssets.length === 0 && (
+                  <div className="mt-1 text-[11px] font-medium text-amber-700">
+                    Chưa có tài sản nào chưa gắn khoản vay. Hãy thêm tài sản và chọn mua bằng vốn vay để tạo cùng lúc.
+                  </div>
+                )}
+              </div>
+            )}
+            {mode === 'new' && fundKind === 'wallet' && startDate <= todayLocalStr() && (
+              <label className="mt-2 flex items-start gap-2 text-xs text-slate-700 bg-sky-50 border border-sky-200 rounded-lg p-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  data-testid="fund-disburse"
+                  checked={disburse}
+                  onChange={(e) => setDisburse(e.target.checked)}
+                  className="mt-0.5"
+                />
+                <span>
+                  <strong>Cộng tiền vay vào ví và ghi dòng giải ngân</strong> (khoản vay mới nhận tiền).
+                  Bỏ chọn nếu khoản vay đã giải ngân từ trước và chỉ cần ghi nợ.
+                </span>
+              </label>
+            )}
+          </div>
 
           {/* Collateral Asset Linkage */}
           <div>
@@ -1028,267 +1128,6 @@ const AddDebtModal: React.FC<AddDebtModalProps> = ({ assets, onClose, onAdd }) =
             className="px-5 py-2 text-xs font-bold text-white bg-slate-900 hover:bg-slate-800 rounded-lg shadow-sm transition-colors disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-slate-900"
           >
             Lưu khoản nợ
-          </button>
-        </ModalFooter>
-      </form>
-    </Modal>
-  );
-};
-
-interface AdjustFloatingModalProps {
-  debt: Debt;
-  onClose: () => void;
-  onConfirm: (
-    newRate: number,
-    newPrincipal?: number,
-    baseRate?: number,
-    margin?: number
-  ) => void;
-}
-
-const AdjustFloatingModal: React.FC<AdjustFloatingModalProps> = ({
-  debt,
-  onClose,
-  onConfirm,
-}) => {
-  const [rateType, setRateType] = useState<InterestRateType>(debt.rateType);
-  const [baseRate, setBaseRate] = useState<string>(debt.baseRate?.toString() || '6.2');
-  const [floatingMargin, setFloatingMargin] = useState<string>(debt.floatingMargin?.toString() || '3.4');
-  const [annualRate, setAnnualRate] = useState<string>(debt.annualInterestRate.toString());
-  const [remainingPrincipal, setRemainingPrincipal] = useState<number>(debt.remainingPrincipal);
-
-  const unpaidCount = (debt.schedule || []).filter((s) => !s.isPaid).length;
-
-  const handleBaseRateChange = (val: string) => {
-    setBaseRate(val);
-    const b = parseFloat(val) || 0;
-    const m = parseFloat(floatingMargin) || 0;
-    setAnnualRate((b + m).toFixed(2));
-  };
-
-  const handleMarginChange = (val: string) => {
-    setFloatingMargin(val);
-    const b = parseFloat(baseRate) || 0;
-    const m = parseFloat(val) || 0;
-    setAnnualRate((b + m).toFixed(2));
-  };
-
-  // Live simulation comparison
-  const currentNext = getNextDuePayment(debt);
-  const simRate = parseFloat(annualRate) || debt.annualInterestRate;
-  const simPrincipal = remainingPrincipal > 0 ? remainingPrincipal : debt.remainingPrincipal;
-
-  const simulatedDebt = React.useMemo(() => {
-    return recalculateFloatingDebt(
-      debt,
-      simRate,
-      simPrincipal,
-      rateType === 'floating' ? parseFloat(baseRate) : undefined,
-      rateType === 'floating' ? parseFloat(floatingMargin) : undefined
-    );
-  }, [debt, simRate, simPrincipal, rateType, baseRate, floatingMargin]);
-
-  const simNext = getNextDuePayment(simulatedDebt);
-  const paymentDiff = simNext && currentNext ? simNext.total - currentNext.total : 0;
-
-  // ---- Ràng buộc nhập liệu ----
-  const rateNumber = parseFloat(annualRate);
-  const baseNumber = parseFloat(baseRate);
-  const marginNumber = parseFloat(floatingMargin);
-  const remainingError =
-    remainingPrincipal <= 0
-      ? 'Nhập dư nợ gốc còn lại lớn hơn 0. Nếu đã trả hết, hãy ghi nhận trả các kỳ còn lại.'
-      : remainingPrincipal > debt.principalAmount
-      ? `Dư nợ còn lại không thể lớn hơn gốc vay ban đầu (${formatVND(debt.principalAmount)}).`
-      : '';
-  const rateError = Number.isNaN(rateNumber)
-    ? 'Nhập lãi suất áp dụng.'
-    : rateNumber < 0 || rateNumber > MAX_RATE
-    ? `Lãi suất phải trong khoảng 0% – ${MAX_RATE}%/năm.`
-    : rateType === 'floating' && (Number.isNaN(baseNumber) || Number.isNaN(marginNumber))
-    ? 'Nhập đủ lãi suất cơ sở và biên độ thả nổi.'
-    : '';
-  const noPeriodError = unpaidCount === 0 ? 'Khoản vay không còn kỳ chưa trả nên không có lịch để tính lại.' : '';
-  const errors = [remainingError, rateError, noPeriodError].filter(Boolean);
-  const hasProblems = errors.length > 0;
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (hasProblems) return;
-    const rateNum = rateNumber;
-    const princNum = remainingPrincipal > 0 ? remainingPrincipal : undefined;
-    const baseNum = rateType === 'floating' ? parseFloat(baseRate) : undefined;
-    const marginNum = rateType === 'floating' ? parseFloat(floatingMargin) : undefined;
-
-    onConfirm(rateNum, princNum, baseNum, marginNum);
-  };
-
-  return (
-    <Modal
-      title="Cập Nhật Lãi Suất Thả Nổi & Dư Nợ"
-      subtitle={`${debt.name} · ${debt.lender} · Còn ${unpaidCount} kỳ chưa thanh toán`}
-      size="lg"
-      onClose={onClose}
-    >
-      <form onSubmit={handleSubmit} noValidate className="flex min-h-0 flex-1 flex-col">
-        <ModalBody>
-          {/* Rate Type Selector */}
-          <div>
-            <label className="text-xs font-semibold text-slate-700 block mb-1.5">
-              Cơ chế lãi suất áp dụng kỳ này
-            </label>
-            <div className="flex items-center gap-4 text-xs">
-              <label className="flex items-center gap-2 cursor-pointer font-medium text-slate-800">
-                <input
-                  type="radio"
-                  name="modalRateType"
-                  checked={rateType === 'floating'}
-                  onChange={() => setRateType('floating')}
-                  className="text-sky-600"
-                />
-                <span>Lãi suất Thả nổi (Lãi cơ sở + Biên độ)</span>
-              </label>
-              <label className="flex items-center gap-2 cursor-pointer font-medium text-slate-800">
-                <input
-                  type="radio"
-                  name="modalRateType"
-                  checked={rateType === 'fixed'}
-                  onChange={() => setRateType('fixed')}
-                  className="text-sky-600"
-                />
-                <span>Lãi suất Cố định</span>
-              </label>
-            </div>
-          </div>
-
-          {/* Floating calculation box */}
-          {rateType === 'floating' ? (
-            <div className="p-3.5 bg-sky-50/60 rounded-xl border border-sky-200 space-y-3">
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-xs font-semibold text-sky-950 block mb-1">
-                    Lãi suất cơ sở mới (%/năm)
-                  </label>
-                  <input
-                    type="number"
-                    step="0.05"
-                    value={baseRate}
-                    onChange={(e) => handleBaseRateChange(e.target.value)}
-                    className="w-full px-3 py-1.5 text-xs bg-white border border-sky-300 rounded-lg font-mono focus:outline-none focus:ring-1 focus:ring-sky-500"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs font-semibold text-sky-950 block mb-1">
-                    Biên độ thả nổi (%/năm)
-                  </label>
-                  <input
-                    type="number"
-                    step="0.05"
-                    value={floatingMargin}
-                    onChange={(e) => handleMarginChange(e.target.value)}
-                    className="w-full px-3 py-1.5 text-xs bg-white border border-sky-300 rounded-lg font-mono focus:outline-none focus:ring-1 focus:ring-sky-500"
-                  />
-                </div>
-              </div>
-
-              <div className="pt-2 border-t border-sky-200 flex items-center justify-between text-xs">
-                <span className="text-sky-900 font-medium">Tổng lãi suất áp dụng mới:</span>
-                <span className="font-extrabold text-sky-700 text-sm font-mono">
-                  {annualRate}%/năm
-                </span>
-              </div>
-            </div>
-          ) : (
-            <div>
-              <label className="text-xs font-semibold text-slate-700 block mb-1">
-                Lãi suất cố định mới (%/năm)
-              </label>
-              <input
-                type="number"
-                step="0.05"
-                value={annualRate}
-                onChange={(e) => setAnnualRate(e.target.value)}
-                className="w-full px-3 py-1.5 text-xs border border-slate-300 rounded-lg font-mono focus:outline-none focus:ring-1 focus:ring-slate-900"
-              />
-            </div>
-          )}
-
-          {/* Remaining Principal Adjustment */}
-          <div>
-            <div className="flex items-center justify-between mb-1">
-              <label className="text-xs font-semibold text-slate-700">
-                Dư nợ gốc còn lại thực tế (VND)
-              </label>
-              <span className="text-[11px] text-slate-400">
-                Hiện tại: {formatVND(debt.remainingPrincipal, { compact: true })}
-              </span>
-            </div>
-            <CurrencyInput
-              value={remainingPrincipal}
-              onChange={setRemainingPrincipal}
-              invalid={!!remainingError}
-              className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-slate-900"
-            />
-            <span className="text-[11px] text-slate-500 font-mono block mt-0.5">
-              {remainingPrincipal > 0 ? formatVND(remainingPrincipal) : ''}
-            </span>
-            <FieldError>{remainingError}</FieldError>
-          </div>
-
-          {/* LIVE SIMULATION BOX */}
-          <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200 space-y-2 text-xs">
-            <span className="text-[11px] font-bold text-slate-700 uppercase tracking-wider block">
-              Dự báo dòng tiền kỳ thanh toán tiếp theo
-            </span>
-
-            <div className="flex items-center justify-between text-slate-600">
-              <span>Đang áp dụng ({debt.annualInterestRate}%):</span>
-              <span className="font-mono tabular-nums font-bold text-slate-700">
-                {currentNext ? formatVND(currentNext.total) : '0 ₫'}/tháng
-              </span>
-            </div>
-
-            <div className="flex items-center justify-between text-slate-900 font-semibold pt-1 border-t border-slate-200">
-              <span>Sau khi điều chỉnh ({annualRate}%):</span>
-              <span className="font-mono tabular-nums font-bold text-sky-700 text-sm">
-                {simNext ? formatVND(simNext.total) : '0 ₫'}/tháng
-              </span>
-            </div>
-
-            <div className="flex items-center justify-between text-[11px] pt-1">
-              <span className="text-slate-500">Chênh lệch dòng tiền hàng tháng:</span>
-              <span
-                className={`font-mono font-bold ${
-                  paymentDiff > 0
-                    ? 'text-rose-600'
-                    : paymentDiff < 0
-                    ? 'text-emerald-600'
-                    : 'text-slate-500'
-                }`}
-              >
-                {paymentDiff > 0 ? `+${formatVND(paymentDiff)}` : formatVND(paymentDiff)}
-                {paymentDiff !== 0 && (paymentDiff > 0 ? ' (Tăng)' : ' (Giảm)')}
-              </span>
-            </div>
-          </div>
-
-        </ModalBody>
-        <ModalFooter
-          hint={errors[0] ? <span className="font-semibold text-rose-600">{errors[0]}</span> : undefined}
-        >
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-4 py-2 text-xs text-slate-600 hover:bg-slate-100 rounded-lg transition-colors font-medium"
-          >
-            Hủy
-          </button>
-          <button
-            type="submit"
-            disabled={hasProblems}
-            className="px-5 py-2 text-xs font-bold text-white bg-sky-600 hover:bg-sky-700 rounded-lg shadow-sm transition-colors disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-sky-600"
-          >
-            Cập nhật & Tính lại Lịch Khấu Hao
           </button>
         </ModalFooter>
       </form>

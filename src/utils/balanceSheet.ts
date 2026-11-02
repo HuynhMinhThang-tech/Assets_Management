@@ -91,7 +91,7 @@ export function shortTermPrincipal(debt: Debt, today: string = todayLocalStr()):
   let due = 0;
   if (debt.schedule && debt.schedule.length > 0) {
     for (const item of debt.schedule) {
-      if (!item.isPaid && item.dueDate <= horizon) due += item.principalPayable;
+      if (!item.isPaid && item.status !== 'cancelled' && item.dueDate <= horizon) due += item.principalPayable;
     }
   } else {
     const monthly = debt.tenorMonths > 0 ? debt.principalAmount / debt.tenorMonths : 0;

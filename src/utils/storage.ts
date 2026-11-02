@@ -5,12 +5,15 @@ import {
   Debt,
   CashTransaction,
   Wallet,
+  FundUse,
 } from '../types/finance';
-import { normalizeDebt, todayLocalStr } from './calculations';
+import { normalizeDebt, savingsCurrentValue, todayLocalStr } from './calculations';
+import { sortLedger } from './ledger';
+import { ensureTimeline } from './debtCore';
 
 const STORAGE_KEY = 'fintrack_vn_portfolio_v1';
 const BACKUP_KEY = 'fintrack_vn_portfolio_v1_backup';
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 
 // Mỗi tài khoản có kho dữ liệu riêng: <khóa gốc>_u_<id người dùng>
 let activeUserId: string | null = null;
@@ -196,6 +199,7 @@ export const INITIAL_DEMO_STATE: UserFinancialState = {
       collateralAssetId: 'asset-bds-vin', // Liên kết trực tiếp căn hộ Vinhomes
       collateralDescription: 'Căn hộ 2PN Vinhomes Smart City Tây Mỗ',
       notes: 'Thế chấp bằng chính hợp đồng mua bán căn hộ.',
+      fundUse: { kind: 'asset', assetId: 'asset-bds-vin' },
       status: 'active',
       schedule: [],
     },
@@ -215,6 +219,7 @@ export const INITIAL_DEMO_STATE: UserFinancialState = {
       method: 'equal_payment', // Trả góp đều hàng tháng (Niên kim)
       collateralDescription: 'Giấy tờ đăng ký gốc xe ô tô (Cavet)',
       notes: 'Cà-vẹt ngân hàng giữ, đóng gốc lãi đều đặn qua app.',
+      fundUse: { kind: 'spent' }, // Xe không nằm trong danh mục đầu tư: chỉ ghi nợ
       status: 'active',
       schedule: [],
     },
@@ -310,6 +315,41 @@ function ensureDebtsSchedules(debts: Debt[]): Debt[] {
   return debts.map((d) => normalizeDebt(d));
 }
 
+/** Sổ tiết kiệm có đủ gốc, lãi suất và ngày để suy ra giá trị. */
+function savingsReady(a: Asset): boolean {
+  const m: any = a.metadata || {};
+  return (m.depositAmount || a.initialCost) > 0 && Number.isFinite(m.annualInterestRate) && !!m.startDate && !!m.maturityDate;
+}
+
+/**
+ * Kỳ "đã qua trước khi theo dõi": đánh dấu kỳ đã trả mà không có giao dịch nào và có ngày trả đúng bằng ngày đến hạn
+ * (do app tự dựng lịch sử lúc thêm khoản vay). Lịch chỉ hiện các kỳ này khi người dùng bấm xem.
+ */
+function flagPreTracking(debts: Debt[], txs: CashTransaction[]): Debt[] {
+  return debts.map((d) => {
+    if (!d.schedule) return d;
+    let changed = false;
+    const schedule = d.schedule.map((it, i) => {
+      if (!it.isPaid || it.preTracking || it.paidDate !== it.dueDate) return it;
+      const recorded = txs.some((t) => t.type === 'debt_payment' && t.linkedDebtId === d.id && t.status !== 'voided' && !t.reversalOf && t.periodIndex === i);
+      if (recorded) return it;
+      changed = true;
+      return { ...it, preTracking: true };
+    });
+    return changed ? { ...d, schedule } : d;
+  });
+}
+
+const FUND_USE_KINDS = ['wallet', 'asset', 'spent', 'unspecified'];
+function normalizeFundUse(raw: any): FundUse {
+  if (!raw || typeof raw !== 'object' || !FUND_USE_KINDS.includes(raw.kind)) return { kind: 'unspecified' };
+  return {
+    kind: raw.kind,
+    assetId: raw.kind === 'asset' && raw.assetId ? String(raw.assetId) : undefined,
+    cashRecorded: raw.kind === 'wallet' && raw.cashRecorded === true ? true : undefined,
+  };
+}
+
 const num = (v: any, fallback = 0): number => (typeof v === 'number' && isFinite(v) ? v : Number(v) || fallback);
 
 /**
@@ -335,7 +375,7 @@ export function normalizeState(raw: any): UserFinancialState | null {
       initialCost: num(a.initialCost),
       currentValue: num(a.currentValue),
       realizedPnL: num(a.realizedPnL),
-      status: a.status === 'sold' ? 'sold' : 'active',
+      status: a.status === 'sold' ? 'sold' : a.status === 'voided' ? 'voided' : 'active',
       purchaseDate: a.purchaseDate || todayLocalStr(),
       lastValuationDate: a.lastValuationDate || a.purchaseDate || todayLocalStr(),
       metadata: a.metadata && typeof a.metadata === 'object' ? a.metadata : { itemType: 'Tài sản khác', details: '' },
@@ -353,12 +393,20 @@ export function normalizeState(raw: any): UserFinancialState | null {
       startDate: d.startDate || todayLocalStr(),
       method: d.method === 'equal_payment' ? 'equal_payment' : 'declining_balance',
       rateType: d.rateType === 'floating' ? 'floating' : 'fixed',
-      status: d.status === 'paid_off' ? 'paid_off' : 'active',
+      status: d.status === 'paid_off' ? 'paid_off' : d.status === 'voided' ? 'voided' : 'active',
+      // Dữ liệu cũ chưa có nơi dùng vốn: đánh dấu "chưa xác định" để nhắc bổ sung (không đổi ví, không đổi số liệu)
+      fundUse: normalizeFundUse(d.fundUse),
     }));
 
   const transactions: CashTransaction[] = (Array.isArray(raw.transactions) ? raw.transactions : [])
     .filter((t: any) => t && typeof t === 'object' && t.id && t.type)
-    .map((t: any) => ({ ...t, amount: num(t.amount), date: t.date || todayLocalStr(), title: t.title || '' }));
+    .map((t: any) => ({
+      ...t,
+      amount: num(t.amount),
+      date: String(t.date || todayLocalStr()).slice(0, 10),
+      title: t.title || '',
+      status: t.status === 'voided' ? 'voided' : undefined,
+    }));
 
   const snapshots = (Array.isArray(raw.snapshots) ? raw.snapshots : [])
     .filter((x: any) => x && x.date)
@@ -369,9 +417,12 @@ export function normalizeState(raw: any): UserFinancialState | null {
     isDemo: raw.isDemo === true,
     snapshots,
     wallet,
-    assets,
-    debts: ensureDebtsSchedules(rawDebts),
-    transactions,
+    // Giá trị sổ tiết kiệm suy ra từ gốc + lãi chưa nhận (không có giá để nhập tay)
+    assets: assets.map((a) => (a.status === 'active' && a.category === 'savings' && savingsReady(a) ? { ...a, currentValue: savingsCurrentValue(a), lastValuationDate: todayLocalStr() } : a)),
+    // Mọi khoản vay đều có dòng thời gian lãi suất (dữ liệu cũ: một mốc đầu = lãi hiện tại)
+    debts: flagPreTracking(ensureDebtsSchedules(rawDebts).map((d) => ({ ...d, rateTimeline: ensureTimeline(d) })), transactions),
+    // Sổ giao dịch luôn theo thứ tự ngày (mới → cũ); cùng ngày giữ thứ tự nhập
+    transactions: sortLedger(transactions),
   };
 }
 
@@ -565,7 +616,7 @@ export function exportStateToExcel(state: UserFinancialState): void {
     'Lãi thực tế đã chốt từ bán (VND)': a.realizedPnL || 0,
     'Ngày mua': a.purchaseDate,
     'Ngày định giá gần nhất': a.lastValuationDate,
-    'Trạng thái': a.status === 'active' ? 'Đang nắm giữ' : 'Đã bán',
+    'Trạng thái': a.status === 'active' ? 'Đang nắm giữ' : a.status === 'voided' ? 'Đã hủy' : 'Đã bán',
     'Khoản nợ liên kết': a.linkedDebtId || '',
     'Ghi chú': a.notes || '',
     'Thuộc tính chuyên biệt (JSON)': JSON.stringify(a.metadata || {}),
@@ -589,7 +640,7 @@ export function exportStateToExcel(state: UserFinancialState): void {
     'Ngày trả hàng tháng': d.paymentDayOfMonth,
     'Phương thức tính': d.method === 'declining_balance' ? 'Dư nợ giảm dần' : 'Trả đều hàng tháng',
     'Tài sản thế chấp liên kết': d.collateralAssetId || 'Không',
-    'Trạng thái': d.status === 'active' ? 'Đang trả' : 'Đã tất toán',
+    'Trạng thái': d.status === 'active' ? 'Đang trả' : d.status === 'voided' ? 'Đã hủy' : 'Đã tất toán',
   }));
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(debtsData), 'Khoản nợ & Đòn bẩy');
 

@@ -47,6 +47,8 @@ export interface SavingsMetadata {
   startDate: string;               // Ngày bắt đầu gửi (YYYY-MM-DD)
   maturityDate: string;            // Ngày đáo hạn (YYYY-MM-DD)
   rolloverOption: 'principal_and_interest' | 'principal_only' | 'close'; // Tự động tái tục gốc+lãi, gốc, tất toán
+  interestPayout?: 'maturity' | 'monthly' | 'upfront'; // Trả lãi cuối kỳ (mặc định), hàng tháng hoặc đầu kỳ
+  interestReceived?: number;       // Tổng lãi đã nhận về ví trong kỳ gửi hiện tại
 }
 
 export interface GoldMetadata {
@@ -78,7 +80,8 @@ export interface Asset {
   initialCost: number;             // Tổng giá vốn đầu tư ban đầu (VND)
   currentValue: number;            // Tổng giá trị thị trường hiện tại (VND)
   purchaseDate: string;            // Ngày mua (YYYY-MM-DD)
-  status: 'active' | 'sold';       // Đang nắm giữ hoặc Đã thanh lý hoàn toàn
+  status: 'active' | 'sold' | 'voided'; // Đang nắm giữ / Đã thanh lý hoàn toàn / Đã hủy (nhập nhầm, giữ lại để đối chiếu)
+  voidedAt?: string;               // Ngày hủy bản ghi (YYYY-MM-DD)
   notes?: string;
   metadata: AssetMetadata;
   realizedPnL: number;             // Lãi lỗ thực tế đã chốt (VND) từ bán/cổ tức
@@ -110,9 +113,57 @@ export interface AmortizationScheduleItem {
   remainingBalance: number;        // Dư nợ gốc còn lại sau kỳ này
   isPaid: boolean;                 // Trạng thái đã thanh toán kỳ này chưa
   paidDate?: string;               // Ngày thực tế đã thanh toán
+  status?: 'cancelled';            // 'cancelled' = kỳ bị hủy do tất toán sớm / trả trước rút ngắn kỳ hạn (không còn phải trả)
+  accrualFrom?: string;            // Ngày bắt đầu tính lãi của kỳ này nếu khác ngày đến hạn kỳ trước (sau khi trả trước một phần gốc)
+  segments?: RateSegment[];        // Kỳ lẻ (đổi lãi giữa kỳ): lãi theo từng đoạn ngày, tính ngày thực tế/365
+  preTracking?: boolean;           // Kỳ đã qua trước khi bắt đầu theo dõi trong app (không có giao dịch kèm theo)
+}
+
+/** Một đoạn ngày trong kỳ tính lãi với cùng một mức lãi suất. */
+export interface RateSegment {
+  from: string;                    // YYYY-MM-DD (tính từ ngày này)
+  to: string;                      // YYYY-MM-DD (đến hết ngày trước ngày này)
+  days: number;
+  annualRate: number;              // %/năm
+  interest: number;
+}
+
+/** Một mốc lãi suất: từ ngày hiệu lực trở đi áp dụng mức lãi này cho đến khi có mốc tiếp theo. */
+export interface RateChange {
+  id: string;
+  effectiveDate: string;           // Ngày hiệu lực (YYYY-MM-DD), có thể ở quá khứ hoặc tương lai
+  annualRate: number;              // Lãi suất áp dụng (%/năm) – thả nổi = lãi cơ sở + biên độ
+  baseRate?: number;               // Lãi cơ sở (thả nổi)
+  margin?: number;                 // Biên độ (thả nổi)
+  note?: string;
+  source?: 'initial' | 'manual';   // 'initial' = mốc đầu (không xóa được)
+}
+
+/** Điều chỉnh dư nợ theo sao kê ngân hàng (có dấu vết, không đụng tới ví). */
+export interface DebtAdjustment {
+  id: string;
+  date: string;                    // Ngày ghi nhận điều chỉnh
+  before: number;                  // Dư nợ gốc app đang tính
+  after: number;                   // Dư nợ gốc theo sao kê
+  note?: string;
+  lastPaidIndex: number;           // Chỉ số kỳ đã trả gần nhất lúc điều chỉnh (-1 = chưa trả kỳ nào)
+  itemBalanceBefore?: number;      // Dư nợ ghi ở kỳ đã trả gần nhất trước điều chỉnh
 }
 
 export type DebtSecurityType = 'secured' | 'unsecured'; // Vay thế chấp vs Vay tín chấp
+
+/** Nơi dùng vốn của khoản vay: tiền vay đã đi đâu. */
+export type FundUseKind =
+  | 'wallet'       // Vào ví đầu tư
+  | 'asset'        // Mua tài sản (gắn với một tài sản trong danh mục)
+  | 'spent'        // Đã chi tiêu / không có tài sản đối ứng
+  | 'unspecified'; // Chưa xác định (dữ liệu cũ, cần bổ sung)
+
+export interface FundUse {
+  kind: FundUseKind;
+  assetId?: string;       // kind = 'asset': tài sản được mua bằng vốn vay
+  cashRecorded?: boolean; // kind = 'wallet': true = đã ghi dòng giải ngân vào ví; không có = chỉ ghi nợ, ví không đổi
+}
 
 export interface Debt {
   id: string;
@@ -134,7 +185,15 @@ export interface Debt {
   collateralAssetId?: string;      // ID tài sản thế chấp / bảo đảm liên kết (nếu là vay thế chấp)
   collateralDescription?: string;  // Mô tả tài sản thế chấp nếu là tài sản ngoài (sổ đỏ khác, lương bảo lãnh...)
   notes?: string;
-  status: 'active' | 'paid_off';
+  status: 'active' | 'paid_off' | 'voided'; // Đang vay / Đã tất toán / Đã hủy (nhập nhầm)
+  voidedAt?: string;               // Ngày hủy bản ghi (YYYY-MM-DD)
+  fundUse?: FundUse;               // Nơi dùng vốn (bắt buộc với khoản mới; dữ liệu cũ = chưa xác định)
+  rateTimeline?: RateChange[];     // Dòng thời gian lãi suất (sắp theo ngày hiệu lực); mốc đầu là mốc khởi tạo
+  trackingStartDate?: string;      // Khoản vay đang trả dở: ngày bắt đầu theo dõi (không có lịch sử trước ngày này)
+  scheduleAnchorDate?: string;     // Ngày đến hạn của kỳ liền trước kỳ đầu tiên của lịch (mốc tính lãi kỳ 1)
+  adjustments?: DebtAdjustment[];  // Lịch sử điều chỉnh theo sao kê
+  closedDate?: string;             // Ngày tất toán sớm
+  closeReason?: 'early';           // Lý do đóng khoản vay trước hạn
   graceMonths?: number;            // Số tháng ân hạn gốc (chỉ trả lãi)
   schedule?: AmortizationScheduleItem[]; // Lịch trả nợ chi tiết
   rateHistory?: { date: string; rate: number; baseRate?: number; margin?: number }[]; // Lịch sử đổi lãi suất
@@ -168,7 +227,33 @@ export interface CashTransaction {
   note?: string;
   principalPortion?: number;       // (debt_payment) phần gốc trong khoản trả
   interestPortion?: number;        // (debt_payment) phần lãi trong khoản trả = chi phí lãi vay thực
-  fees?: number;                   // (sell_asset) phí môi giới + thuế đã trừ
+  periodIndex?: number;            // (debt_payment) chỉ số kỳ trong lịch trả (để hoàn nguyên khi hủy)
+  feePortion?: number;             // (debt_payment) phí trả trước hạn (tất toán sớm / trả trước một phần gốc)
+  noCash?: boolean;                // true = ghi nhận khoản trả nhưng KHÔNG đổi tiền ví (trả bằng tiền ngoài ví)
+  noVoid?: string;                 // Lý do không cho hủy giao dịch này (ví dụ: sinh ra từ tái tục sổ tiết kiệm)
+  /** Tất toán sớm: dữ liệu để hoàn nguyên khi hủy. */
+  settlement?: { balanceBefore: number; cancelled: number[] };
+  /** Trả trước một phần gốc: dữ liệu để hoàn nguyên khi hủy. */
+  prepay?: {
+    balanceBefore: number;
+    cancelled: number[];
+    /** Các kỳ chưa trả trước khi trả trước: [chỉ số, gốc, lãi, dư nợ sau kỳ, ngày bắt đầu tính lãi]. */
+    itemsBefore: Array<[number, number, number, number, string | null]>;
+  };
+  fees?: number;                   // (sell_asset) phí môi giới + thuế = giá trị ghi nhận − thực nhận
+  // --- Bán tài sản (amount = số tiền THỰC NHẬN vào ví) ---
+  quantity?: number;               // số lượng bán (cổ phiếu, CCQ, chỉ); không có với BĐS/tài sản khác
+  unitPrice?: number;              // giá bán mỗi đơn vị
+  recognizedValue?: number;        // giá trị ghi nhận = số lượng × giá bán (trước phí/thuế)
+  costBasisSold?: number;          // giá vốn của phần đã bán
+  valueSold?: number;              // thị giá sổ sách của phần đã bán lúc bán (để hoàn nguyên khi hủy)
+  realizedPnL?: number;            // lãi/lỗ đã chốt = thực nhận − giá vốn phần bán
+  soldOut?: boolean;               // bán hết → tài sản chuyển sang "đã thanh lý"
+  // --- Hủy bản ghi nhập nhầm: giữ nguyên dòng cũ, ghi thêm bút toán đảo cùng ngày ---
+  status?: 'active' | 'voided';    // 'voided' = dòng này đã bị hủy
+  voidedAt?: string;               // (dòng gốc) ngày thực hiện hủy
+  voidedBy?: string;               // (dòng gốc) id bút toán đảo
+  reversalOf?: string;             // (bút toán đảo) id dòng gốc bị đảo
 }
 
 export interface NetWorthSnapshot {

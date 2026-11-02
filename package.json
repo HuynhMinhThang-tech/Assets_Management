@@ -11,7 +11,9 @@
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
     "test:logic": "tsx tests/logic.test.ts",
-    "test:phase1": "tsx tests/phase1.test.ts"
+    "test:phase1": "tsx tests/phase1.test.ts",
+    "test:phase2": "tsx tests/phase2.test.ts",
+    "test:phase3": "tsx tests/phase3.test.ts"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.2.0",

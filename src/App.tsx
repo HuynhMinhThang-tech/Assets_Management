@@ -18,7 +18,7 @@ import {
   Debt,
   CashTransaction,
 } from './types/finance';
-import { normalizeState, emptyState, createDemoState, findLocalLegacyData } from './utils/storage';
+import { normalizeState, emptyState, createDemoState, findLocalLegacyData, exportStateToJson } from './utils/storage';
 import { PublicUser, AdminAccount, countPendingWork } from './utils/auth';
 import { api, ApiError } from './utils/api';
 import { PortfolioSyncer, SyncStatus } from './utils/syncer';
@@ -27,12 +27,23 @@ import {
   calculateFinancialSummary,
   getNextDuePayment,
   formatVND,
-  recalculateFloatingDebt,
   todayLocalStr,
   checkPayable,
   payLockLabel,
 } from './utils/calculations';
 import { applyRevaluation, RevaluationInput } from './utils/pricing';
+import { insertTx } from './utils/ledger';
+import {
+  OpResult, SellInput, applyAddDebt, applyDeposit, applyIncome, applyPayPeriod, applySell, applySetFundUse, applyVoidAsset,
+  applyVoidDebt, applyVoidTx, applyWithdraw, canVoidAsset, canVoidDebt, canVoidTx, IncomeInput,
+} from './utils/ops';
+import { PayDateField } from './components/PayDateField';
+import {
+  PrepayInput, RateChangeInput, ReconcileInput, SettleInput, applyAddRateChange, applyPrepay, applyReconcile, applyRemoveRateChange,
+  applySettle, applyUndoReconcile,
+} from './utils/debtOps';
+import { RolloverInput, applyReceiveSavingsInterest, applyRollover } from './utils/savingsOps';
+import { FundUse } from './types/finance';
 
 export type PendingAction = 'add_asset' | 'add_debt' | 'deposit' | null;
 
@@ -41,27 +52,8 @@ let uidCounter = 0;
 const uid = (prefix: string) =>
   `${prefix}-${Date.now().toString(36)}${(uidCounter++).toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 
-const UNIT_KEY: Record<string, string | undefined> = {
-  stock: 'quantity',
-  fund: 'units',
-  gold: 'quantityChi',
-};
-
-export interface SellParams {
-  assetId: string;
-  sellQuantity?: number; // số lượng bán (CP / CCQ / chỉ); bỏ trống = bán toàn bộ
-  proceeds: number; // tổng tiền bán (trước phí/thuế)
-  fees: number; // phí môi giới + thuế
-  note?: string;
-}
-
-export interface IncomeParams {
-  type: 'dividend' | 'rental_income' | 'interest_income';
-  assetId?: string;
-  amount: number;
-  date: string;
-  note?: string;
-}
+export type SellParams = SellInput;
+export type IncomeParams = IncomeInput;
 
 interface FinanceAppProps {
   user: PublicUser;
@@ -247,11 +239,11 @@ function FinanceApp({
     }
     setState((prev) => {
       const updatedWallet = { ...prev.wallet };
-      const updatedTransactions = [...prev.transactions];
+      let updatedTransactions = [...prev.transactions];
 
       if (deductFromWallet && costToDeduct > 0) {
         updatedWallet.availableCash = updatedWallet.availableCash - costToDeduct;
-        updatedTransactions.unshift({
+        updatedTransactions = insertTx(updatedTransactions, {
           id: uid('tx'),
           date: newAsset.purchaseDate,
           type: 'buy_asset',
@@ -278,6 +270,7 @@ function FinanceApp({
             linkedDebt.securityType === 'unsecured'
               ? undefined
               : linkedDebt.collateralAssetId || assetToAdd.id,
+          fundUse: { kind: 'asset', assetId: assetToAdd.id },
         };
         debtsToAdd = [linkedDebtWithCollateral, ...prev.debts];
       }
@@ -301,16 +294,6 @@ function FinanceApp({
     }));
   };
 
-  const handleDeleteAsset = (assetId: string) => {
-    setState((prev) => ({
-      ...prev,
-      assets: prev.assets.filter((a) => a.id !== assetId),
-      debts: prev.debts.map((d) =>
-        d.collateralAssetId === assetId ? { ...d, collateralAssetId: undefined } : d
-      ),
-    }));
-  };
-
   /**
    * Định giá lại theo ĐƠN GIÁ (giá/CP, NAV/CCQ, giá/chỉ, giá/m²): tổng giá trị = số lượng × đơn giá.
    * Tiết kiệm và tài sản khác không có đơn giá nên nhập tổng giá trị. Lưu cả đơn giá lẫn tổng vào lịch sử.
@@ -323,102 +306,72 @@ function FinanceApp({
     }));
   };
 
-  /**
-   * Bán tài sản – hỗ trợ bán MỘT PHẦN (CP/CCQ/vàng) và phí + thuế.
-   * Lãi thực tế = (tiền bán − phí/thuế) − giá vốn phần bán.
-   */
-  const handleSellAsset = ({ assetId, sellQuantity, proceeds, fees, note }: SellParams) => {
-    if (!(proceeds > 0) || fees < 0 || fees >= proceeds) {
-      void dialog.alert({
-        tone: 'error',
-        title: 'Số tiền bán không hợp lệ',
-        message: 'Tiền bán phải lớn hơn 0 và phí/thuế phải nhỏ hơn tiền bán.',
-      });
-      return;
+  /** Chạy một thao tác ghi sổ (hàm thuần trong utils/ops). Lỗi → hộp thoại, thành công → cập nhật trạng thái. */
+  const runOp = (op: (st: UserFinancialState) => OpResult, errorTitle: string): boolean => {
+    const r = op(state);
+    if (!r.ok) {
+      void dialog.alert({ tone: 'error', title: errorTitle, message: r.error });
+      return false;
     }
-    setState((prev) => {
-      const asset = prev.assets.find((a) => a.id === assetId);
-      if (!asset) return prev;
+    setState(r.state);
+    return true;
+  };
 
-      const unitKey = UNIT_KEY[asset.category];
-      const totalUnits: number = unitKey ? (asset.metadata as any)[unitKey] || 0 : 0;
-      const qty = unitKey && sellQuantity && sellQuantity > 0 ? Math.min(sellQuantity, totalUnits) : totalUnits;
-      const ratio = unitKey && totalUnits > 0 ? qty / totalUnits : 1;
-      const isPartial = ratio < 1;
+  /**
+   * Bán tài sản: nhập số lượng, giá bán, số tiền THỰC NHẬN và ngày bán.
+   * Phí/thuế = giá trị ghi nhận − thực nhận; lãi/lỗ chốt = thực nhận − giá vốn phần bán.
+   */
+  const handleSellAsset = (params: SellParams): boolean => {
+    const ok = runOp((st) => applySell(st, params, uid), 'Không ghi nhận được lần bán');
+    if (ok) dialog.toast('Đã ghi nhận bán tài sản và cộng tiền vào ví.');
+    return ok;
+  };
 
-      const costPortion = Math.round(asset.initialCost * ratio);
-      const valuePortion = Math.round(asset.currentValue * ratio);
-      const netProceeds = Math.max(0, proceeds - fees);
-      const realizedProfit = netProceeds - costPortion;
-      const today = todayLocalStr();
+  /** Hủy bản ghi nhập nhầm (thay cho xóa): dữ liệu được giữ lại, ví hoàn đúng số bằng bút toán đảo. */
+  const confirmVoid = async (title: string, message: string): Promise<boolean> =>
+    dialog.confirm({ tone: 'warning', title, message, confirmText: 'Hủy bản ghi' });
 
-      const newTx: CashTransaction = {
-        id: uid('tx'),
-        date: today,
-        type: 'sell_asset',
-        amount: netProceeds,
-        fees: fees || undefined,
-        title: isPartial
-          ? `Bán một phần ${qty}/${totalUnits}: ${asset.name}`
-          : `Thanh lý tài sản: ${asset.name}`,
-        linkedAssetId: asset.id,
-        note: `${note || 'Chốt lời về ví'} · Giá vốn phần bán: ${formatVND(costPortion)}${
-          fees ? ` · Phí/thuế: ${formatVND(fees)}` : ''
-        } · Lãi/lỗ thực tế: ${formatVND(realizedProfit)}`,
-      };
+  const handleVoidAsset = async (assetId: string) => {
+    const chk = canVoidAsset(state, assetId);
+    if (!chk.ok) return void dialog.alert({ tone: 'warning', title: 'Chưa thể hủy tài sản', message: chk.reason || '' });
+    const a = state.assets.find((x) => x.id === assetId)!;
+    const refund = state.transactions.filter((t) => t.type === 'buy_asset' && t.linkedAssetId === assetId && t.status !== 'voided' && !t.reversalOf).reduce((sum, t) => sum + t.amount, 0);
+    const ok = await confirmVoid(
+      `Hủy tài sản "${a.name}"?`,
+      `Tài sản được đánh dấu "đã hủy" và loại khỏi mọi số liệu.${refund > 0 ? ` Số tiền mua ${formatVND(refund)} được hoàn lại ví bằng một bút toán đảo.` : ''}\n\nDữ liệu vẫn được giữ lại để đối chiếu.`
+    );
+    if (ok && runOp((st) => applyVoidAsset(st, assetId, uid), 'Không hủy được tài sản')) dialog.toast(`Đã hủy tài sản "${a.name}".`);
+  };
 
-      const updatedAssets = prev.assets.map((a) => {
-        if (a.id !== assetId) return a;
-        if (isPartial) {
-          return {
-            ...a,
-            initialCost: a.initialCost - costPortion,
-            currentValue: a.currentValue - valuePortion,
-            realizedPnL: (a.realizedPnL || 0) + realizedProfit,
-            lastValuationDate: today,
-            metadata: { ...(a.metadata as any), [unitKey as string]: totalUnits - qty },
-          };
-        }
-        return {
-          ...a,
-          status: 'sold' as const,
-          currentValue: 0,
-          realizedPnL: (a.realizedPnL || 0) + realizedProfit,
-          lastValuationDate: today,
-        };
-      });
+  const handleVoidDebt = async (debtId: string) => {
+    const chk = canVoidDebt(state, debtId);
+    if (!chk.ok) return void dialog.alert({ tone: 'warning', title: 'Chưa thể hủy khoản vay', message: chk.reason || '' });
+    const d = state.debts.find((x) => x.id === debtId)!;
+    const ok = await confirmVoid(
+      `Hủy khoản vay "${d.name}"?`,
+      'Khoản vay được đánh dấu "đã hủy" và loại khỏi dư nợ. Nếu đã ghi dòng giải ngân vào ví, số tiền đó được hoàn lại bằng bút toán đảo.\n\nDữ liệu vẫn được giữ lại để đối chiếu.'
+    );
+    if (ok && runOp((st) => applyVoidDebt(st, debtId, uid), 'Không hủy được khoản vay')) dialog.toast(`Đã hủy khoản vay "${d.name}".`);
+  };
 
-      return {
-        ...prev,
-        wallet: { ...prev.wallet, availableCash: prev.wallet.availableCash + netProceeds },
-        assets: updatedAssets,
-        transactions: [newTx, ...prev.transactions],
-      };
-    });
-    dialog.toast('Đã ghi nhận bán tài sản và cộng tiền vào ví.');
+  const handleVoidTx = async (txId: string) => {
+    const chk = canVoidTx(state, txId);
+    if (!chk.ok) return void dialog.alert({ tone: 'warning', title: 'Chưa thể hủy giao dịch', message: chk.reason || '' });
+    const t = state.transactions.find((x) => x.id === txId)!;
+    const ok = await confirmVoid(
+      'Hủy giao dịch này?',
+      `${t.title}\n${formatVND(t.amount)} · ngày ${t.date}\n\nDòng này được đánh dấu "đã hủy" và một bút toán đảo cùng ngày được ghi để ví trở về đúng số cũ. Các thay đổi lên tài sản / khoản vay (nếu có) được hoàn nguyên.`
+    );
+    if (ok && runOp((st) => applyVoidTx(st, txId, uid), 'Không hủy được giao dịch')) dialog.toast('Đã hủy giao dịch.');
   };
 
   // 2. DEBT HANDLERS
-  const handleAddDebt = (newDebt: Debt, disburseToWallet = false) => {
-    if (!(newDebt.principalAmount > 0)) return;
-    setState((prev) => {
-      const transactions = [...prev.transactions];
-      let wallet = prev.wallet;
-      if (disburseToWallet && newDebt.principalAmount > 0) {
-        wallet = { ...wallet, availableCash: wallet.availableCash + newDebt.principalAmount };
-        transactions.unshift({
-          id: uid('tx'),
-          date: newDebt.startDate,
-          type: 'loan_disbursement',
-          amount: newDebt.principalAmount,
-          title: `Giải ngân khoản vay: ${newDebt.name}`,
-          linkedDebtId: newDebt.id,
-          note: `${newDebt.lender} giải ngân vào ví đầu tư`,
-        });
-      }
-      return { ...prev, wallet, transactions, debts: [newDebt, ...prev.debts] };
-    });
-  };
+  const handleAddDebt = (newDebt: Debt, disburseToWallet = false): boolean =>
+    runOp((st) => applyAddDebt(st, newDebt, { disburseToWallet }, uid), 'Không thêm được khoản vay');
+
+  /** Bổ sung nơi dùng vốn cho khoản nợ cũ: chỉ gắn nhãn, không đổi ví. */
+  const handleSetFundUse = (debtId: string, fundUse: FundUse): boolean =>
+    runOp((st) => applySetFundUse(st, debtId, fundUse), 'Không lưu được nơi dùng vốn');
 
   const handleUpdateDebt = (updatedDebt: Debt) => {
     setState((prev) => ({
@@ -427,15 +380,10 @@ function FinanceApp({
     }));
   };
 
-  const handleDeleteDebt = (debtId: string) => {
-    setState((prev) => ({
-      ...prev,
-      debts: prev.debts.filter((d) => d.id !== debtId),
-      assets: prev.assets.map((a) => (a.linkedDebtId === debtId ? { ...a, linkedDebtId: undefined } : a)),
-    }));
-  };
-
-  /** Ghi nhận trả 1 kỳ: phải trả đúng thứ tự, đủ tiền ví, có xác nhận. Trả về true nếu đã ghi. */
+  /**
+   * Ghi nhận trả 1 kỳ: đúng thứ tự, mỗi tháng một kỳ, đủ tiền ví, có xác nhận và NGÀY THANH TOÁN do người dùng chọn.
+   * Mọi kiểm tra nằm trong utils/ops (applyPayPeriod); đây chỉ là lớp hộp thoại.
+   */
   const handlePayDebtPeriod = async (debtId: string, periodIndex: number, deductFromWallet: boolean): Promise<boolean> => {
     const targetDebt = state.debts.find((d) => d.id === debtId);
     if (!targetDebt || !targetDebt.schedule || !targetDebt.schedule[periodIndex]) return false;
@@ -464,6 +412,8 @@ function FinanceApp({
     if (deductFromWallet && insufficient(item.totalMonthlyPayment, `trả kỳ #${item.period} "${targetDebt.name}"`)) {
       return false;
     }
+    const today = todayLocalStr();
+    const chosen = { date: today };
     const ok = await dialog.confirm({
       title: `Xác nhận đã trả kỳ #${item.period}?`,
       message: (
@@ -483,6 +433,15 @@ function FinanceApp({
               <span>{formatVND(item.totalMonthlyPayment)}</span>
             </div>
           </div>
+          <PayDateField
+            label="Ngày thanh toán"
+            initial={today}
+            min={targetDebt.startDate}
+            max={today}
+            onChange={(v) => {
+              chosen.date = v;
+            }}
+          />
           <div>{deductFromWallet ? 'Số tiền sẽ được trừ khỏi ví đầu tư.' : 'Không trừ ví.'}</div>
         </div>
       ),
@@ -490,165 +449,77 @@ function FinanceApp({
     });
     if (!ok) return false;
 
-    setState((prev) => {
-      const debt = prev.debts.find((d) => d.id === debtId);
-      if (!debt || !debt.schedule || !debt.schedule[periodIndex] || debt.schedule[periodIndex].isPaid) return prev;
-      // Kiểm tra lại trên dữ liệu mới nhất (bấm đúp / hai tab cùng mở)
-      if (!checkPayable(debt, periodIndex).ok) return prev;
-      const si = debt.schedule[periodIndex];
-      const today = todayLocalStr();
-      const updatedSchedule = [...debt.schedule];
-      updatedSchedule[periodIndex] = { ...si, isPaid: true, paidDate: today };
-
-      const newRemaining = Math.max(0, si.remainingBalance);
-      const isAllPaid = newRemaining <= 0 || updatedSchedule.every((x) => x.isPaid);
-
-      const wallet = { ...prev.wallet };
-      const transactions = [...prev.transactions];
-      if (deductFromWallet) {
-        wallet.availableCash = wallet.availableCash - si.totalMonthlyPayment;
-        transactions.unshift({
-          id: uid('tx'),
-          date: today,
-          type: 'debt_payment',
-          amount: si.totalMonthlyPayment,
-          title: `Trả nợ kỳ #${si.period}: ${debt.name}`,
-          linkedDebtId: debt.id,
-          principalPortion: si.principalPayable,
-          interestPortion: si.interestPayable,
-          note: `Gốc: ${formatVND(si.principalPayable)} · Lãi: ${formatVND(si.interestPayable)}`,
-        });
-      }
-
-      return {
-        ...prev,
-        wallet,
-        transactions,
-        debts: prev.debts.map((d) =>
-          d.id === debtId
-            ? {
-                ...d,
-                remainingPrincipal: newRemaining,
-                status: (isAllPaid ? 'paid_off' : 'active') as 'paid_off' | 'active',
-                schedule: updatedSchedule,
-              }
-            : d
-        ),
-      };
-    });
-    dialog.toast(`Đã ghi nhận trả kỳ #${item.period} – ${targetDebt.name}.`);
-    return true;
+    const done = runOp(
+      (st) => applyPayPeriod(st, { debtId, periodIndex, deductFromWallet, date: chosen.date }, uid),
+      'Không ghi nhận được kỳ trả'
+    );
+    if (done) dialog.toast(`Đã ghi nhận trả kỳ #${item.period} – ${targetDebt.name}.`);
+    return done;
   };
 
-  const handleAdjustFloatingRate = (
-    debtId: string,
-    newRate: number,
-    newPrincipal?: number,
-    baseRate?: number,
-    margin?: number
-  ) => {
-    if (!(newRate >= 0) || newRate > 100) return;
-    if (newPrincipal !== undefined && !(newPrincipal > 0)) return;
-    setState((prev) => ({
-      ...prev,
-      debts: prev.debts.map((d) => {
-        if (d.id !== debtId) return d;
-        const updated = recalculateFloatingDebt(d, newRate, newPrincipal, baseRate, margin);
-        return {
-          ...updated,
-          rateHistory: [
-            ...(d.rateHistory || []),
-            { date: todayLocalStr(), rate: newRate, baseRate, margin },
-          ],
-        };
-      }),
-    }));
+  // ---- Khoản vay: mốc lãi suất, tất toán sớm, trả trước gốc, đối chiếu sao kê (utils/debtOps) ----
+  const handleAddRateChange = (input: RateChangeInput): boolean => {
+    const ok = runOp((st) => applyAddRateChange(st, input, uid), 'Không lưu được mốc lãi suất');
+    if (ok) dialog.toast('Đã lưu mốc lãi suất và tính lại các kỳ chưa trả.');
+    return ok;
+  };
+  const handleRemoveRateChange = (debtId: string, changeId: string): boolean => {
+    const ok = runOp((st) => applyRemoveRateChange(st, debtId, changeId), 'Không bỏ được mốc lãi suất');
+    if (ok) dialog.toast('Đã bỏ mốc lãi suất và tính lại các kỳ chưa trả.');
+    return ok;
+  };
+  const handleSettleDebt = (input: SettleInput): boolean => {
+    const ok = runOp((st) => applySettle(st, input, uid), 'Không tất toán được khoản vay');
+    if (ok) dialog.toast('Đã tất toán khoản vay.');
+    return ok;
+  };
+  const handlePrepayDebt = (input: PrepayInput): boolean => {
+    const ok = runOp((st) => applyPrepay(st, input, uid), 'Không ghi nhận được khoản trả trước');
+    if (ok) dialog.toast('Đã ghi nhận trả trước gốc và tính lại lịch trả.');
+    return ok;
+  };
+  const handleReconcileDebt = (input: ReconcileInput): boolean => {
+    const ok = runOp((st) => applyReconcile(st, input, uid), 'Không ghi nhận được điều chỉnh');
+    if (ok) dialog.toast('Đã đối chiếu dư nợ theo sao kê và tính lại lịch trả.');
+    return ok;
+  };
+  const handleUndoReconcile = (debtId: string): boolean => {
+    const ok = runOp((st) => applyUndoReconcile(st, debtId), 'Không hoàn tác được điều chỉnh');
+    if (ok) dialog.toast('Đã hoàn tác điều chỉnh gần nhất.');
+    return ok;
   };
 
-  // 3. WALLET HANDLERS
-  const handleDeposit = (amount: number, note?: string) => {
-    if (!(amount > 0) || !Number.isFinite(amount)) return;
-    setState((prev) => ({
-      ...prev,
-      wallet: {
-        ...prev.wallet,
-        availableCash: prev.wallet.availableCash + amount,
-        totalDeposited: prev.wallet.totalDeposited + amount,
-      },
-      transactions: [
-        {
-          id: uid('tx'),
-          date: todayLocalStr(),
-          type: 'deposit',
-          amount,
-          title: 'Nạp vốn vào ví đầu tư',
-          note: note || 'Nạp tiền mặt khả dụng',
-        },
-        ...prev.transactions,
-      ],
-    }));
-    dialog.toast(`Đã nạp ${formatVND(amount)} vào ví.`);
+  // ---- Tiết kiệm: nhận lãi, tái tục (utils/savingsOps) ----
+  const handleReceiveInterest = (p: { assetId: string; amount: number; date: string; note?: string }): boolean => {
+    const ok = runOp((st) => applyReceiveSavingsInterest(st, p, uid), 'Không ghi nhận được lãi tiết kiệm');
+    if (ok) dialog.toast(`Đã nhận lãi ${formatVND(p.amount)} vào ví.`);
+    return ok;
+  };
+  const handleRollover = (p: RolloverInput): boolean => {
+    const ok = runOp((st) => applyRollover(st, p, uid), 'Không tái tục được sổ tiết kiệm');
+    if (ok) dialog.toast('Đã tái tục sổ tiết kiệm.');
+    return ok;
   };
 
-  const handleWithdraw = (amount: number, note?: string) => {
-    if (!(amount > 0) || !Number.isFinite(amount)) return;
-    if (insufficient(amount, 'rút')) return;
-    setState((prev) => ({
-      ...prev,
-      wallet: {
-        ...prev.wallet,
-        availableCash: prev.wallet.availableCash - amount,
-        totalWithdrawn: prev.wallet.totalWithdrawn + amount,
-      },
-      transactions: [
-        {
-          id: uid('tx'),
-          date: todayLocalStr(),
-          type: 'withdraw',
-          amount,
-          title: 'Rút vốn từ ví đầu tư',
-          note: note || 'Rút tiền mặt khỏi danh mục',
-        },
-        ...prev.transactions,
-      ],
-    }));
-    dialog.toast(`Đã rút ${formatVND(amount)} khỏi ví.`);
+  // 3. WALLET HANDLERS (có ngày giao dịch chọn được)
+  const handleDeposit = (amount: number, note?: string, date: string = todayLocalStr()): boolean => {
+    const ok = runOp((st) => applyDeposit(st, amount, date, note, uid), 'Không nạp được tiền');
+    if (ok) dialog.toast(`Đã nạp ${formatVND(amount)} vào ví.`);
+    return ok;
+  };
+
+  const handleWithdraw = (amount: number, note?: string, date: string = todayLocalStr()): boolean => {
+    if (insufficient(amount, 'rút')) return false;
+    const ok = runOp((st) => applyWithdraw(st, amount, date, note, uid), 'Không rút được tiền');
+    if (ok) dialog.toast(`Đã rút ${formatVND(amount)} khỏi ví.`);
+    return ok;
   };
 
   /** Ghi nhận thu nhập: cổ tức, tiền thuê nhà, lãi tiền gửi → cộng ví + sổ cái (đếm đúng 1 lần vào lãi thực tế). */
-  const handleRecordIncome = ({ type, assetId, amount, date, note }: IncomeParams) => {
-    if (!(amount > 0) || !Number.isFinite(amount) || date > todayLocalStr()) return;
-    setState((prev) => {
-      const asset = prev.assets.find((a) => a.id === assetId);
-      const label =
-        type === 'dividend' ? 'Cổ tức' : type === 'rental_income' ? 'Tiền thuê' : 'Lãi tiền gửi';
-      const tx: CashTransaction = {
-        id: uid('tx'),
-        date,
-        type,
-        amount,
-        title: asset ? `${label}: ${asset.name}` : label,
-        linkedAssetId: asset?.id,
-        note,
-      };
-      return {
-        ...prev,
-        wallet: { ...prev.wallet, availableCash: prev.wallet.availableCash + amount },
-        transactions: [tx, ...prev.transactions],
-        assets: prev.assets.map((a) =>
-          a.id === assetId && type === 'dividend' && a.category === 'stock'
-            ? {
-                ...a,
-                metadata: {
-                  ...(a.metadata as any),
-                  totalDividendsReceived: ((a.metadata as any).totalDividendsReceived || 0) + amount,
-                },
-              }
-            : a
-        ),
-      };
-    });
-    dialog.toast(`Đã ghi nhận thu nhập ${formatVND(amount)} vào ví.`);
+  const handleRecordIncome = (params: IncomeParams): boolean => {
+    const ok = runOp((st) => applyIncome(st, params, uid), 'Không ghi nhận được thu nhập');
+    if (ok) dialog.toast(`Đã ghi nhận thu nhập ${formatVND(params.amount)} vào ví.`);
+    return ok;
   };
 
   const handleClearDemo = () => {
@@ -726,9 +597,11 @@ function FinanceApp({
               onAutoOpenConsumed={() => setPendingAction(null)}
               onAddAsset={handleAddAsset}
               onUpdateAsset={handleUpdateAsset}
-              onDeleteAsset={handleDeleteAsset}
+              onVoidAsset={handleVoidAsset}
               onRevalueAsset={handleRevalueAsset}
               onSellAsset={handleSellAsset}
+              onReceiveInterest={handleReceiveInterest}
+              onRolloverSavings={handleRollover}
             />
           )}
 
@@ -739,9 +612,15 @@ function FinanceApp({
               onAutoOpenConsumed={() => setPendingAction(null)}
               onAddDebt={handleAddDebt}
               onUpdateDebt={handleUpdateDebt}
-              onDeleteDebt={handleDeleteDebt}
+              onVoidDebt={handleVoidDebt}
+              onSetFundUse={handleSetFundUse}
               onPayDebtPeriod={handlePayDebtPeriod}
-              onAdjustFloatingRate={handleAdjustFloatingRate}
+              onAddRateChange={handleAddRateChange}
+              onRemoveRateChange={handleRemoveRateChange}
+              onSettleDebt={handleSettleDebt}
+              onPrepayDebt={handlePrepayDebt}
+              onReconcileDebt={handleReconcileDebt}
+              onUndoReconcile={handleUndoReconcile}
             />
           )}
 
@@ -753,6 +632,7 @@ function FinanceApp({
               onDeposit={handleDeposit}
               onWithdraw={handleWithdraw}
               onRecordIncome={handleRecordIncome}
+              onVoidTx={handleVoidTx}
             />
           )}
 
@@ -778,7 +658,7 @@ function FinanceApp({
       </div>
 
       {accountOpen && (
-        <AccountModal user={user} onClose={() => setAccountOpen(false)} onUserChanged={onUserChanged} />
+        <AccountModal user={user} onClose={() => setAccountOpen(false)} onUserChanged={onUserChanged} onDownloadBackup={() => exportStateToJson(state)} />
       )}
     </div>
   );

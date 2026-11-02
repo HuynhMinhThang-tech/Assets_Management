@@ -9,6 +9,7 @@ import {
   Filter,
   CheckCircle2,
   DollarSign,
+  Undo2,
 } from 'lucide-react';
 import { UserFinancialState, TransactionType } from '../types/finance';
 import type { IncomeParams } from '../App';
@@ -21,16 +22,21 @@ import {
   inRange,
   isRangeInvalid,
   rangeForPreset,
+  sortLedger,
   summarizeLedger,
+  txEffect,
 } from '../utils/ledger';
+import { canVoidTx, checkTxDate } from '../utils/ops';
 import { CurrencyInput } from './CurrencyInput';
 import { Modal, ModalBody, ModalFooter, FieldError } from './ui/Modal';
 
 interface WalletViewProps {
   state: UserFinancialState;
-  onDeposit: (amount: number, note?: string) => void;
-  onWithdraw: (amount: number, note?: string) => void;
+  onDeposit: (amount: number, note?: string, date?: string) => void;
+  onWithdraw: (amount: number, note?: string, date?: string) => void;
   onRecordIncome: (income: IncomeParams) => void;
+  /** Hủy giao dịch nhập nhầm (bút toán đảo, không xóa). */
+  onVoidTx: (txId: string) => void;
   autoOpenDeposit?: boolean;
   onAutoOpenConsumed?: () => void;
 }
@@ -40,6 +46,7 @@ export const WalletView: React.FC<WalletViewProps> = ({
   onDeposit,
   onWithdraw,
   onRecordIncome,
+  onVoidTx,
   autoOpenDeposit,
   onAutoOpenConsumed,
 }) => {
@@ -80,9 +87,11 @@ export const WalletView: React.FC<WalletViewProps> = ({
 
   const [depositAmount, setDepositAmount] = useState<number>(0);
   const [depositNote, setDepositNote] = useState('');
+  const [depositDate, setDepositDate] = useState(todayLocalStr());
 
   const [withdrawAmount, setWithdrawAmount] = useState<number>(0);
   const [withdrawNote, setWithdrawNote] = useState('');
+  const [withdrawDate, setWithdrawDate] = useState(todayLocalStr());
 
   // ---- Ràng buộc tiền: không cho bấm xác nhận khi số tiền sai ----
   const today = todayLocalStr();
@@ -93,7 +102,10 @@ export const WalletView: React.FC<WalletViewProps> = ({
         ? 'Ví không còn tiền khả dụng để rút.'
         : `Vượt số dư khả dụng. Bạn chỉ có thể rút tối đa ${formatVND(available)}.`
       : '';
-  const canWithdraw = withdrawAmount > 0 && !withdrawError;
+  const depositDateError = checkTxDate(depositDate, undefined, todayLocalStr());
+  const withdrawDateError = checkTxDate(withdrawDate, undefined, todayLocalStr());
+  const canDeposit = depositAmount > 0 && !depositDateError;
+  const canWithdraw = withdrawAmount > 0 && !withdrawError && !withdrawDateError;
   const incomeDateError = !incomeDate ? 'Chọn ngày nhận.' : incomeDate > today ? 'Ngày nhận không được ở tương lai.' : '';
   const canSubmitIncome = incomeAmount > 0 && !incomeDateError;
 
@@ -101,11 +113,13 @@ export const WalletView: React.FC<WalletViewProps> = ({
     setIsDepositModalOpen(false);
     setDepositAmount(0);
     setDepositNote('');
+    setDepositDate(todayLocalStr());
   };
   const closeWithdraw = () => {
     setIsWithdrawModalOpen(false);
     setWithdrawAmount(0);
     setWithdrawNote('');
+    setWithdrawDate(todayLocalStr());
   };
   const closeIncome = () => {
     setIsIncomeOpen(false);
@@ -127,29 +141,25 @@ export const WalletView: React.FC<WalletViewProps> = ({
 
   const handleConfirmDeposit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (depositAmount <= 0) return;
-    onDeposit(depositAmount, depositNote || 'Nạp vốn bổ sung vào ví đầu tư');
+    if (!canDeposit) return;
+    onDeposit(depositAmount, depositNote || 'Nạp vốn bổ sung vào ví đầu tư', depositDate);
     closeDeposit();
   };
 
   const handleConfirmWithdraw = (e: React.FormEvent) => {
     e.preventDefault();
     if (!canWithdraw) return;
-    onWithdraw(withdrawAmount, withdrawNote || 'Rút vốn từ ví đầu tư');
+    onWithdraw(withdrawAmount, withdrawNote || 'Rút vốn từ ví đầu tư', withdrawDate);
     closeWithdraw();
   };
 
   // Calculate running balance for each transaction backwards from current wallet available cash
   const transactionsWithRunningBalance = React.useMemo(() => {
     let running = state.wallet.availableCash;
-    return state.transactions.map((tx) => {
-      const isPositive = POSITIVE_TYPES.includes(tx.type);
+    // Sổ luôn theo ngày giao dịch (mới → cũ), cùng ngày theo thứ tự nhập; bút toán đảo ngược chiều dòng gốc
+    return sortLedger(state.transactions).map((tx) => {
       const balanceAfter = running;
-      if (isPositive) {
-        running = running - tx.amount;
-      } else {
-        running = running + tx.amount;
-      }
+      running = running - txEffect(tx);
       return {
         ...tx,
         balanceAfter,
@@ -162,10 +172,10 @@ export const WalletView: React.FC<WalletViewProps> = ({
     if (!inRange(tx.date, dateRange)) return false;
     if (filterType === 'all') return true;
     if (filterType === 'inflow') {
-      return POSITIVE_TYPES.includes(tx.type);
+      return txEffect(tx) > 0;
     }
     if (filterType === 'outflow') {
-      return (OUTFLOW_TYPES as string[]).includes(tx.type);
+      return txEffect(tx) < 0;
     }
     return tx.type === filterType;
   });
@@ -416,13 +426,24 @@ export const WalletView: React.FC<WalletViewProps> = ({
                   <th className="py-3 px-4">Nội dung / Đối tác</th>
                   <th className="py-3 px-4 text-right">Biến động dòng tiền</th>
                   <th className="py-3 px-4 text-right">Số dư sau biến động</th>
+                  <th className="py-3 px-3 w-16" aria-label="Thao tác"></th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {filteredTransactions.map((tx) => {
                   const badge = getTxTypeBadge(tx.type);
+                  const isVoided = tx.status === 'voided';
+                  const isReversal = !!tx.reversalOf;
+                  const effect = txEffect(tx);
+                  const voidable = canVoidTx(state, tx.id).ok;
                   return (
-                    <tr key={tx.id} className="hover:bg-slate-50/70 transition-colors">
+                    <tr
+                      key={tx.id}
+                      data-tx={tx.id}
+                      data-voided={isVoided ? 'true' : undefined}
+                      data-reversal={isReversal ? 'true' : undefined}
+                      className={`hover:bg-slate-50/70 transition-colors ${isVoided || isReversal ? 'text-slate-400' : ''}`}
+                    >
                       <td className="py-3 px-4 font-mono text-slate-600 whitespace-nowrap">
                         {tx.date}
                       </td>
@@ -432,20 +453,46 @@ export const WalletView: React.FC<WalletViewProps> = ({
                         >
                           {badge.label}
                         </span>
+                        {isVoided && (
+                          <span className="ml-1.5 text-[11px] font-semibold px-2 py-0.5 rounded border border-rose-200 bg-rose-50 text-rose-700">
+                            Đã hủy
+                          </span>
+                        )}
+                        {isReversal && (
+                          <span className="ml-1.5 text-[11px] font-semibold px-2 py-0.5 rounded border border-slate-200 bg-slate-100 text-slate-600">
+                            Bút toán đảo
+                          </span>
+                        )}
                       </td>
-                      <td className="py-3 px-4 font-medium text-slate-900">
+                      <td className={`py-3 px-4 font-medium ${isVoided || isReversal ? 'text-slate-400' : 'text-slate-900'} ${isVoided ? 'line-through' : ''}`}>
                         {tx.title}
                       </td>
                       <td className="py-3 px-4 text-right font-mono font-bold whitespace-nowrap tabular-nums">
                         <span
-                          className={badge.isPositive ? 'text-emerald-600' : 'text-slate-900'}
+                          className={
+                            isVoided || isReversal ? 'text-slate-400' : effect > 0 ? 'text-emerald-600' : 'text-slate-900'
+                          }
                         >
-                          {badge.isPositive ? '+' : '-'}
+                          {effect > 0 ? '+' : '-'}
                           {formatVND(tx.amount)}
                         </span>
                       </td>
                       <td className="py-3 px-4 text-right font-mono font-bold text-slate-900 whitespace-nowrap tabular-nums">
                         {formatVND(tx.balanceAfter)}
+                      </td>
+                      <td className="py-3 px-3 text-right whitespace-nowrap">
+                        {voidable && (
+                          <button
+                            type="button"
+                            data-void-tx={tx.id}
+                            onClick={() => onVoidTx(tx.id)}
+                            title="Hủy bản ghi nhập nhầm"
+                            className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-slate-600 hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700"
+                          >
+                            <Undo2 className="w-3 h-3" />
+                            <span>Hủy</span>
+                          </button>
+                        )}
                       </td>
                     </tr>
                   );
@@ -531,6 +578,20 @@ export const WalletView: React.FC<WalletViewProps> = ({
               </div>
 
               <div>
+                <label className="text-xs font-semibold text-slate-700 block mb-1">Ngày nạp</label>
+                <input
+                  type="date"
+                  data-testid="deposit-date"
+                  value={depositDate}
+                  max={today}
+                  aria-invalid={depositDateError ? true : undefined}
+                  onChange={(e) => setDepositDate(e.target.value)}
+                  className="w-full px-3 py-1.5 text-xs border border-slate-300 rounded-lg"
+                />
+                <FieldError>{depositDateError}</FieldError>
+              </div>
+
+              <div>
                 <label className="text-xs font-semibold text-slate-700 block mb-1">
                   Nguồn tiền / Ghi chú
                 </label>
@@ -552,7 +613,7 @@ export const WalletView: React.FC<WalletViewProps> = ({
               </button>
               <button
                 type="submit"
-                disabled={depositAmount <= 0}
+                disabled={!canDeposit}
                 className="px-4 py-1.5 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg shadow-sm transition-colors disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-emerald-600"
               >
                 Xác nhận Nạp Tiền
@@ -594,6 +655,20 @@ export const WalletView: React.FC<WalletViewProps> = ({
                   </button>
                 </div>
                 <FieldError>{withdrawError}</FieldError>
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold text-slate-700 block mb-1">Ngày rút</label>
+                <input
+                  type="date"
+                  data-testid="withdraw-date"
+                  value={withdrawDate}
+                  max={today}
+                  aria-invalid={withdrawDateError ? true : undefined}
+                  onChange={(e) => setWithdrawDate(e.target.value)}
+                  className="w-full px-3 py-1.5 text-xs border border-slate-300 rounded-lg"
+                />
+                <FieldError>{withdrawDateError}</FieldError>
               </div>
 
               <div>

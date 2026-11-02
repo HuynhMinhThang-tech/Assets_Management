@@ -1,5 +1,5 @@
 import { CashTransaction, TransactionType } from '../types/finance';
-import { daysInMonth, parseYMD } from './calculations';
+import { daysInMonth, isLiveTx, parseYMD } from './calculations';
 
 /** Loại giao dịch làm TĂNG tiền ví. */
 export const INFLOW_TYPES: TransactionType[] = [
@@ -14,7 +14,41 @@ export const INFLOW_TYPES: TransactionType[] = [
 export const OUTFLOW_TYPES: TransactionType[] = ['withdraw', 'buy_asset', 'debt_payment'];
 
 export const isInflow = (type: TransactionType): boolean => INFLOW_TYPES.includes(type);
-const signed = (tx: CashTransaction): number => (isInflow(tx.type) ? tx.amount : -tx.amount);
+
+/**
+ * Ảnh hưởng của một dòng sổ lên tiền ví: dương = tăng, âm = giảm.
+ * Bút toán đảo (reversalOf) ngược chiều với dòng gốc nên hai dòng triệt tiêu nhau.
+ */
+export const txEffect = (tx: CashTransaction): number =>
+  tx.noCash ? 0 : (isInflow(tx.type) ? tx.amount : -tx.amount) * (tx.reversalOf ? -1 : 1);
+const signed = txEffect;
+
+/**
+ * Các giao dịch "thật sự xảy ra": bỏ dòng đã hủy và bút toán đảo của nó (hai dòng này triệt tiêu nhau).
+ * Dùng cho mọi thống kê (thu nhập, lãi vay đã trả, lịch…); sổ ví vẫn hiện đủ cả hai để đối chiếu.
+ */
+export const liveTransactions = (list: CashTransaction[]): CashTransaction[] => list.filter(isLiveTx);
+
+/** Sắp sổ theo ngày giảm dần; cùng ngày giữ nguyên thứ tự nhập (dòng nhập sau đứng trước). */
+export function sortLedger(list: CashTransaction[]): CashTransaction[] {
+  return list
+    .map((t, i) => ({ t, i }))
+    .sort((a, b) => {
+      const da = (a.t.date || '').slice(0, 10);
+      const db = (b.t.date || '').slice(0, 10);
+      return da < db ? 1 : da > db ? -1 : a.i - b.i;
+    })
+    .map((x) => x.t);
+}
+
+/** Chèn giao dịch mới vào đúng vị trí theo ngày (mới → cũ); cùng ngày thì đứng trước các dòng đã có. */
+export function insertTx(list: CashTransaction[], tx: CashTransaction): CashTransaction[] {
+  const d = (tx.date || '').slice(0, 10);
+  const idx = list.findIndex((t) => (t.date || '').slice(0, 10) <= d);
+  const out = [...list];
+  out.splice(idx === -1 ? out.length : idx, 0, tx);
+  return out;
+}
 
 export type RangePreset = 'all' | 'this_month' | 'last_month' | 'last_30' | 'this_quarter' | 'this_year' | 'custom';
 
@@ -96,8 +130,8 @@ export function summarizeLedger(
   availableCash: number,
   range: DateRange
 ): LedgerSummary {
-  const inflow = visible.filter((t) => isInflow(t.type)).reduce((s, t) => s + t.amount, 0);
-  const outflow = visible.filter((t) => !isInflow(t.type)).reduce((s, t) => s + t.amount, 0);
+  const inflow = visible.reduce((s, t) => s + Math.max(0, txEffect(t)), 0);
+  const outflow = visible.reduce((s, t) => s + Math.max(0, -txEffect(t)), 0);
   const after = (d: string) => allTransactions.filter((t) => (t.date || '').slice(0, 10) > d).reduce((s, t) => s + signed(t), 0);
   const fromOnward = allTransactions
     .filter((t) => !range.from || (t.date || '').slice(0, 10) >= range.from)

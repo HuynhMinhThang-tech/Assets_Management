@@ -1,5 +1,5 @@
 import { Asset, UserFinancialState } from '../types/finance';
-import { checkPayable, diffDays, dueDateFor, formatVND, getSavingsAccrual, todayLocalStr } from './calculations';
+import { checkPayable, diffDays, dueDateFor, formatVND, getSavingsAccrual, isLiveTx, isOpenItem, todayLocalStr } from './calculations';
 
 /**
  * Dựng các sự kiện thu / chi của MỘT THÁNG từ dữ liệu sẵn có – không lưu thêm gì:
@@ -80,9 +80,10 @@ export function buildMonthEvents(
   // 1. Kỳ trả nợ
   for (const debt of state.debts) {
     const schedule = debt.schedule || [];
-    const firstUnpaid = schedule.findIndex((i) => !i.isPaid);
+    const firstUnpaid = schedule.findIndex(isOpenItem);
     schedule.forEach((item, idx) => {
       if (item.dueDate.slice(0, 7) !== ym) return;
+      if (item.status === 'cancelled') return;
       const kind: CalendarEventKind = item.isPaid
         ? 'debt_paid'
         : item.dueDate < today
@@ -114,7 +115,7 @@ export function buildMonthEvents(
 
   // 2. Tiền đã nhận thật (giao dịch trong Ví)
   const incomeTx = state.transactions.filter(
-    (t) => INCOME_TX_LABEL[t.type] && t.date.slice(0, 7) === ym
+    (t) => isLiveTx(t) && INCOME_TX_LABEL[t.type] && t.date.slice(0, 7) === ym
   );
   for (const t of incomeTx) {
     events.push({
@@ -135,6 +136,7 @@ export function buildMonthEvents(
     if (!rec) continue;
     const date = dueDateFor(monthStart, 0, rec.day);
     if (date < asset.purchaseDate) continue;
+    if (asset.status === 'voided') continue;
     if (asset.status === 'sold' && date > asset.lastValuationDate) continue;
     if (incomeTx.some((t) => t.type === 'rental_income' && t.linkedAssetId === asset.id)) continue;
 
