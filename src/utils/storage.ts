@@ -410,7 +410,16 @@ export function normalizeState(raw: any): UserFinancialState | null {
 
   const snapshots = (Array.isArray(raw.snapshots) ? raw.snapshots : [])
     .filter((x: any) => x && x.date)
-    .map((x: any) => ({ date: x.date, netWorth: num(x.netWorth), assets: num(x.assets), debts: num(x.debts), cash: num(x.cash) }));
+    .map((x: any) => {
+      const base: any = { date: x.date, netWorth: num(x.netWorth), assets: num(x.assets), debts: num(x.debts), cash: num(x.cash) };
+      if (x.groups && typeof x.groups === 'object') {
+        const g = x.groups;
+        base.groups = { stock: num(g.stock), fund: num(g.fund), gold: num(g.gold), savings: num(g.savings), real_estate: num(g.real_estate), other: num(g.other) };
+        base.debtShort = num(x.debtShort);
+        base.debtLong = num(x.debtLong);
+      }
+      return base;
+    });
 
   return {
     schemaVersion: SCHEMA_VERSION,

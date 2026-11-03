@@ -262,6 +262,10 @@ export interface NetWorthSnapshot {
   assets: number;
   debts: number;
   cash: number;
+  /** Ảnh chụp chi tiết (từ ngày nâng cấp trở đi): tổng theo nhóm tài sản và nợ ngắn/dài hạn. */
+  groups?: { stock: number; fund: number; gold: number; savings: number; real_estate: number; other: number };
+  debtShort?: number;
+  debtLong?: number;
 }
 
 export interface UserFinancialState {

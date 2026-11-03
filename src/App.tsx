@@ -6,7 +6,7 @@ import { AssetsView } from './components/AssetsView';
 import { DebtsView } from './components/DebtsView';
 import { WalletView } from './components/WalletView';
 import { CalendarView } from './components/CalendarView';
-import { BalanceSheetView } from './components/BalanceSheetView';
+import { ReportsView } from './components/ReportsView';
 import { AuthScreen } from './components/AuthScreen';
 import { AdminView } from './components/AdminView';
 import { AccountModal } from './components/AccountModal';
@@ -38,6 +38,8 @@ import {
   applyVoidDebt, applyVoidTx, applyWithdraw, canVoidAsset, canVoidDebt, canVoidTx, IncomeInput,
 } from './utils/ops';
 import { PayDateField } from './components/PayDateField';
+import { calculateBalanceSheet } from './utils/balanceSheet';
+import { groupsOf } from './utils/reports';
 import {
   PrepayInput, RateChangeInput, ReconcileInput, SettleInput, applyAddRateChange, applyPrepay, applyReconcile, applyRemoveRateChange,
   applySettle, applyUndoReconcile,
@@ -188,12 +190,16 @@ function FinanceApp({
     if (state.isDemo || lastSnapKey.current === snapKey) return;
     lastSnapKey.current = snapKey;
     const today = todayLocalStr();
+    const g = groupsOf(calculateBalanceSheet(state, today));
     const snap = {
       date: today,
       netWorth: summary.netWorth,
       assets: summary.totalAssetValue,
       debts: summary.totalDebtBalance,
       cash: state.wallet.availableCash,
+      groups: { stock: g.stock, fund: g.fund, gold: g.gold, savings: g.savings, real_estate: g.real_estate, other: g.other },
+      debtShort: g.debtShort,
+      debtLong: g.debtLong,
     };
     setState((prev) => {
       const list = [...(prev.snapshots || [])];
@@ -644,7 +650,7 @@ function FinanceApp({
             />
           )}
 
-          {currentTab === 'balance' && <BalanceSheetView state={state} />}
+          {currentTab === 'balance' && <ReportsView state={state} />}
 
           {currentTab === 'admin' && user.role === 'admin' && (
             <AdminView

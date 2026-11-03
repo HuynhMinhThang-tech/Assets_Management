@@ -3,15 +3,21 @@ import { UserFinancialState } from '../types/finance';
 import { formatVND } from '../utils/calculations';
 import {
   BalanceLine,
+  BalanceSheet,
   DebtLine,
   RatioStatus,
   calculateBalanceSheet,
   statusHigherIsBetter,
   statusLowerIsBetter,
 } from '../utils/balanceSheet';
+import { BalanceGroups, GROUP_LABELS } from '../utils/reports';
 
 interface BalanceSheetViewProps {
   state: UserFinancialState;
+  /** Bảng cân đối tại cuối kỳ báo cáo (mặc định: hôm nay). */
+  balance?: BalanceSheet;
+  /** Cột đầu kỳ / cuối kỳ / thay đổi theo nhóm. */
+  compare?: { start: BalanceGroups; end: BalanceGroups; startSource: string };
 }
 
 const STATUS_STYLE: Record<RatioStatus, { label: string; className: string }> = {
@@ -106,8 +112,10 @@ const RatioGroup: React.FC<{ title: string; children: React.ReactNode }> = ({ ti
   </section>
 );
 
-export const BalanceSheetView: React.FC<BalanceSheetViewProps> = ({ state }) => {
-  const bs = useMemo(() => calculateBalanceSheet(state), [state]);
+export const BalanceSheetView: React.FC<BalanceSheetViewProps> = ({ state, balance, compare }) => {
+  const computed = useMemo(() => calculateBalanceSheet(state), [state]);
+  const bs = balance ?? computed;
+  const unspecifiedDebts = state.debts.filter((d) => d.status === 'active' && (!d.fundUse || d.fundUse.kind === 'unspecified')).length;
   const r = bs.ratios;
 
   const debtPct = bs.totalAssets > 0 ? Math.min(100, Math.max(0, (bs.totalLiabilities / bs.totalAssets) * 100)) : 0;
@@ -126,7 +134,7 @@ export const BalanceSheetView: React.FC<BalanceSheetViewProps> = ({ state }) => 
   return (
     <div className="space-y-6 pb-12">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 className="text-lg font-bold text-slate-900">Bảng cân đối tài sản và nợ</h2>
+        <h2 className="text-lg font-bold text-slate-900">Bảng cân đối</h2>
         <span className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-700">
           Tại ngày {formatDateVN(bs.asOf)}
         </span>
@@ -167,7 +175,56 @@ export const BalanceSheetView: React.FC<BalanceSheetViewProps> = ({ state }) => 
             <div className="h-full bg-rose-500" style={{ width: `${debtPct}%` }} />
             <div className="h-full bg-emerald-500" style={{ width: `${equityPct}%` }} />
           </div>
+          <div data-funding className="flex flex-wrap items-center gap-x-5 gap-y-1 text-xs font-mono text-slate-700">
+            <span>Vốn nạp ròng {formatVND(bs.equity.contributed)}</span>
+            <span>Vốn vay {formatVND(bs.totalLiabilities)}</span>
+            <span>Lãi/lỗ lũy kế {formatVND(bs.equity.retained)}</span>
+          </div>
+          {unspecifiedDebts > 0 && (
+            <div data-funding-warning className="text-xs font-semibold text-amber-700">
+              {unspecifiedDebts} khoản vay chưa xác định nơi dùng vốn
+            </div>
+          )}
         </div>
+      )}
+
+      {compare && (
+        <section data-compare className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm overflow-x-auto">
+          <div className="flex items-center justify-between pb-2 border-b border-slate-200">
+            <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider">Biến động trong kỳ</h3>
+            <span className="text-[11px] font-semibold text-slate-500">Đầu kỳ: {compare.startSource}</span>
+          </div>
+          <table className="w-full text-sm mt-2">
+            <thead>
+              <tr className="text-xs text-slate-500 text-right">
+                <th className="text-left font-semibold py-1.5">Khoản mục</th>
+                <th className="font-semibold py-1.5">Đầu kỳ</th>
+                <th className="font-semibold py-1.5">Cuối kỳ</th>
+                <th className="font-semibold py-1.5">Thay đổi</th>
+              </tr>
+            </thead>
+            <tbody className="font-mono tabular-nums">
+              {[...GROUP_LABELS, ['assets', 'Tổng tài sản'], ['debts', 'Tổng nợ phải trả'], ['equity', 'Vốn chủ sở hữu']].map(([k, label]) => {
+                const a = compare.start[k as keyof BalanceGroups];
+                const b = compare.end[k as keyof BalanceGroups];
+                if (a === 0 && b === 0 && !['assets', 'debts', 'equity'].includes(k as string)) return null;
+                const d = b - a;
+                const total = ['assets', 'debts', 'equity'].includes(k as string);
+                return (
+                  <tr key={k as string} data-group={k as string} className={`border-t border-slate-100 text-right ${total ? 'font-bold text-slate-900' : 'text-slate-800'}`}>
+                    <td className="text-left font-sans py-1.5">{label as string}</td>
+                    <td className="py-1.5">{formatVND(a)}</td>
+                    <td className="py-1.5">{formatVND(b)}</td>
+                    <td className={`py-1.5 ${d > 0 ? 'text-emerald-600' : d < 0 ? 'text-rose-600' : ''}`}>
+                      {d > 0 ? '+' : d < 0 ? '-' : ''}
+                      {formatVND(Math.abs(d))}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </section>
       )}
 
       {/* 3. BẢNG CÂN ĐỐI */}

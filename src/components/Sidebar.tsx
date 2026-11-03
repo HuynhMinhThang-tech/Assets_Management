@@ -74,7 +74,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     },
     {
       id: 'balance',
-      label: 'Bảng cân đối',
+      label: 'Báo cáo',
       icon: <Scale className="w-5 h-5 shrink-0" />,
     },
   ];
