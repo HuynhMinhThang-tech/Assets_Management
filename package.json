@@ -8,7 +8,7 @@
     "dev:api": "tsx --env-file=.env.local scripts/dev-api.ts",
     "build": "vite build",
     "preview": "vite preview",
-    "clean": "rm -rf dist server.js",
+    "clean": "rm -rf dist",
     "lint": "tsc --noEmit",
     "test:logic": "tsx tests/logic.test.ts",
     "test:phase1": "tsx tests/phase1.test.ts",
@@ -23,8 +23,7 @@
     "lucide-react": "^0.546.0",
     "react": "^19.0.1",
     "react-dom": "^19.0.1",
-    "vite": "^8.3.0",
-    "xlsx": "^0.18.5"
+    "vite": "^8.3.0"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",

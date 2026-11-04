@@ -7,14 +7,13 @@ Tài khoản, phê duyệt, phiên đăng nhập và dữ liệu tài chính đ�
 
 ## 0. Việc cần làm TRƯỚC khi áp bản cập nhật này
 
-1. Trong app hiện tại (tab **Dữ liệu**) bấm **Tải bản sao lưu JSON** để có một bản dự phòng. Bản này xóa tab Dữ liệu.
+1. Trong app hiện tại, mở **Tài khoản của tôi** và bấm tải **bản sao lưu JSON** để có một bản dự phòng.
 2. Dữ liệu thật của bạn đang nằm trong trình duyệt ở địa chỉ `localhost:3000`. Trình duyệt tách dữ liệu theo địa chỉ,
    nên trang trên Vercel (`xxx.vercel.app`) **không thấy** dữ liệu này. Cách chuyển dữ liệu lên Neon ở **bước 5**.
 
 ## 1. Áp bản cập nhật vào dự án
 
 - Giải nén gói vào thư mục gốc dự án, chọn **gộp / ghi đè** (đừng thay cả thư mục).
-- **Xóa tay 2 file không còn dùng:** `src/components/DataCenterView.tsx` và `src/utils/supabaseSchema.ts`.
 - Cài thư viện kết nối Neon: `npm install @neondatabase/serverless`
 - Cần Node 20 trở lên (Vercel dùng sẵn).
 - Nếu `npm run lint` hoặc `tsc` báo thiếu kiểu của Node (lỗi ở thư mục `api/`): `npm install -D @types/node`.
@@ -118,7 +117,6 @@ Tài khoản, phê duyệt, phiên đăng nhập và dữ liệu tài chính đ�
 | "Hệ thống chưa có quản trị viên" | Chưa đặt `ADMIN_EMAIL` |
 | `/api/health` chạy nhưng `/api/auth/me` (đường dẫn nhiều cấp) trả 404 | Dùng tên `api/[...path].ts`: Vercel chỉ nối nó với đường dẫn một cấp. Phải dùng `api/index.ts` + rewrite `/api/(.*)` → `/api` trong `vercel.json` |
 | `/api/health` trả 404 trên Vercel | File `api/index.ts` chưa được commit, hoặc `vercel.json` thiếu `rewrites` |
-| Build báo lỗi "Cannot find module '../utils/supabaseSchema'" | Còn file/đoạn import cũ trỏ tới `DataCenterView` hoặc `supabaseSchema` |
 | Hộp thoại "Dữ liệu đã thay đổi ở nơi khác" | Cùng tài khoản đang mở ở hai nơi. Chọn "Tải bản máy chủ" để lấy bản mới nhất |
 
 ## Kiểm thử

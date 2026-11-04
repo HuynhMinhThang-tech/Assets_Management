@@ -49,11 +49,11 @@ Test: `tests/run-all.sh` (logic ×3 múi giờ + 70 kịch bản giao diện tr�
 6. Tách thuế/phí khi mua; giá vốn bình quân khi mua thêm cùng mã (hiện mỗi lần mua là 1 tài sản mới).
 
 **Giai đoạn 2 – dữ liệu & an toàn**
-7. Nhập Excel/CSV thật (theo đúng 6 sheet đã xuất) — cần `xlsx` thật để test.
-8. Đồng bộ Supabase thật (đăng nhập + ánh xạ id chuỗi → UUID); hiện chỉ có file SQL.
+7. ~~Nhập Excel/CSV thật~~ — đã bỏ hướng này: tính năng xuất/nhập Excel đã gỡ cùng thư viện `xlsx`; sao lưu bằng JSON.
+8. ~~Đồng bộ Supabase~~ — đã thay bằng đăng nhập + API + Neon (xem `docs/DEPLOY.md`).
 9. Sao lưu định kỳ (nhắc xuất JSON hàng tuần), IndexedDB thay localStorage (giới hạn ~5MB), đồng bộ nhiều tab.
-10. Thay `xlsx@0.18.5` (có lỗ hổng đã công bố, không còn cập nhật trên npm) bằng bản SheetJS chính thức / thư viện khác trước khi nhập file lạ.
-11. Dọn phụ thuộc không dùng: `@google/genai`, `express`, `dotenv`, `motion`, `esbuild`, `autoprefixer`; đổi README (còn là mẫu AI Studio).
+10. ~~Thay `xlsx@0.18.5`~~ — đã xử lý: gỡ thư viện cùng tính năng Excel.
+11. ~~Dọn phụ thuộc không dùng, đổi README~~ — đã xong.
 
 **Giai đoạn 3 – hoàn thiện sản phẩm**
 12. Giá thị trường: cập nhật CP/quỹ/vàng từ nguồn dữ liệu (hiện nhập tay); nhắc "chưa định giá > 30 ngày".

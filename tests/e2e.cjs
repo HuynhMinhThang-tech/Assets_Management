@@ -295,39 +295,6 @@ const modal = p => p.locator('.fixed').last();
     log(p.errs.length === 0 && body.length > 200, 'U15c', 'dữ liệu cũ thiếu trường "transactions" không làm trắng màn hình', p.errs[0] || 'ok');
     await p.context().close(); }
 
-  // ---------- U16 data center
-  { const p = await fresh(); const s0 = await st(p);
-    await nav(p, 'Dữ liệu & Supabase SQL');
-    const btns = (await p.locator('button').allInnerTexts()).map(s => s.trim()).filter(Boolean);
-    console.log('   [DataCenter buttons]', JSON.stringify(btns));
-    await p.locator('button', { hasText: /Nhập|Xuất/ }).first().click().catch(()=>{}); await p.waitForTimeout(80);
-    console.log('   [DataCenter buttons after tab]', JSON.stringify((await p.locator('button').allInnerTexts()).map(s => s.trim()).filter(Boolean)));
-    // JSON export
-    const [dl] = await Promise.all([p.waitForEvent('download'), p.locator('button', { hasText: /JSON/ }).first().click()]);
-    const path = await dl.path(); const exported = JSON.parse(fs.readFileSync(path, 'utf8'));
-    log(JSON.stringify(exported) === JSON.stringify(s0), 'U16a', 'xuất JSON đầy đủ = trạng thái hiện tại', 'khác');
-    // Excel export (stub records)
-    await p.locator('button', { hasText: /Excel \(\.xlsx\)|Xuất Excel|XLSX/i }).first().click().catch(()=>{});
-    const calls = await p.evaluate(() => (globalThis.__xlsxCalls || []).map(c => ({ name: c.name, sheets: c.sheets, cols: c.sheets.map(n => Object.keys(c.wb.Sheets[n].__rows[0] || {})) })));
-    if (calls.length) {
-      const cols = calls[0].cols;
-      log(calls[0].sheets.length >= 5, 'U16b', 'Excel đủ sheet để khôi phục (Tài sản, Nợ, Lịch trả nợ, Giao dịch, Ví)', `chỉ ${calls[0].sheets.length} sheet: ${calls[0].sheets.join(' | ')}; Sheet tài sản không có số lượng/mã CP/địa chỉ/diện tích/kỳ hạn (metadata); không có lịch trả nợ; không có số dư ví`);
-    } else log(false, 'U16b', 'xuất Excel chạy được', 'không bắt được lệnh xuất (selector?)');
-    // XLSX import
-    await p.evaluate(() => { globalThis.__xlsxReadResult = { SheetNames: ['S'], Sheets: { S: { __rows: [{ a: 1 }, { a: 2 }, { a: 3 }] } } }; });
-    await p.locator('input[type=file]').setInputFiles({ name: 'x.xlsx', mimeType: 'application/octet-stream', buffer: Buffer.from('PK dummy') }); await p.waitForTimeout(150);
-    const msg = (await p.locator('body').innerText()).match(/Đã (đọc|nhập)[^\n]*/);
-    const s1 = await st(p);
-    log(JSON.stringify(s1) === JSON.stringify(s0) && /CHƯA/.test(msg ? msg[0] : (await p.locator('body').innerText())), 'U16c', 'nhập Excel/CSV: thông báo trung thực (chưa hỗ trợ), không đổi dữ liệu', `msg="${msg ? msg[0] : '?'}"`);
-    // JSON import - valid but missing fields
-    const weird = { wallet: { availableCash: 1, totalDeposited: 1, totalWithdrawn: 0 }, assets: [], debts: [] };
-    await p.locator('input[type=file]').setInputFiles({ name: 'weird.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(weird)) }); await p.waitForTimeout(200);
-    const crashed = (await p.locator('body').innerText()).length < 50;
-    log(!crashed && p.errs.length === 0, 'U16d', 'nhập JSON thiếu trường (transactions) không làm app sập', p.errs[0] || (crashed ? 'trắng trang' : 'ok'));
-    await p.reload(); await p.waitForTimeout(200);
-    log((await p.locator('body').innerText()).length > 200, 'U16e', 'tải lại sau khi nhập JSON thiếu trường vẫn dùng được', 'trắng trang sau reload');
-    await p.context().close(); }
-
   // ---------- U17 demo banner / clear / undo
   { const p = await fresh();
     log(/DỮ LIỆU MẪU/.test(await p.locator('body').innerText()), 'U17a', 'lần đầu mở app: banner nói rõ đang xem dữ liệu mẫu', 'không có banner');
