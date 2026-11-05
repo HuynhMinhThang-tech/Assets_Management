@@ -227,42 +227,65 @@ export const BalanceSheetView: React.FC<BalanceSheetViewProps> = ({ state, balan
         </section>
       )}
 
-      {/* 3. BẢNG CÂN ĐỐI */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
-        <section className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
+      {/* 3. BẢNG CÂN ĐỐI
+          Hai panel dùng chung 4 hàng (tiêu đề / mục A / mục B / tổng) qua subgrid ở màn hình rộng:
+          tiêu đề, đầu mục A, đầu mục B và dòng tổng của hai bên luôn ngang hàng, hai panel cao bằng nhau.
+          Dòng cộng cuối mỗi mục đẩy xuống đáy mục (mt-auto) để các đường kẻ thẳng hàng. */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-4 gap-y-4 lg:gap-y-0">
+        <section className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm lg:row-span-4 lg:grid lg:grid-rows-subgrid">
           <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider pb-2 border-b border-slate-200">Tài sản</h3>
 
-          <SectionTitle>A. Tài sản ngắn hạn</SectionTitle>
-          {assetRows(bs.currentAssets.lines)}
-          <SubTotal label="Cộng tài sản ngắn hạn" value={bs.currentAssets.total} />
+          <div className="flex flex-col">
+            <SectionTitle>A. Tài sản ngắn hạn</SectionTitle>
+            {assetRows(bs.currentAssets.lines)}
+            <div className="mt-auto">
+              <SubTotal label="Cộng tài sản ngắn hạn" value={bs.currentAssets.total} />
+            </div>
+          </div>
 
-          <SectionTitle>B. Tài sản dài hạn</SectionTitle>
-          {assetRows(bs.nonCurrentAssets.lines)}
-          <SubTotal label="Cộng tài sản dài hạn" value={bs.nonCurrentAssets.total} />
+          <div className="flex flex-col">
+            <SectionTitle>B. Tài sản dài hạn</SectionTitle>
+            {assetRows(bs.nonCurrentAssets.lines)}
+            <div className="mt-auto">
+              <SubTotal label="Cộng tài sản dài hạn" value={bs.nonCurrentAssets.total} />
+            </div>
+          </div>
 
-          <GrandTotal label="Tổng tài sản" value={bs.totalAssets} />
+          <div className="flex flex-col justify-end">
+            <GrandTotal label="Tổng tài sản" value={bs.totalAssets} />
+          </div>
         </section>
 
-        <section className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
+        <section className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm lg:row-span-4 lg:grid lg:grid-rows-subgrid">
           <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider pb-2 border-b border-slate-200">
             Nợ phải trả và vốn chủ sở hữu
           </h3>
 
-          <SectionTitle>A. Nợ phải trả</SectionTitle>
-          <div className="pl-0 pt-1 text-xs font-semibold text-slate-700">I. Nợ ngắn hạn (gốc đến hạn trong 12 tháng)</div>
-          {debtRows(bs.currentLiabilities.lines)}
-          <SubTotal label="Cộng nợ ngắn hạn" value={bs.currentLiabilities.total} />
-          <div className="pt-2 text-xs font-semibold text-slate-700">II. Nợ dài hạn</div>
-          {debtRows(bs.nonCurrentLiabilities.lines)}
-          <SubTotal label="Cộng nợ dài hạn" value={bs.nonCurrentLiabilities.total} />
-          <SubTotal label="Cộng nợ phải trả" value={bs.totalLiabilities} />
+          <div className="flex flex-col">
+            <SectionTitle>A. Nợ phải trả</SectionTitle>
+            <div className="pl-0 pt-1 text-xs font-semibold text-slate-700">I. Nợ ngắn hạn (gốc đến hạn trong 12 tháng)</div>
+            {debtRows(bs.currentLiabilities.lines)}
+            <SubTotal label="Cộng nợ ngắn hạn" value={bs.currentLiabilities.total} />
+            <div className="pt-2 text-xs font-semibold text-slate-700">II. Nợ dài hạn</div>
+            {debtRows(bs.nonCurrentLiabilities.lines)}
+            <SubTotal label="Cộng nợ dài hạn" value={bs.nonCurrentLiabilities.total} />
+            <div className="mt-auto">
+              <SubTotal label="Cộng nợ phải trả" value={bs.totalLiabilities} />
+            </div>
+          </div>
 
-          <SectionTitle>B. Vốn chủ sở hữu</SectionTitle>
-          <Row label="Vốn nạp ròng (đã nạp − đã rút)" value={bs.equity.contributed} indent negativeRed />
-          <Row label="Lãi/lỗ lũy kế" value={bs.equity.retained} indent negativeRed />
-          <SubTotal label="Cộng vốn chủ sở hữu" value={bs.equity.total} />
+          <div className="flex flex-col">
+            <SectionTitle>B. Vốn chủ sở hữu</SectionTitle>
+            <Row label="Vốn nạp ròng (đã nạp − đã rút)" value={bs.equity.contributed} indent negativeRed />
+            <Row label="Lãi/lỗ lũy kế" value={bs.equity.retained} indent negativeRed />
+            <div className="mt-auto">
+              <SubTotal label="Cộng vốn chủ sở hữu" value={bs.equity.total} />
+            </div>
+          </div>
 
-          <GrandTotal label="Tổng nguồn vốn" value={bs.totalLiabilitiesAndEquity} />
+          <div className="flex flex-col justify-end">
+            <GrandTotal label="Tổng nguồn vốn" value={bs.totalLiabilitiesAndEquity} />
+          </div>
         </section>
       </div>
 
