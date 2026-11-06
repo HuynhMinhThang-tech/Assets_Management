@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import {
   Plus,
   TrendingUp,
-  RefreshCw,
   DollarSign,
   Undo2,
   Repeat,
@@ -50,7 +49,7 @@ import { Modal, ModalBody, ModalFooter, FieldError } from './ui/Modal';
 import { useDialog } from './ui/DialogProvider';
 import { MAX_RATE, MAX_TENOR_MONTHS } from '../utils/validation';
 import { getRecurringIncome } from '../utils/calendar';
-import { getUnitPricing, totalFromUnitPrice, RevaluationInput } from '../utils/pricing';
+import { getUnitPricing } from '../utils/pricing';
 import { canVoidAsset, checkTxDate, previewSell, SellPreview } from '../utils/ops';
 import { RolloverInput } from '../utils/savingsOps';
 
@@ -76,7 +75,6 @@ interface AssetsViewProps {
   onUpdateAsset: (asset: Asset) => void;
   /** Hủy bản ghi nhập nhầm (thay cho xóa): dữ liệu được giữ lại, tiền ví hoàn bằng bút toán đảo. */
   onVoidAsset: (assetId: string) => void;
-  onRevalueAsset: (assetId: string, input: RevaluationInput) => void;
   onSellAsset: (params: SellParams) => boolean | void;
   /** Nhận lãi sổ tiết kiệm về ví. */
   onReceiveInterest: (p: { assetId: string; amount: number; date: string; note?: string }) => boolean | void;
@@ -265,7 +263,6 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
   onVoidAsset,
   onReceiveInterest,
   onRolloverSavings,
-  onRevalueAsset,
   onSellAsset,
 }) => {
   const { confirm: confirmDialog } = useDialog();
@@ -274,10 +271,6 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'sold' | 'voided'>('active');
 
   // Modals state
-  const [revalueAsset, setRevalueAsset] = useState<Asset | null>(null);
-  // Đơn giá mới (cổ phiếu, CCQ, chỉ, m²) hoặc tổng giá trị mới (tiết kiệm, tài sản khác)
-  const [revaluePrice, setRevaluePrice] = useState<string>('');
-
   const [sellAssetTarget, setSellAssetTarget] = useState<Asset | null>(null);
   const [sellNote, setSellNote] = useState<string>('');
   const [interestAsset, setInterestAsset] = useState<Asset | null>(null);
@@ -351,12 +344,6 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
     ? checkTxDate(sellDate, sellAssetTarget.purchaseDate, todayLocalStr(), 'ngày mua tài sản')
     : '';
   const canSell = !!sellAssetTarget && typeof sellPreview !== 'string' && !sellDateError;
-  const revalueNum = parseFloat(revaluePrice) || 0;
-  const revaluePricing = revalueAsset ? getUnitPricing(revalueAsset) : null;
-  // Tổng giá trị mới: có đơn giá thì = số lượng × đơn giá (tính, không nhập), không thì chính số nhập
-  const revalueTotal = revaluePricing ? totalFromUnitPrice(revaluePricing.quantity, revalueNum) : revalueNum;
-  const revaluePnL = revalueAsset ? revalueTotal - revalueAsset.initialCost : 0;
-  const revaluePnLPct = revalueAsset && revalueAsset.initialCost > 0 ? (revaluePnL / revalueAsset.initialCost) * 100 : 0;
 
 
   // Categories config
@@ -407,22 +394,6 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
   const countByStatus = (st: 'all' | 'active' | 'sold' | 'voided') =>
     state.assets.filter((a) => st === 'all' || a.status === st).length;
   const filtersActive = selectedCategory !== 'all' || statusFilter !== 'active' || searchQuery.trim() !== '';
-
-  // Open Revaluation Modal
-  const handleOpenRevalue = (asset: Asset) => {
-    const pricing = getUnitPricing(asset);
-    setRevalueAsset(asset);
-    setRevaluePrice((pricing ? pricing.unitPrice : asset.currentValue).toString());
-  };
-
-  // Confirm Revaluation
-  const handleConfirmRevalue = () => {
-    if (!revalueAsset) return;
-    const num = parseFloat(revaluePrice);
-    if (isNaN(num) || num <= 0) return;
-    onRevalueAsset(revalueAsset.id, revaluePricing ? { unitPrice: num } : { totalValue: num });
-    setRevalueAsset(null);
-  };
 
   // Open Sell Modal
   const handleOpenSell = (asset: Asset) => {
@@ -890,15 +861,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                                     <Repeat className="w-3.5 h-3.5" />
                                   </button>
                                 </>
-                              ) : (
-                                <button
-                                  onClick={() => handleOpenRevalue(asset)}
-                                  title="Cập nhật định giá thị trường mới"
-                                  className="p-1.5 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded transition-colors"
-                                >
-                                  <RefreshCw className="w-3.5 h-3.5" />
-                                </button>
-                              )}
+                              ) : null}
 
                               <button
                                 onClick={() => handleOpenSell(asset)}
@@ -931,96 +894,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
         )}
       </div>
 
-      {/* MODAL 1: REVALUATION */}
-      {revalueAsset && (
-        <Modal
-          title="Cập nhật Định giá Thị trường"
-          subtitle={`${revalueAsset.name} (Giá vốn: ${formatVND(revalueAsset.initialCost)})`}
-          onClose={() => setRevalueAsset(null)}
-        >
-          <ModalBody>
-            <div>
-              <label className="text-xs font-semibold text-slate-700 block mb-1">
-                {revaluePricing
-                  ? `Giá thị trường mới mỗi ${revaluePricing.unit} (VND)`
-                  : 'Tổng giá trị hiện tại (VND)'}
-              </label>
-              <CurrencyInput
-                value={revalueNum}
-                allowDecimal={!!revaluePricing?.allowDecimal}
-                onChange={(val) => setRevaluePrice(val.toString())}
-                invalid={revalueNum <= 0}
-                className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-slate-900"
-              />
-              {revalueNum <= 0 && (
-                <FieldError>
-                  {revaluePricing ? 'Giá phải lớn hơn 0.' : 'Giá trị thị trường phải lớn hơn 0.'}
-                </FieldError>
-              )}
-            </div>
-
-            {revalueNum > 0 && (
-              <div
-                data-revalue-preview
-                className="divide-y divide-slate-100 rounded-lg border border-slate-200 bg-slate-50 text-xs"
-              >
-                {revaluePricing && (
-                  <div className="flex items-center justify-between px-3 py-2">
-                    <span className="text-slate-500">Số lượng nắm giữ</span>
-                    <span className="font-mono font-semibold text-slate-800">
-                      {revaluePricing.quantity.toLocaleString('vi-VN')} {revaluePricing.unit}
-                    </span>
-                  </div>
-                )}
-                <div className="flex items-center justify-between px-3 py-2">
-                  <span className="text-slate-500">Tổng giá trị mới</span>
-                  <span className="font-mono font-bold text-slate-900">{formatVND(revalueTotal)}</span>
-                </div>
-                {revalueAsset.currentValue > 0 && (
-                  <div className="flex items-center justify-between px-3 py-2">
-                    <span className="text-slate-500">So với hiện tại ({formatVND(revalueAsset.currentValue)})</span>
-                    <span
-                      className={`font-mono font-semibold ${
-                        revalueTotal >= revalueAsset.currentValue ? 'text-emerald-600' : 'text-rose-600'
-                      }`}
-                    >
-                      {formatPercent(((revalueTotal - revalueAsset.currentValue) / revalueAsset.currentValue) * 100)}
-                    </span>
-                  </div>
-                )}
-                <div className="flex items-center justify-between px-3 py-2">
-                  <span className="text-slate-500">Lãi/lỗ sổ sách mới</span>
-                  <span
-                    className={`font-mono font-bold ${revaluePnL >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}
-                  >
-                    {revaluePnL >= 0 ? '+' : ''}
-                    {formatVND(revaluePnL)} ({formatPercent(revaluePnLPct)})
-                  </span>
-                </div>
-              </div>
-            )}
-          </ModalBody>
-          <ModalFooter>
-            <button
-              type="button"
-              onClick={() => setRevalueAsset(null)}
-              className="px-3.5 py-1.5 text-xs text-slate-600 hover:bg-slate-100 rounded-lg transition-colors font-medium"
-            >
-              Hủy
-            </button>
-            <button
-              type="button"
-              onClick={handleConfirmRevalue}
-              disabled={revalueNum <= 0}
-              className="px-4 py-1.5 text-xs font-bold text-white bg-slate-900 hover:bg-slate-800 rounded-lg shadow-sm transition-colors disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-slate-900"
-            >
-              Lưu định giá mới
-            </button>
-          </ModalFooter>
-        </Modal>
-      )}
-
-      {/* MODAL 2: SELL / REALIZE PnL */}
+      {/* MODAL: SELL / REALIZE PnL (cập nhật giá nằm ở tab "Cập nhật giá") */}
       {sellAssetTarget && (
         <Modal
           title={sellAssetTarget.category === 'savings' ? 'Rút tiền tiết kiệm' : 'Thanh lý / Bán Chốt Lời'}

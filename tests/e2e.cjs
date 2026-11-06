@@ -166,17 +166,7 @@ const modal = p => p.locator('.fixed').last();
       `ví ${fmt(s0.wallet.availableCash)} → ${fmt(s1.wallet.availableCash)}; giao dịch ghi ${fmt(t.amount)} nhưng ví chỉ mất ${fmt(s0.wallet.availableCash - s1.wallet.availableCash)} → sổ cái lệch ${fmt(t.amount - (s0.wallet.availableCash - s1.wallet.availableCash))}`);
     await p.context().close(); }
 
-  // ---------- U9 revalue
-  { const p = await fresh(); const s0 = await st(p);
-    await nav(p, 'Danh mục Tài sản');
-    await p.locator('[title="Cập nhật định giá thị trường mới"]').nth(1).click();
-    await modal(p).locator('input[inputmode=numeric]').fill('400000000'); await p.getByRole('button', { name: 'Lưu định giá mới' }).click(); await p.waitForTimeout(100);
-    const s1 = await st(p); const a = s1.assets[1];
-    log(a.currentValue === 4e8 && a.lastValuationDate === new Date().toISOString().slice(0, 10), 'U9a', 'định giá lại FPT: currentValue + ngày định giá cập nhật', JSON.stringify({ v: a.currentValue, d: a.lastValuationDate }));
-    log(Math.abs(a.metadata.currentPrice * a.metadata.quantity - a.currentValue) < 1, 'U9b', 'định giá lại cập nhật luôn thị giá/CP (metadata) để khớp SL × giá', `giá/CP vẫn ${fmt(a.metadata.currentPrice)} nhưng tổng giá trị ${fmt(a.currentValue)} → ngầm hiểu ${fmt(a.currentValue / a.metadata.quantity)}/CP`);
-    log(!!a.valuationHistory || !!a.priceHistory, 'U9c', 'có lưu lịch sử định giá (để vẽ biểu đồ tăng trưởng)', 'chỉ lưu giá trị mới nhất, không có lịch sử → không có biểu đồ xu hướng/hiệu suất theo thời gian');
-    await p.context().close(); }
-
+  // U9 (định giá lại từ danh mục) đã chuyển sang tab "Cập nhật giá" → kiểm thử ở tests/prices-ui.cjs
   // ---------- U10 sell HPG partial/whole
   { const p = await fresh(); const s0 = await st(p);
     await nav(p, 'Danh mục Tài sản');

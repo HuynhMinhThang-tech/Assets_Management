@@ -1,11 +1,12 @@
 import { randomUUID } from 'node:crypto';
-import { LOCK_MINUTES, MAX_FAILED_LOGINS, type SaveResult, type Store, type UserRecord } from './store.js';
+import { LOCK_MINUTES, MAX_FAILED_LOGINS, type PriceRow, type SaveResult, type Store, type UserRecord } from './store.js';
 
 /** Bản cài đặt Store trong bộ nhớ – chỉ dùng cho kiểm thử, hành vi phản chiếu bản Neon. */
-export function createMemoryStore(now: () => Date = () => new Date()): Store & { _dump(): unknown } {
+export function createMemoryStore(now: () => Date = () => new Date()): Store & { _dump(): unknown; _seedPrices(rows: PriceRow[]): void } {
   const users = new Map<string, UserRecord>();
   const sessions = new Map<string, { userId: string; expiresAt: string }>();
   const portfolios = new Map<string, { data: unknown; version: number }>();
+  const prices: PriceRow[] = [];
   const clone = <T,>(v: T): T => JSON.parse(JSON.stringify(v));
 
   return {
@@ -106,6 +107,22 @@ export function createMemoryStore(now: () => Date = () => new Date()): Store & {
         return { ok: true, version };
       }
       return { ok: false, version: cur?.version ?? 0 };
+    },
+    async getLatestPrices(kind, symbols) {
+      const out: PriceRow[] = [];
+      for (const sym of symbols) {
+        const rows = prices.filter((p) => p.kind === kind && p.symbol === sym).sort((a, b) => b.date.localeCompare(a.date));
+        out.push(...rows.slice(0, 2).map((r) => ({ ...r })));
+      }
+      return out;
+    },
+    /** Chỉ dùng cho kiểm thử: thay cho script lấy giá ghi thẳng vào cơ sở dữ liệu. */
+    _seedPrices(rows) {
+      for (const r of rows) {
+        const i = prices.findIndex((p) => p.kind === r.kind && p.symbol === r.symbol && p.date === r.date);
+        if (i >= 0) prices[i] = { ...r };
+        else prices.push({ ...r });
+      }
     },
     _dump() {
       return { users: [...users.values()], sessions: [...sessions.keys()], portfolios: [...portfolios.keys()] };

@@ -1,4 +1,4 @@
-import type { UserFinancialState } from '../types/finance';
+import type { MarketQuote, PriceKind, UserFinancialState } from '../types/finance';
 import type { AdminAccount, PublicUser } from './auth';
 
 /** Lỗi khi gọi máy chủ. status = 0 nghĩa là không kết nối được. */
@@ -60,6 +60,9 @@ export const api = {
     action: 'approve' | 'reject' | 'lock' | 'promote' | 'demote' | 'reset-approve' | 'reset-deny' | 'delete'
   ) => request<{ ok: true }>('POST', `/api/admin/accounts/${id}/${action}`),
 
+  /** Giá thị trường mới nhất của các mã (do script lấy giá ghi vào máy chủ). */
+  getPrices: (kind: PriceKind, symbols: string[]) =>
+    request<{ prices: MarketQuote[] }>('GET', `/api/prices?kind=${kind}&symbols=${encodeURIComponent(symbols.join(','))}`),
   getPortfolio: () => request<{ data: UserFinancialState | null; version: number }>('GET', '/api/portfolio'),
   savePortfolio: (data: UserFinancialState, baseVersion: number, opts?: { keepalive?: boolean }) =>
     request<{ version: number }>('PUT', '/api/portfolio', { data, baseVersion }, opts),

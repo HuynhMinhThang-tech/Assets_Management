@@ -41,3 +41,16 @@ create table if not exists portfolios (
 );
 
 -- Quản trị viên đầu tiên KHÔNG tạo bằng SQL: đặt biến môi trường ADMIN_EMAIL trên Vercel rồi đăng ký bằng Gmail đó.
+
+-- 4. GIÁ THỊ TRƯỜNG DÙNG CHUNG (cổ phiếu, quỹ, vàng) – không thuộc về người dùng nào.
+--    Do script scripts/fetch_prices.py (GitHub Actions, vnstock) ghi sau phiên 15h; ứng dụng chỉ đọc qua GET /api/prices.
+--    close: VND mỗi cổ phiếu / mỗi CCQ / mỗi chỉ vàng. Mỗi (loại, mã, ngày) một dòng; chạy lại cùng ngày chỉ ghi đè.
+create table if not exists market_prices (
+  kind        text           not null check (kind in ('stock', 'fund', 'gold')),
+  symbol      text           not null,
+  price_date  date           not null,
+  close       numeric(18, 2) not null check (close > 0),
+  source      text           not null,
+  fetched_at  timestamptz    not null default now(),
+  primary key (kind, symbol, price_date)
+);

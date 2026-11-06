@@ -1,5 +1,5 @@
 import { neon } from '@neondatabase/serverless';
-import { LOCK_MINUTES, MAX_FAILED_LOGINS, type NewUser, type Role, type SaveResult, type Status, type Store, type UserRecord } from './store.js';
+import { LOCK_MINUTES, MAX_FAILED_LOGINS, type NewUser, type PriceRow, type Role, type SaveResult, type Status, type Store, type UserRecord } from './store.js';
 
 /** Lỗi cấu hình (thiếu biến môi trường…) – trả 503 kèm hướng dẫn thay vì lỗi 500 mơ hồ. */
 export class ConfigError extends Error {
@@ -146,6 +146,28 @@ export function createNeonStore(): Store {
 
     async purgeExpiredSessions() {
       await db()`delete from sessions where expires_at < now()`;
+    },
+
+    async getLatestPrices(kind, symbols) {
+      if (symbols.length === 0) return [];
+      // to_char / ::float8: tránh việc trình điều khiển đổi date sang Date (lệch múi giờ) và numeric sang chuỗi
+      const rows = (await db()`
+        select kind, symbol, to_char(price_date, 'YYYY-MM-DD') as price_date, close::float8 as close, source, fetched_at
+        from (
+          select *, row_number() over (partition by kind, symbol order by price_date desc) as rn
+          from market_prices
+          where kind = ${kind} and symbol = any(${symbols}::text[])
+        ) t
+        where rn <= 2
+        order by symbol, price_date desc`) as any[];
+      return rows.map((r): PriceRow => ({
+        kind: r.kind,
+        symbol: r.symbol,
+        date: r.price_date,
+        close: Number(r.close),
+        source: r.source,
+        fetchedAt: iso(r.fetched_at)!,
+      }));
     },
 
     async getPortfolio(userId) {

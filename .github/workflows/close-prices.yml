@@ -1,0 +1,55 @@
+name: Lấy giá đóng cửa (vnstock)
+
+# Chạy sau phiên 15h (giờ VN = UTC+7) các ngày thứ 2 – thứ 6, hai lần để dự phòng; ghi đè cùng ngày nên chạy lại vô hại.
+# Chạy tay: tab Actions → "Lấy giá đóng cửa" → Run workflow. Lần đầu nên chọn mode = probe (chỉ thăm dò, không ghi cơ sở dữ liệu).
+on:
+  schedule:
+    - cron: '5 8 * * 1-5'   # 15:05 giờ VN
+    - cron: '5 9 * * 1-5'   # 16:05 giờ VN (dự phòng)
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'probe = chỉ thăm dò (không ghi DB) · fetch = lấy và ghi vào Neon'
+        type: choice
+        options: [probe, fetch]
+        default: probe
+      symbols:
+        description: 'Mã cổ phiếu để thăm dò (chỉ dùng khi mode = probe)'
+        default: 'FPT,HPG,VCB'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: close-prices
+  cancel-in-progress: false
+
+jobs:
+  prices:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: scripts/requirements-prices.txt
+
+      - name: Cài thư viện
+        run: pip install -r scripts/requirements-prices.txt
+
+      - name: Thăm dò vnstock (không ghi DB)
+        if: github.event_name == 'workflow_dispatch' && inputs.mode == 'probe'
+        env:
+          SYMBOLS: ${{ inputs.symbols }}
+          VNSTOCK_API_KEY: ${{ secrets.VNSTOCK_API_KEY }}
+        run: python scripts/fetch_prices.py --probe "$SYMBOLS"
+
+      - name: Lấy giá và ghi vào Neon
+        if: github.event_name == 'schedule' || inputs.mode == 'fetch'
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          VNSTOCK_API_KEY: ${{ secrets.VNSTOCK_API_KEY }}
+        run: python scripts/fetch_prices.py

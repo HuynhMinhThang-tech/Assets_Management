@@ -1,6 +1,6 @@
 import { header, parseCookies, readJson, sendJson, serializeCookie, type ApiRequest, type ApiResponse } from './http.js';
 import { hashPassword, hashToken, burnPasswordTime, newSessionToken, verifyPassword } from './passwords.js';
-import { LOCK_MINUTES, MAX_FAILED_LOGINS, type Store, type UserRecord } from './store.js';
+import { LOCK_MINUTES, MAX_FAILED_LOGINS, PRICE_KINDS, type PriceKind, type Store, type UserRecord } from './store.js';
 import {
   GMAIL_SUFFIX,
   canonicalEmail,
@@ -315,6 +315,37 @@ export function createApp(store: Store, config: AppConfig) {
   // ---------------------------------------------------------------------------
   // Định tuyến
   // ---------------------------------------------------------------------------
+  /** Giá thị trường dùng chung (do script lấy giá ghi). Cần đăng nhập; chỉ trả đúng các mã được hỏi. */
+  async function getPrices(req: ApiRequest, res: ApiResponse) {
+    await requireUser(req);
+    const q = new URL(req.url ?? '/', 'http://localhost').searchParams;
+    const kind = (q.get('kind') || 'stock').toLowerCase() as PriceKind;
+    if (!PRICE_KINDS.includes(kind)) throw new HttpError(400, 'Loại giá không hợp lệ.', 'invalid_input');
+    const symbols = [...new Set((q.get('symbols') || '').split(',').map((s) => s.trim().toUpperCase()).filter(Boolean))];
+    if (symbols.length > 200) throw new HttpError(400, 'Tối đa 200 mã mỗi lần.', 'invalid_input');
+    if (symbols.some((s) => !/^[A-Z0-9._-]{1,20}$/.test(s))) throw new HttpError(400, 'Mã không hợp lệ.', 'invalid_input');
+    if (symbols.length === 0) return sendJson(res, 200, { prices: [] });
+
+    const rows = await store.getLatestPrices(kind, symbols);
+    const bySymbol = new Map<string, typeof rows>();
+    for (const r of rows) bySymbol.set(r.symbol, [...(bySymbol.get(r.symbol) ?? []), r]);
+    const prices = [...bySymbol.entries()].map(([symbol, list]) => {
+      const sorted = [...list].sort((a, b) => b.date.localeCompare(a.date));
+      const [last, prev] = sorted;
+      return {
+        kind,
+        symbol,
+        date: last.date,
+        close: last.close,
+        prevDate: prev?.date ?? null,
+        prevClose: prev?.close ?? null,
+        source: last.source,
+        fetchedAt: last.fetchedAt,
+      };
+    });
+    return sendJson(res, 200, { prices });
+  }
+
   async function route(req: ApiRequest, res: ApiResponse) {
     const method = (req.method ?? 'GET').toUpperCase();
     const path = (new URL(req.url ?? '/', 'http://localhost').pathname.replace(/\/+$/, '') || '/').toLowerCase();
@@ -335,6 +366,7 @@ export function createApp(store: Store, config: AppConfig) {
     const m = path.match(/^\/api\/admin\/accounts\/([^/]+)\/([a-z-]+)$/);
     if (m && method === 'POST') return adminAction(req, res, m[1], m[2]);
 
+    if (path === '/api/prices' && method === 'GET') return getPrices(req, res);
     if (path === '/api/portfolio' && method === 'GET') return getPortfolio(req, res);
     if (path === '/api/portfolio' && method === 'PUT') return putPortfolio(req, res);
 

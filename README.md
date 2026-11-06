@@ -8,6 +8,7 @@ Mỗi người có tài khoản riêng; dữ liệu lưu trên máy chủ nên d
 - **Tài sản:** bất động sản, cổ phiếu, chứng chỉ quỹ, vàng, tiết kiệm/trái phiếu, tài sản khác (crypto, xe…); mua/bán, định giá, thu nhập cho thuê.
 - **Khoản vay:** lịch trả nợ theo lãi suất từng giai đoạn, trả kỳ, trả trước hạn, tất toán, đối chiếu sao kê, gắn với tài sản thế chấp.
 - **Ví tiền:** nạp/rút, sổ cái giao dịch; ví không bao giờ âm ngầm.
+- **Cập nhật giá:** tab riêng cho mọi tài sản: giá đóng cửa cổ phiếu tự động sau phiên 15h (vnstock + GitHub Actions), nhập tay, hoặc import CSV; lãi/lỗ sổ sách tính ngay (xem `docs/PRICES.md`).
 - **Báo cáo:** bảng cân đối tài sản, lưu chuyển tiền, kết quả đầu tư, phân bổ tài sản, lịch dòng tiền.
 - **Tài khoản:** đăng ký bằng Gmail, quản trị viên phê duyệt; tải bản sao lưu JSON trong mục *Tài khoản của tôi*.
 
@@ -24,9 +25,10 @@ React 19 · Vite · Tailwind CSS 4 · TypeScript · API serverless trên Vercel 
 | `src/types` | Kiểu dữ liệu tài chính |
 | `api` | API `/api/*` (một hàm duy nhất, `vercel.json` rewrite vào đó) |
 | `db` | `schema.sql` cho Neon |
-| `scripts` | `dev-api.ts` (API chạy ở máy), `hash-password.mjs` |
+| `scripts` | `dev-api.ts` (API chạy ở máy), `hash-password.mjs`, `fetch_prices.py` (lấy giá bằng vnstock) |
 | `tests` | Test logic, API và giao diện (xem `tests/README.md`) |
-| `docs` | `DEPLOY.md` — hướng dẫn triển khai GitHub → Neon → Vercel |
+| `docs` | `DEPLOY.md` (triển khai GitHub → Neon → Vercel), `PRICES.md` (giá thị trường tự động) |
+| `.github/workflows` | `close-prices.yml` — lịch lấy giá đóng cửa |
 
 ## Chạy ở máy
 
@@ -42,5 +44,5 @@ Chi tiết về Neon và Vercel: `docs/DEPLOY.md`.
 
 ## Kiểm thử
 
-`npm run lint` (kiểm kiểu), `npm run build`, và `npm run test:logic`, `test:phase1` … `test:phase4`.
+`npm run lint` (kiểm kiểu), `npm run build`, và `npm run test:logic`, `test:phase1` … `test:phase5`, `test:api`, `test:prices-ui`.
 Ca A9 (lãi ưu đãi chuyển sang thả nổi) đỏ có chủ đích: đó là việc còn thiếu, xem `REVIEW.md`.

@@ -2,7 +2,7 @@
  * Test giai đoạn 4: R10 (ba báo cáo), C6 (ảnh chụp chi tiết), C8 (đối soát), R4 (cảnh báo nơi dùng vốn).
  * Run: npx tsx tests/phase4.test.ts
  */
-import { generateAmortizationSchedule } from '../src/utils/calculations';
+import { generateAmortizationSchedule, todayLocalStr } from '../src/utils/calculations';
 import { buildTrackedDebt } from '../src/utils/debtCore';
 import { applyPrepay, applyReconcile, applySettle } from '../src/utils/debtOps';
 import {
@@ -175,8 +175,11 @@ t('D3', 'Khi chưa khớp: đối soát báo "Chưa khớp" kèm nguyên nhân k
 t('D4', 'Dữ liệu mẫu: ba phép đối soát khớp với kỳ tháng, quý, năm', () => {
   const st0 = normalizeState(JSON.parse(JSON.stringify(createDemoState())))!;
   const bad: string[] = [];
-  for (const p of [per('month', 2026, 10), per('quarter', 2026, 3), per('year', 2026), per('month', 2026, 11)]) {
-    for (const c of reconcileReports(st0, p, TODAY)) if (!c.ok) bad.push(`${p.label}:${c.id}:${Math.round(c.diff)}`);
+  // Dữ liệu mẫu sinh theo ĐỒNG HỒ THẬT → kỳ và ngày đối soát cũng phải theo ngày thật (TODAY cố định làm test đỏ khi sang ngày mới)
+  const NOW = todayLocalStr();
+  const perNow = (kind: any, year: number, month = 1, quarter = 1) => buildPeriod({ kind, year, month, quarter }, NOW);
+  for (const p of [perNow('month', 2026, 10), perNow('quarter', 2026, 3), perNow('year', 2026), perNow('month', 2026, 11)]) {
+    for (const c of reconcileReports(st0, p, NOW)) if (!c.ok) bad.push(`${p.label}:${c.id}:${Math.round(c.diff)}`);
   }
   return bad.length === 0 ? true : bad.join(' | ');
 });

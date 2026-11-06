@@ -3,6 +3,7 @@ import { Sidebar, NavTab } from './components/Sidebar';
 import { Header } from './components/Header';
 import { DashboardView } from './components/DashboardView';
 import { AssetsView } from './components/AssetsView';
+import { PricesView } from './components/PricesView';
 import { DebtsView } from './components/DebtsView';
 import { WalletView } from './components/WalletView';
 import { CalendarView } from './components/CalendarView';
@@ -31,7 +32,7 @@ import {
   checkPayable,
   payLockLabel,
 } from './utils/calculations';
-import { applyRevaluation, RevaluationInput } from './utils/pricing';
+import { ApplyResult, PriceUpdate, STALE_DAYS, applyPriceUpdates, listPriceRows } from './utils/priceSync';
 import { insertTx } from './utils/ledger';
 import {
   OpResult, SellInput, applyAddDebt, applyDeposit, applyIncome, applyPayPeriod, applySell, applySetFundUse, applyVoidAsset,
@@ -304,12 +305,11 @@ function FinanceApp({
    * Định giá lại theo ĐƠN GIÁ (giá/CP, NAV/CCQ, giá/chỉ, giá/m²): tổng giá trị = số lượng × đơn giá.
    * Tiết kiệm và tài sản khác không có đơn giá nên nhập tổng giá trị. Lưu cả đơn giá lẫn tổng vào lịch sử.
    */
-  const handleRevalueAsset = (assetId: string, input: RevaluationInput) => {
-    const today = todayLocalStr();
-    setState((prev) => ({
-      ...prev,
-      assets: prev.assets.map((a) => (a.id === assetId ? applyRevaluation(a, input, today) : a)),
-    }));
+  /** Áp một loạt giá mới (tab "Cập nhật giá": giá tự động, nhập tay, import file). Không áp được dòng nào thì giữ nguyên state. */
+  const handleApplyPrices = (updates: PriceUpdate[]): ApplyResult => {
+    const res = applyPriceUpdates(state, updates, todayLocalStr());
+    if (res.applied.length > 0) setState(res.state);
+    return res;
   };
 
   /** Chạy một thao tác ghi sổ (hàm thuần trong utils/ops). Lỗi → hộp thoại, thành công → cập nhật trạng thái. */
@@ -532,6 +532,10 @@ function FinanceApp({
     setState(emptyState());
   };
 
+  const priceAlertCount = listPriceRows(state, todayLocalStr()).filter(
+    (r) => r.mode !== 'readonly' && r.staleDays !== null && r.staleDays > STALE_DAYS
+  ).length;
+
   return (
     <div className="min-h-screen bg-slate-50 flex font-sans antialiased text-slate-900">
       <Sidebar
@@ -544,6 +548,7 @@ function FinanceApp({
         isDark={isDark}
         onToggleTheme={onToggleTheme}
         adminPendingCount={isAdmin && adminAccounts ? countPendingWork(adminAccounts) : 0}
+        priceAlertCount={priceAlertCount}
         onOpenAccount={() => setAccountOpen(true)}
         onLogout={onLogout}
       />
@@ -604,12 +609,13 @@ function FinanceApp({
               onAddAsset={handleAddAsset}
               onUpdateAsset={handleUpdateAsset}
               onVoidAsset={handleVoidAsset}
-              onRevalueAsset={handleRevalueAsset}
               onSellAsset={handleSellAsset}
               onReceiveInterest={handleReceiveInterest}
               onRolloverSavings={handleRollover}
             />
           )}
+
+          {currentTab === 'prices' && <PricesView state={state} onApplyPrices={handleApplyPrices} />}
 
           {currentTab === 'debts' && (
             <DebtsView

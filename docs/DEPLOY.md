@@ -125,3 +125,7 @@ Máy chủ và bộ đồng bộ có kiểm thử chạy không cần Neon (dùn
 ```bash
 npx tsx --test tests/api/handlers.test.ts tests/api/syncer.test.ts
 ```
+
+## Giá thị trường tự động (tùy chọn)
+
+Tab "Cập nhật giá" dùng được ngay bằng cách nhập tay hoặc import CSV. Để có giá đóng cửa cổ phiếu tự động: chạy lại `db/schema.sql` (thêm bảng `market_prices`), khai báo secret `DATABASE_URL` trên GitHub và chạy workflow thăm dò. Hướng dẫn từng bước: `docs/PRICES.md`.

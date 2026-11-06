@@ -26,6 +26,18 @@ export interface NewUser {
   status: Status;
 }
 
+export type PriceKind = 'stock' | 'fund' | 'gold';
+export const PRICE_KINDS: PriceKind[] = ['stock', 'fund', 'gold'];
+
+export interface PriceRow {
+  kind: PriceKind;
+  symbol: string;
+  date: string; // YYYY-MM-DD
+  close: number;
+  source: string;
+  fetchedAt: string;
+}
+
 export type SaveResult = { ok: true; version: number } | { ok: false; version: number };
 
 /** Lớp truy cập dữ liệu. Có hai bản cài đặt: Neon (neon-store.ts) và trong bộ nhớ (memory-store.ts, dùng cho kiểm thử). */
@@ -55,6 +67,9 @@ export interface Store {
   getPortfolio(userId: string): Promise<{ data: unknown; version: number } | null>;
   /** baseVersion = 0: lần lưu đầu tiên; còn lại phải khớp phiên bản hiện có (chống ghi đè chéo thiết bị). */
   savePortfolio(userId: string, data: unknown, baseVersion: number): Promise<SaveResult>;
+
+  /** Giá thị trường dùng chung: tối đa 2 dòng gần nhất mỗi mã (mới nhất trước) để tính biến động phiên. */
+  getLatestPrices(kind: PriceKind, symbols: string[]): Promise<PriceRow[]>;
 }
 
 export const MAX_FAILED_LOGINS = 5;

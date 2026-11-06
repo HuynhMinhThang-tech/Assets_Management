@@ -6,6 +6,7 @@ import {
   Wallet as WalletIcon,
   CalendarDays,
   Scale,
+  TrendingUp,
   ChevronLeft,
   ChevronRight,
   Sun,
@@ -14,7 +15,7 @@ import {
   LogOut,
 } from 'lucide-react';
 
-export type NavTab = 'dashboard' | 'assets' | 'debts' | 'wallet' | 'calendar' | 'balance' | 'admin';
+export type NavTab = 'dashboard' | 'assets' | 'prices' | 'debts' | 'wallet' | 'calendar' | 'balance' | 'admin';
 
 interface SidebarProps {
   currentTab: NavTab;
@@ -28,6 +29,8 @@ interface SidebarProps {
   onToggleTheme: () => void;
   /** Số việc đang chờ quản trị viên xử lý (đăng ký mới + yêu cầu đặt lại mật khẩu). */
   adminPendingCount: number;
+  /** Số tài sản đã lâu chưa định giá lại (hiện trên mục "Cập nhật giá"). */
+  priceAlertCount?: number;
   onOpenAccount: () => void;
   onLogout: () => void;
 }
@@ -42,6 +45,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   isDark,
   onToggleTheme,
   adminPendingCount,
+  priceAlertCount = 0,
   onOpenAccount,
   onLogout,
 }) => {
@@ -55,6 +59,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
       id: 'assets',
       label: 'Danh mục Tài sản',
       icon: <PieChart className="w-5 h-5 shrink-0" />,
+    },
+    {
+      id: 'prices',
+      label: 'Cập nhật giá',
+      icon: <TrendingUp className="w-5 h-5 shrink-0" />,
+      badge: priceAlertCount > 0 ? priceAlertCount : undefined,
     },
     {
       id: 'debts',

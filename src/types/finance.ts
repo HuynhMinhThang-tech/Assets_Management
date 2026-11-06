@@ -73,6 +73,21 @@ export type AssetMetadata =
   | GoldMetadata
   | OtherMetadata;
 
+/** Loại giá thị trường lưu chung trên máy chủ (bảng market_prices). */
+export type PriceKind = 'stock' | 'fund' | 'gold';
+
+/** Giá thị trường mới nhất của một mã kèm giá phiên liền trước (nếu có). Đơn vị: VND/cổ phiếu, VND/CCQ, VND/chỉ. */
+export interface MarketQuote {
+  kind: PriceKind;
+  symbol: string;
+  date: string;              // YYYY-MM-DD – ngày của giá
+  close: number;
+  prevDate: string | null;
+  prevClose: number | null;
+  source: string;
+  fetchedAt: string;         // ISO
+}
+
 export interface Asset {
   id: string;
   name: string;                    // Tên tài sản dễ nhớ
