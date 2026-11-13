@@ -111,6 +111,9 @@ t('F2', 'Giao dịch phi tiền mặt ghi riêng: tài sản thêm không trừ 
   s = ok(applyAddDebt(s, { ...loan, schedule: generateAmortizationSchedule(80 * M, 9, 12, '2026-10-05', 5, 'declining_balance') }, {}, uid, TODAY));
   s = { ...s, debts: [...s.debts, trackedDebt()] };
   s = ok(applyPayPeriod(s, { debtId: 'd1', periodIndex: 0, deductFromWallet: false, date: '2026-10-20' }, uid, '2026-10-20'));
+  // Bản mới luôn ghi giao dịch noCash khi trả bằng tiền ngoài ví (xem consistency.test.ts C3). Dữ liệu CŨ có thể có kỳ đã trả mà không có giao dịch:
+  // mô phỏng bằng cách bỏ dòng giao dịch đó đi.
+  s = { ...s, transactions: s.transactions.filter((x) => x.type !== 'debt_payment') };
   const cf = cashFlowReport(s, P_OCT, TODAY);
   return cf.nonCash.assets.amount === 100 * M && cf.nonCash.loans.amount === 80 * M && cf.nonCash.unrecordedPayments.count === 1 && cf.nonCash.unrecordedPayments.principal > 0 && cf.net === 0 ? true : JSON.stringify(cf.nonCash);
 });

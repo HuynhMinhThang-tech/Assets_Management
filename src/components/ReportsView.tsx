@@ -271,6 +271,13 @@ const CheckRow: React.FC<{ c: ReconcileCheck; detail: boolean }> = ({ c, detail 
             ))}
           </div>
         )}
+        {c.notes && c.notes.length > 0 && (
+          <ul data-check-notes className="list-disc pl-5 text-[11px] leading-relaxed text-slate-500">
+            {c.notes.map((x) => (
+              <li key={x}>{x}</li>
+            ))}
+          </ul>
+        )}
         {!c.ok && c.causes.length > 0 && (
           <ul className="list-disc pl-5 font-medium text-amber-700">
             {c.causes.map((x) => (

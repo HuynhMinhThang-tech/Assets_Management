@@ -1,6 +1,6 @@
 import { Asset, CashTransaction, Debt, FundUse, UserFinancialState } from '../types/finance';
 import { checkPayable, isLiveTx, isOpenItem, savingsCurrentValue, todayLocalStr } from './calculations';
-import { ensureTimeline } from './debtCore';
+import { ensureTimeline, inferDebtOpening } from './debtCore';
 import { insertTx, txEffect } from './ledger';
 import { applyRevaluation } from './pricing';
 
@@ -122,6 +122,11 @@ export interface SellInput {
   note?: string;
   /** Cập nhật giá thị trường của phần còn lại theo giá bán này. */
   repriceRemainder?: boolean;
+  /**
+   * Ghi đè giá vốn của phần bán (VND). Dùng khi bán theo vị thế: giá vốn bình quân cả vị thế được phân bổ cho từng lô.
+   * Mặc định (bán riêng một lô): giá vốn theo tỷ lệ của chính lô đó.
+   */
+  costBasisSold?: number;
 }
 
 export interface SellPreview {
@@ -161,7 +166,11 @@ export function previewSell(asset: Asset, p: Omit<SellInput, 'assetId' | 'date'>
   const received = Math.round(p.received);
   if (!(received > 0)) return 'Nhập số tiền thực nhận lớn hơn 0.';
   const isPartial = ratio < 1 - 1e-12;
-  const costSold = isPartial ? Math.round(asset.initialCost * ratio) : asset.initialCost;
+  let costSold = isPartial ? Math.round(asset.initialCost * ratio) : asset.initialCost;
+  if (p.costBasisSold !== undefined) {
+    if (!(p.costBasisSold >= 0) || p.costBasisSold > asset.initialCost + 1) return 'Giá vốn phần bán không hợp lệ.';
+    costSold = isPartial ? Math.round(p.costBasisSold) : asset.initialCost;
+  }
   const valueSold = isPartial ? Math.round(asset.currentValue * ratio) : asset.currentValue;
   return {
     quantity,
@@ -213,12 +222,14 @@ export function applySell(state: UserFinancialState, p: SellInput, uid: IdGen = 
       initialCost: asset.initialCost - pv.costSold,
       currentValue: asset.currentValue - pv.valueSold,
       realizedPnL: (asset.realizedPnL || 0) + pv.realizedPnL,
-      lastValuationDate: today,
+      // Ngày định giá là ngày của GIÁ đang dùng; bán một phần không đổi giá phần còn lại nên giữ nguyên
+      // (đặt = hôm nay sẽ khiến giá đóng cửa của những ngày trước bị coi là cũ hơn và bị chặn).
+      lastValuationDate: asset.lastValuationDate,
       metadata: { ...(asset.metadata as any), [spec!.key]: pv.totalUnits - pv.quantity },
     };
-    if (p.repriceRemainder && unitPriced && p.unitPrice) updated = applyRevaluation(updated, { unitPrice: p.unitPrice }, today);
+    if (p.repriceRemainder && unitPriced && p.unitPrice) updated = applyRevaluation(updated, { unitPrice: p.unitPrice }, p.date);
   } else {
-    updated = { ...asset, status: 'sold', currentValue: 0, realizedPnL: (asset.realizedPnL || 0) + pv.realizedPnL, lastValuationDate: today };
+    updated = { ...asset, status: 'sold', currentValue: 0, realizedPnL: (asset.realizedPnL || 0) + pv.realizedPnL };
   }
 
   return {
@@ -267,21 +278,21 @@ export function applyPayPeriod(state: UserFinancialState, p: PayInput, uid: IdGe
 
   let wallet = state.wallet;
   let transactions = state.transactions;
-  if (p.deductFromWallet) {
-    wallet = { ...wallet, availableCash: wallet.availableCash - si.totalMonthlyPayment };
-    transactions = insertTx(transactions, {
-      id: uid('tx'),
-      date: p.date,
-      type: 'debt_payment',
-      amount: si.totalMonthlyPayment,
-      title: `Trả nợ kỳ #${si.period}: ${debt.name}`,
-      linkedDebtId: debt.id,
-      periodIndex: p.periodIndex,
-      principalPortion: si.principalPayable,
-      interestPortion: si.interestPayable,
-      note: `Gốc: ${money(si.principalPayable)} · Lãi: ${money(si.interestPayable)}`,
-    });
-  }
+  if (p.deductFromWallet) wallet = { ...wallet, availableCash: wallet.availableCash - si.totalMonthlyPayment };
+  // Luôn ghi giao dịch trả nợ (kể cả khi trả bằng tiền ngoài ví: noCash, ví không đổi) để có dấu vết, hủy được và báo cáo đúng.
+  transactions = insertTx(transactions, {
+    id: uid('tx'),
+    date: p.date,
+    type: 'debt_payment',
+    amount: si.totalMonthlyPayment,
+    title: `Trả nợ kỳ #${si.period}: ${debt.name}`,
+    linkedDebtId: debt.id,
+    periodIndex: p.periodIndex,
+    principalPortion: si.principalPayable,
+    interestPortion: si.interestPayable,
+    noCash: p.deductFromWallet ? undefined : true,
+    note: `Gốc: ${money(si.principalPayable)} · Lãi: ${money(si.interestPayable)}${p.deductFromWallet ? '' : ' · Trả bằng tiền ngoài ví'}`,
+  });
   return {
     ok: true,
     state: {
@@ -294,8 +305,9 @@ export function applyPayPeriod(state: UserFinancialState, p: PayInput, uid: IdGe
 }
 
 // ---------------------------------------------------------------- Thêm khoản nợ có nơi dùng vốn (R4)
-export function fundUseError(fu: FundUse | undefined, state: UserFinancialState): string {
-  if (!fu || fu.kind === 'unspecified') return 'Chọn nơi dùng vốn: tiền vay đã đi đâu.';
+export function fundUseError(fu: FundUse | undefined, state: UserFinancialState, allowUnspecified = false): string {
+  if (!fu) return 'Chọn nơi dùng vốn: tiền vay đã đi đâu.';
+  if (fu.kind === 'unspecified') return allowUnspecified ? '' : 'Chọn nơi dùng vốn: tiền vay đã đi đâu.';
   if (fu.kind === 'asset') {
     const a = state.assets.find((x) => x.id === fu.assetId);
     if (!a || a.status !== 'active') return 'Chọn tài sản được mua bằng vốn vay.';
@@ -305,33 +317,91 @@ export function fundUseError(fu: FundUse | undefined, state: UserFinancialState)
   return '';
 }
 
+/** Tài sản đã sở hữu từ trước nhưng chưa nhập vào app (tạo cùng lúc với khoản vay, KHÔNG trừ ví). */
+export interface PreexistingAssetInput {
+  name: string;
+  /** Giá trị hiện tại của tài sản (VND). */
+  value: number;
+  kind: 'real_estate' | 'vehicle' | 'other';
+  /** Ngày mua thực tế (mặc định hôm nay). */
+  purchaseDate?: string;
+  /** Dùng làm tài sản thế chấp của khoản vay này. */
+  collateral?: boolean;
+}
+
 export interface AddDebtOptions {
   /** (nơi dùng vốn = vào ví) Cộng tiền vay vào ví và ghi dòng giải ngân. Mặc định: chỉ ghi nợ, ví không đổi. */
   disburseToWallet?: boolean;
+  /** Tạo luôn tài sản đối ứng "đã sở hữu từ trước": không trừ ví, tính vào số dư ban đầu. Ghi đè nơi dùng vốn thành "mua tài sản". */
+  preexistingAsset?: PreexistingAssetInput;
+  /** Cho lưu khi chưa rõ nơi dùng vốn (sẽ nhắc bổ sung sau). */
+  allowUnspecified?: boolean;
+}
+
+export function buildPreexistingAsset(p: PreexistingAssetInput, id: string, today: string): Asset {
+  const date = p.purchaseDate || today;
+  const metadata: any =
+    p.kind === 'real_estate'
+      ? { address: '', propertyType: 'apartment', areaM2: 0, purchasePrice: p.value, estimatedMarketPrice: p.value, monthlyRentalIncome: 0, legalStatus: 'red_book' }
+      : { itemType: p.kind === 'vehicle' ? 'Xe' : 'Tài sản khác', details: '' };
+  return {
+    id,
+    name: p.name.trim(),
+    category: p.kind === 'real_estate' ? 'real_estate' : 'other',
+    initialCost: p.value,
+    currentValue: p.value,
+    purchaseDate: date,
+    status: 'active',
+    metadata,
+    realizedPnL: 0,
+    lastValuationDate: today,
+    preexisting: true,
+    openingValue: p.value,
+    notes: 'Đã sở hữu từ trước khi dùng app (không trừ ví).',
+  };
 }
 
 export function applyAddDebt(state: UserFinancialState, debt: Debt, opts: AddDebtOptions = {}, uid: IdGen = defaultId, today = todayLocalStr()): OpResult {
   if (!(debt.principalAmount > 0)) return fail('Số tiền vay phải lớn hơn 0.');
-  const fuErr = fundUseError(debt.fundUse, state);
+  let working = state;
+  let debtIn: Debt = debt;
+  if (opts.preexistingAsset) {
+    const pa = opts.preexistingAsset;
+    if (!pa.name || !pa.name.trim()) return fail('Nhập tên tài sản đã có từ trước.');
+    if (!(pa.value > 0)) return fail('Nhập giá trị hiện tại của tài sản lớn hơn 0.');
+    if (pa.purchaseDate) {
+      const e = checkTxDate(pa.purchaseDate, undefined, today, 'ngày mua');
+      if (e) return fail(e);
+    }
+    const asset = buildPreexistingAsset(pa, uid('asset'), today);
+    working = { ...state, assets: [asset, ...state.assets] };
+    debtIn = {
+      ...debt,
+      fundUse: { kind: 'asset', assetId: asset.id },
+      collateralAssetId: pa.collateral ? asset.id : debt.collateralAssetId,
+      securityType: pa.collateral ? 'secured' : debt.securityType,
+    };
+  }
+  const fuErr = fundUseError(debtIn.fundUse, working, opts.allowUnspecified);
   if (fuErr) return fail(fuErr);
-  const fu: FundUse = { ...debt.fundUse! };
-  let wallet = state.wallet;
-  let transactions = state.transactions;
-  let assets = state.assets;
+  const fu: FundUse = { ...debtIn.fundUse! };
+  let wallet = working.wallet;
+  let transactions = working.transactions;
+  let assets = working.assets;
 
   if (fu.kind === 'wallet') {
     if (opts.disburseToWallet) {
-      const dateErr = checkTxDate(debt.startDate, undefined, today);
+      const dateErr = checkTxDate(debtIn.startDate, undefined, today);
       if (dateErr) return fail('Chỉ ghi dòng giải ngân khi ngày giải ngân là hôm nay hoặc đã qua. ' + dateErr);
-      wallet = { ...wallet, availableCash: wallet.availableCash + debt.principalAmount };
+      wallet = { ...wallet, availableCash: wallet.availableCash + debtIn.principalAmount };
       transactions = insertTx(transactions, {
         id: uid('tx'),
-        date: debt.startDate,
+        date: debtIn.startDate,
         type: 'loan_disbursement',
-        amount: debt.principalAmount,
-        title: `Giải ngân khoản vay: ${debt.name}`,
-        linkedDebtId: debt.id,
-        note: `${debt.lender} giải ngân vào ví đầu tư`,
+        amount: debtIn.principalAmount,
+        title: `Giải ngân khoản vay: ${debtIn.name}`,
+        linkedDebtId: debtIn.id,
+        note: `${debtIn.lender} giải ngân vào ví đầu tư`,
       });
       fu.cashRecorded = true;
     } else {
@@ -339,9 +409,12 @@ export function applyAddDebt(state: UserFinancialState, debt: Debt, opts: AddDeb
     }
   }
   if (fu.kind === 'asset') {
-    assets = assets.map((a) => (a.id === fu.assetId ? { ...a, linkedDebtId: debt.id } : a));
+    assets = assets.map((a) => (a.id === fu.assetId ? { ...a, linkedDebtId: debtIn.id } : a));
   }
-  return { ok: true, state: { ...state, wallet, transactions, assets, debts: [{ ...debt, fundUse: fu, rateTimeline: ensureTimeline(debt) }, ...state.debts] } };
+  const withFu: Debt = { ...debtIn, fundUse: fu };
+  const opening = withFu.openingBalance ?? inferDebtOpening(withFu);
+  const finalDebt: Debt = { ...withFu, rateTimeline: ensureTimeline(withFu), openingBalance: opening };
+  return { ok: true, state: { ...working, wallet, transactions, assets, debts: [finalDebt, ...working.debts] } };
 }
 
 /** Bổ sung nơi dùng vốn cho khoản nợ cũ: chỉ gắn nhãn, KHÔNG đụng tới ví hay dòng tiền. */
@@ -376,6 +449,25 @@ function paymentIndexOf(debt: Debt, tx: CashTransaction): number {
   return m && debt.schedule ? debt.schedule.findIndex((i) => i.period === Number(m[1])) : -1;
 }
 
+/**
+ * Giao dịch còn hiệu lực GHI NHẬN SAU CÙNG thỏa điều kiện. Dựa vào `recordedAt` (thời điểm ghi nhận); giao dịch cũ chưa có dấu này
+ * coi là ghi trước mọi giao dịch có dấu, và giữa chúng thì theo thứ tự trong sổ (đầu danh sách = mới hơn), như trước đây.
+ */
+function newestRecorded(list: CashTransaction[], pred: (t: CashTransaction) => boolean): CashTransaction | undefined {
+  let best: CashTransaction | undefined;
+  for (const t of list) {
+    if (!isLiveTx(t) || !pred(t)) continue;
+    if (!best) {
+      best = t;
+      continue;
+    }
+    const a = t.recordedAt ?? -1;
+    const b = best.recordedAt ?? -1;
+    if (a > b) best = t;
+  }
+  return best;
+}
+
 export function canVoidTx(state: UserFinancialState, txId: string): VoidCheck {
   const idx = state.transactions.findIndex((t) => t.id === txId);
   if (idx < 0) return no('Không tìm thấy giao dịch.');
@@ -393,16 +485,16 @@ export function canVoidTx(state: UserFinancialState, txId: string): VoidCheck {
   if (tx.type === 'sell_asset') {
     const asset = state.assets.find((a) => a.id === tx.linkedAssetId);
     if (!asset || asset.status === 'voided') return no('Không tìm thấy tài sản của lần bán này.');
-    const firstLive = state.transactions.find((t) => isLiveTx(t) && t.type === 'sell_asset' && t.linkedAssetId === tx.linkedAssetId);
-    if (firstLive && firstLive.id !== tx.id) return no('Hãy hủy lần bán mới hơn của tài sản này trước.');
+    const newest = newestRecorded(state.transactions, (t) => t.type === 'sell_asset' && t.linkedAssetId === tx.linkedAssetId);
+    if (newest && newest.id !== tx.id) return no('Hãy hủy lần bán mới hơn của tài sản này trước.');
     if (typeof tx.costBasisSold !== 'number' || typeof tx.valueSold !== 'number')
       return no('Lần bán này được ghi trước khi có chức năng hủy nên không đủ dữ liệu để hoàn nguyên.');
   }
   if (tx.type === 'debt_payment') {
     const debt = state.debts.find((d) => d.id === tx.linkedDebtId);
     if (!debt || debt.status === 'voided' || !debt.schedule) return no('Không tìm thấy khoản vay của giao dịch này.');
-    const firstLive = state.transactions.find((t) => isLiveTx(t) && t.type === 'debt_payment' && t.linkedDebtId === tx.linkedDebtId);
-    if (firstLive && firstLive.id !== tx.id) return no('Hãy hủy giao dịch trả nợ mới hơn của khoản vay này trước.');
+    const newest = newestRecorded(state.transactions, (t) => t.type === 'debt_payment' && t.linkedDebtId === tx.linkedDebtId);
+    if (newest && newest.id !== tx.id) return no('Hãy hủy giao dịch trả nợ mới hơn của khoản vay này trước.');
     if (tx.settlement) {
       if (debt.closeReason !== 'early') return no('Khoản vay không còn ở trạng thái tất toán sớm.');
     } else if (tx.prepay) {

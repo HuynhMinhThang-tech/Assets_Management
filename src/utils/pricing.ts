@@ -51,6 +51,8 @@ export interface RevaluationInput {
   unitPrice?: number;
   /** Tổng giá trị mới (chỉ dùng cho tài sản không có đơn giá: tiết kiệm, tài sản khác). */
   totalValue?: number;
+  /** Nguồn định giá (tùy chọn): "giá rao bán cùng khu", "ngân hàng thẩm định", "tự ước tính"... Ghi vào lịch sử định giá. */
+  source?: string;
 }
 
 /**
@@ -81,7 +83,10 @@ export function applyRevaluation(asset: Asset, input: RevaluationInput, today: s
   if (asset.category === 'gold') md.currentPerChi = unitPrice;
   if (asset.category === 'real_estate') md.estimatedMarketPrice = value;
 
-  const entry = unitPrice !== undefined ? { date: today, value, unitPrice } : { date: today, value };
+  const source = input.source?.trim().slice(0, 80) || undefined;
+  const entry: NonNullable<Asset['valuationHistory']>[number] = { date: today, value };
+  if (unitPrice !== undefined) entry.unitPrice = unitPrice;
+  if (source) entry.source = source;
   const history = [...(asset.valuationHistory || [])];
   if (history.length && history[history.length - 1].date === today) history[history.length - 1] = entry;
   else history.push(entry);

@@ -82,13 +82,39 @@ def tidy(df) -> list[tuple[dt.date, float]]:
     return sorted(out.items())
 
 
+def detect_scale(closes: list[float]) -> str:
+    """Chế độ 'auto': quyết định MỘT hệ số cho cả lượt chạy theo trung vị giá đóng cửa của tất cả các mã.
+
+    Dưới 500 → nguồn trả nghìn đồng ('1000'); từ 500 → đã là đồng ('1'). Quyết định theo cả nhóm mã nên một cổ phiếu giá thấp
+    (ví dụ 450 đ) không bị nhận nhầm như khi quyết định riêng từng mã. Vẫn nên đặt cố định VNSTOCK_PRICE_SCALE sau khi xem log thăm dò.
+    """
+    vals = sorted(v for v in closes if v > 0)
+    if not vals:
+        return "1000"
+    mid = vals[len(vals) // 2] if len(vals) % 2 else (vals[len(vals) // 2 - 1] + vals[len(vals) // 2]) / 2
+    return "1000" if mid < 500 else "1"
+
+
 def to_vnd(value: float, scale: str) -> float:
-    """vnstock thường trả giá theo nghìn đồng (25,5 = 25.500 đ). 'auto': dưới 500 coi là nghìn đồng."""
+    """vnstock thường trả giá theo nghìn đồng (25,5 = 25.500 đ). scale: '1000' | '1' (đã chọn); 'auto' chỉ còn dùng cho từng giá trị lẻ."""
     if scale == "1000":
         return round(value * 1000, 2)
     if scale == "1":
         return round(value, 2)
     return round(value * 1000, 2) if value < 500 else round(value, 2)
+
+
+# Giá đóng cửa mới lệch quá nhiều so với phiên đã lưu trước đó thường là sai đơn vị (×1000 hoặc ÷1000), không phải biến động thật
+# (biên độ ngày tối đa các sàn VN là ±7%/±10%/±15%). Cho phép nhiều phiên bị bỏ lỡ cộng dồn nên ngưỡng rộng hơn.
+SANITY_MIN_RATIO = 0.4
+SANITY_MAX_RATIO = 2.5
+
+
+def price_sane(new_price: float, previous_close: float | None) -> bool:
+    if previous_close is None or previous_close <= 0:
+        return True
+    r = new_price / previous_close
+    return SANITY_MIN_RATIO <= r <= SANITY_MAX_RATIO
 
 
 def get_with_retry(symbol: str, source: str, days: int, tries: int = 3):
@@ -157,6 +183,28 @@ UPSERT = """
 """
 
 
+def previous_close(conn, sym: str, before: dt.date) -> float | None:
+    with conn.cursor() as cur:
+        cur.execute(
+            "select close from market_prices where kind = 'stock' and symbol = %s and price_date < %s order by price_date desc limit 1",
+            (sym, before),
+        )
+        row = cur.fetchone()
+    return float(row[0]) if row else None
+
+
+def write_summary(lines: list[str]) -> None:
+    """Ghi tóm tắt vào trang kết quả của GitHub Actions (nếu chạy trên Actions)."""
+    path = os.environ.get("GITHUB_STEP_SUMMARY")
+    if not path:
+        return
+    try:
+        with open(path, "a", encoding="utf-8") as f:
+            f.write("\n".join(lines) + "\n")
+    except OSError:
+        pass
+
+
 def run(source: str, scale: str, keep: int, dry: bool) -> int:
     import psycopg
 
@@ -165,13 +213,16 @@ def run(source: str, scale: str, keep: int, dry: bool) -> int:
         log("Thiếu biến môi trường DATABASE_URL.")
         return 2
     delay = setup_vnstock()
-    done = failed = 0
+    fetched: dict[str, list[tuple[dt.date, float]]] = {}
+    errors: dict[str, str] = {}
     with psycopg.connect(url) as conn:
         symbols = held_symbols(conn)
         if not symbols:
             log("Không có cổ phiếu nào đang nắm giữ → không có gì để lấy.")
             return 0
         log(f"{len(symbols)} mã: {', '.join(symbols)} · nguồn {source} · {today_vn()}")
+
+        # Lượt 1: lấy hết rồi mới quyết định đơn vị (không ghi gì)
         for i, sym in enumerate(symbols):
             if i:
                 time.sleep(delay)
@@ -179,20 +230,47 @@ def run(source: str, scale: str, keep: int, dry: bool) -> int:
                 rows = tidy(get_with_retry(sym, source, 14))[-keep:]
                 if not rows:
                     raise ValueError("không có dòng giá hợp lệ")
+                fetched[sym] = rows
+            except Exception as e:  # noqa: BLE001
+                errors[sym] = f"{type(e).__name__}: {e}"
+                print(f"::error::{sym}: {errors[sym]}", flush=True)
+
+        use_scale = scale if scale != "auto" else detect_scale([r[-1][1] for r in fetched.values()])
+        if scale == "auto":
+            log(f"Đơn vị giá tự nhận diện theo trung vị các mã: hệ số {use_scale} (nên đặt cố định VNSTOCK_PRICE_SCALE={use_scale}).")
+
+        # Lượt 2: kiểm tra độ hợp lý so với phiên đã lưu trước đó, rồi ghi
+        done = 0
+        skipped: dict[str, str] = {}
+        for sym, rows in fetched.items():
+            try:
+                newest_d, newest_v = rows[-1]
+                prev = previous_close(conn, sym, newest_d)
+                if not price_sane(to_vnd(newest_v, use_scale), prev):
+                    skipped[sym] = (
+                        f"giá mới {to_vnd(newest_v, use_scale):,.0f} đ lệch bất thường so với phiên trước đã lưu {prev:,.0f} đ "
+                        f"(có thể sai đơn vị: kiểm tra VNSTOCK_PRICE_SCALE)"
+                    )
+                    print(f"::error::{sym}: {skipped[sym]}", flush=True)
+                    continue
                 with conn.cursor() as cur:
                     for d, v in rows:
-                        price = to_vnd(v, scale)
                         if not dry:
-                            cur.execute(UPSERT, (sym, d, price, f"vnstock:{source}"))
-                    conn.commit()
-                d, v = rows[-1]
-                log(f"  {sym}: {d} đóng cửa {to_vnd(v, scale):,.0f} đ  ({len(rows)} dòng{', DRY-RUN' if dry else ''})")
+                            cur.execute(UPSERT, (sym, d, to_vnd(v, use_scale), f"vnstock:{source}"))
+                conn.commit()
+                log(f"  {sym}: {newest_d} đóng cửa {to_vnd(newest_v, use_scale):,.0f} đ  ({len(rows)} dòng{', DRY-RUN' if dry else ''})")
                 done += 1
             except Exception as e:  # noqa: BLE001
                 conn.rollback()
-                failed += 1
-                warn(f"{sym}: {type(e).__name__}: {e}")
+                errors[sym] = f"{type(e).__name__}: {e}"
+                print(f"::error::{sym}: {errors[sym]}", flush=True)
+
+    failed = len(errors) + len(skipped)
     log(f"Xong: {done} mã thành công, {failed} lỗi.")
+    summary = [f"### Lấy giá đóng cửa {today_vn()}", f"- Thành công: **{done}/{len(symbols)}** mã · nguồn `{source}` · hệ số đơn vị `{use_scale}`"]
+    for sym, why in {**errors, **skipped}.items():
+        summary.append(f"- ❌ **{sym}**: {why}")
+    write_summary(summary)
     return 1 if done == 0 else 0
 
 

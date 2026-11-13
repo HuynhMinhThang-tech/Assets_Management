@@ -107,8 +107,9 @@ export function rebuildSchedule(debt: Debt, opts: RebuildOptions = {}, today: st
   const header: Partial<Debt> = {
     rateTimeline: timeline,
     annualInterestRate: current.annualRate,
-    baseRate: debt.rateType === 'floating' ? current.baseRate ?? debt.baseRate : debt.baseRate,
-    floatingMargin: debt.rateType === 'floating' ? current.margin ?? debt.floatingMargin : debt.floatingMargin,
+    // Dữ liệu cũ thả nổi: theo mốc hiện hành; mốc nhập kiểu một mức lãi thì không còn lãi cơ sở/biên độ.
+    baseRate: debt.rateType === 'floating' ? current.baseRate : debt.baseRate,
+    floatingMargin: debt.rateType === 'floating' ? current.margin : debt.floatingMargin,
   };
   if (openIdx.length === 0 || debt.remainingPrincipal <= 0) return { ...debt, ...header, schedule };
 
@@ -254,8 +255,10 @@ export interface TrackedDebtInput {
   firstDueDate: string;     // ngày đến hạn kỳ tiếp theo
   trackingStart: string;    // ngày bắt đầu theo dõi
   paymentDay: number;
+  /** Lãi suất hiện tại (%/năm): một mức duy nhất. Hết ưu đãi thì dùng "Đổi lãi suất". */
   annualRate: number;
-  rateType: 'fixed' | 'floating';
+  /** (di sản) không còn dùng; luôn ghi 'fixed' cho khoản vay mới. */
+  rateType?: 'fixed' | 'floating';
   baseRate?: number;
   margin?: number;
   method: PaymentMethod;
@@ -276,10 +279,9 @@ export function buildTrackedDebt(base: Omit<Debt, 'principalAmount' | 'remaining
     ...base,
     principalAmount: p.balance,
     remainingPrincipal: p.balance,
+    openingBalance: p.balance,
     annualInterestRate: p.annualRate,
-    rateType: p.rateType,
-    baseRate: p.rateType === 'floating' ? p.baseRate : undefined,
-    floatingMargin: p.rateType === 'floating' ? p.margin : undefined,
+    rateType: 'fixed',
     tenorMonths: p.periods,
     startDate: p.trackingStart,
     trackingStartDate: p.trackingStart,
@@ -294,11 +296,34 @@ export function buildTrackedDebt(base: Omit<Debt, 'principalAmount' | 'remaining
         id: 'rate-0',
         effectiveDate: p.trackingStart,
         annualRate: p.annualRate,
-        baseRate: p.rateType === 'floating' ? p.baseRate : undefined,
-        margin: p.rateType === 'floating' ? p.margin : undefined,
         source: 'initial',
       },
     ],
   };
   return rebuildSchedule(debt, {}, today);
+}
+
+/** Chỉ số kỳ còn mở đầu tiên (chưa trả, chưa hủy); -1 nếu không còn. Dùng thay cho `findIndex(!isPaid)` ở mọi nơi. */
+export function firstOpenIndex(d: Debt): number {
+  return (d.schedule || []).findIndex((i) => !i.isPaid && i.status !== 'cancelled');
+}
+
+/**
+ * Dư nợ gốc có sẵn từ trước khi theo dõi trong app (đóng góp vào "số dư ban đầu" của bảng cân đối):
+ *  - Khoản vay đang trả dở (có ngày bắt đầu theo dõi): dư nợ lúc bắt đầu theo dõi = principalAmount.
+ *  - Khoản vay giải ngân trong quá khứ (có kỳ "trước khi theo dõi"): dư nợ sau kỳ cuối cùng đã qua trước khi theo dõi.
+ *  - Khoản vay đã ghi dòng giải ngân vào ví: tiền đi qua ví nên không có số dư ban đầu.
+ *  - Khoản vay mới giải ngân từ khi dùng app: không có.
+ */
+export function inferDebtOpening(d: Debt): number | undefined {
+  if (d.status === 'voided') return undefined;
+  if (d.fundUse?.kind === 'wallet' && d.fundUse.cashRecorded) return undefined;
+  if (d.trackingStartDate) return Math.max(0, Math.round(d.principalAmount));
+  const sch = d.schedule || [];
+  let last = -1;
+  sch.forEach((it, i) => {
+    if (it.preTracking) last = i;
+  });
+  if (last >= 0) return Math.max(0, Math.round(sch[last].remainingBalance));
+  return undefined;
 }

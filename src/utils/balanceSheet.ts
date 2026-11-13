@@ -10,11 +10,13 @@
  *   - Tài sản dài hạn: bất động sản, tài sản khác, tiền gửi/trái phiếu đáo hạn sau 12 tháng.
  *   - Nợ ngắn hạn: phần gốc phải trả trong 12 tháng tới (kể cả kỳ đã quá hạn chưa trả). Phần còn lại là nợ dài hạn.
  */
+import { listStaleValuations, StaleInfo } from './valuation';
 import { Asset, Debt, UserFinancialState } from '../types/finance';
 import {
   addMonthsStr,
   calculateCollateralMetrics,
   getNextDuePayment,
+  monthlyRentalIncomeOf,
   getSavingsAccrual,
   todayLocalStr,
 } from './calculations';
@@ -35,6 +37,11 @@ export interface DebtLine {
 }
 
 export interface BalanceSheet {
+  /** Tài sản quá ngưỡng nhắc định giá lại (nhà, xe, tài sản khác…): số trên bảng cân đối có thể đã cũ. */
+  staleValuations: StaleInfo[];
+  /** Tổng giá trị các tài sản định giá cũ và tỷ lệ trên tổng tài sản. */
+  staleValue: number;
+  stalePct: number | null;
   asOf: string;
   currentAssets: { lines: BalanceLine[]; total: number };
   nonCurrentAssets: { lines: BalanceLine[]; total: number };
@@ -46,7 +53,12 @@ export interface BalanceSheet {
     total: number;
     /** Vốn nạp ròng = tổng đã nạp − tổng đã rút khỏi ví. */
     contributed: number;
-    /** Phần còn lại của vốn chủ (lãi/lỗ lũy kế, chênh lệch đánh giá lại...). */
+    /**
+     * Số dư ban đầu: tài sản và nợ có sẵn khi bắt đầu dùng app (không đi qua ví) = giá trị tài sản "có từ trước" − dư nợ có từ trước.
+     * Có thể âm (ví dụ khoản vay đang trả dở mà tài sản đối ứng chưa nhập). Không phải lãi/lỗ.
+     */
+    opening: number;
+    /** Lãi/lỗ phát sinh từ lúc theo dõi (đánh giá lại, thu nhập, chi phí lãi vay...). total − contributed − opening. */
     retained: number;
   };
   totalLiabilitiesAndEquity: number;
@@ -114,7 +126,17 @@ export function statusHigherIsBetter(value: number, good: number, watch: number)
   return 'risk';
 }
 
-export function calculateBalanceSheet(state: UserFinancialState, today: string = todayLocalStr()): BalanceSheet {
+/**
+ * Số dư ban đầu tại ngày `date`: tài sản "có từ trước" (không trừ ví khi nhập) trừ dư nợ có sẵn từ trước khi theo dõi.
+ * Là một hằng số lịch sử (không đổi theo giá thị trường hay việc trả nợ); bản ghi đã hủy không tính.
+ */
+export function openingBalanceOf(state: UserFinancialState, date?: string): number {
+  const assets = state.assets.reduce((s, a) => (a.status !== 'voided' && a.preexisting && (!date || a.purchaseDate <= date) ? s + (a.openingValue || 0) : s), 0);
+  const debts = state.debts.reduce((s, d) => (d.status !== 'voided' ? s + (d.openingBalance || 0) : s), 0);
+  return assets - debts;
+}
+
+export function calculateBalanceSheet(state: UserFinancialState, today: string = todayLocalStr(), opening: number = openingBalanceOf(state)): BalanceSheet {
   const cash = state.wallet.availableCash;
   const activeAssets = state.assets.filter((a) => a.status === 'active');
   const activeDebts = state.debts.filter((d) => d.status === 'active' && d.remainingPrincipal > 0);
@@ -169,10 +191,7 @@ export function calculateBalanceSheet(state: UserFinancialState, today: string =
 
   // ---- Chỉ số ----
   const monthlyObligation = activeDebts.reduce((s, d) => s + (getNextDuePayment(d)?.total ?? 0), 0);
-  const monthlyRentalIncome = activeAssets.reduce((s, a) => {
-    if (a.category !== 'real_estate' && a.category !== 'other') return s;
-    return s + ((a.metadata as { monthlyRentalIncome?: number }).monthlyRentalIncome || 0);
-  }, 0);
+  const monthlyRentalIncome = monthlyRentalIncomeOf(activeAssets);
 
   const debtTotal = activeDebts.reduce((s, d) => s + d.remainingPrincipal, 0);
   const weightedRate =
@@ -210,7 +229,12 @@ export function calculateBalanceSheet(state: UserFinancialState, today: string =
     ltv,
   };
 
+  const staleValuations = listStaleValuations(state.assets, today);
+  const staleValue = staleValuations.reduce((x, y) => x + y.value, 0);
   return {
+    staleValuations,
+    staleValue,
+    stalePct: totalAssets > 0 ? staleValue / totalAssets : null,
     asOf: today,
     currentAssets: { lines: currentAssetLines, total: currentAssetsTotal },
     nonCurrentAssets: { lines: nonCurrentAssetLines, total: nonCurrentAssetsTotal },
@@ -218,7 +242,7 @@ export function calculateBalanceSheet(state: UserFinancialState, today: string =
     currentLiabilities: { lines: currentLiabLines, total: currentLiabTotal },
     nonCurrentLiabilities: { lines: nonCurrentLiabLines, total: nonCurrentLiabTotal },
     totalLiabilities,
-    equity: { total: equityTotal, contributed, retained: equityTotal - contributed },
+    equity: { total: equityTotal, contributed, opening, retained: equityTotal - contributed - opening },
     totalLiabilitiesAndEquity: totalLiabilities + equityTotal,
     ratios,
   };

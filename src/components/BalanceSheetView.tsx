@@ -162,6 +162,24 @@ export const BalanceSheetView: React.FC<BalanceSheetViewProps> = ({ state, balan
         </div>
       </div>
 
+      {/* Cảnh báo định giá cũ: nhà thường chiếm phần lớn tài sản ròng nên số trên bảng có thể đã lệch */}
+      {bs.staleValuations.length > 0 && (
+        <div data-stale-valuation className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-xs text-amber-900">
+          <div className="font-bold">
+            Định giá cũ: {bs.staleValuations.length} tài sản
+            {bs.stalePct !== null && ` (${(bs.stalePct * 100).toFixed(0)}% tổng tài sản)`} đã quá hạn định giá lại.
+          </div>
+          <ul className="mt-1 space-y-0.5">
+            {bs.staleValuations.slice(0, 5).map((x) => (
+              <li key={x.assetId}>
+                {x.name}: {formatVND(x.value)} · định giá cách đây {x.days} ngày (nhắc sau {x.threshold} ngày)
+              </li>
+            ))}
+          </ul>
+          <div className="mt-1 text-[11px] text-amber-800">Vào tab Cập nhật giá để nhập giá mới; số liệu ở đây sẽ tự cập nhật.</div>
+        </div>
+      )}
+
       {/* 2. CƠ CẤU NGUỒN VỐN */}
       {bs.totalAssets > 0 && (
         <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm space-y-2">
@@ -177,8 +195,11 @@ export const BalanceSheetView: React.FC<BalanceSheetViewProps> = ({ state, balan
           </div>
           <div data-funding className="flex flex-wrap items-center gap-x-5 gap-y-1 text-xs font-mono text-slate-700">
             <span>Vốn nạp ròng {formatVND(bs.equity.contributed)}</span>
+            {bs.equity.opening !== 0 && (
+              <span title="Tài sản và nợ có sẵn từ trước khi dùng app, không đi qua ví. Không phải lãi/lỗ.">Số dư ban đầu {formatVND(bs.equity.opening)}</span>
+            )}
             <span>Vốn vay {formatVND(bs.totalLiabilities)}</span>
-            <span>Lãi/lỗ lũy kế {formatVND(bs.equity.retained)}</span>
+            <span>Lãi/lỗ từ lúc theo dõi {formatVND(bs.equity.retained)}</span>
           </div>
           {unspecifiedDebts > 0 && (
             <div data-funding-warning className="text-xs font-semibold text-amber-700">
@@ -194,7 +215,7 @@ export const BalanceSheetView: React.FC<BalanceSheetViewProps> = ({ state, balan
             <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider">Biến động trong kỳ</h3>
             <span className="text-[11px] font-semibold text-slate-500">Đầu kỳ: {compare.startSource}</span>
           </div>
-          <table className="w-full text-sm mt-2">
+          <div className="overflow-x-auto"><table className="w-full text-sm mt-2">
             <thead>
               <tr className="text-xs text-slate-500 text-right">
                 <th className="text-left font-semibold py-1.5">Khoản mục</th>
@@ -223,7 +244,7 @@ export const BalanceSheetView: React.FC<BalanceSheetViewProps> = ({ state, balan
                 );
               })}
             </tbody>
-          </table>
+          </table></div>
         </section>
       )}
 
@@ -277,7 +298,10 @@ export const BalanceSheetView: React.FC<BalanceSheetViewProps> = ({ state, balan
           <div className="flex flex-col">
             <SectionTitle>B. Vốn chủ sở hữu</SectionTitle>
             <Row label="Vốn nạp ròng (đã nạp − đã rút)" value={bs.equity.contributed} indent negativeRed />
-            <Row label="Lãi/lỗ lũy kế" value={bs.equity.retained} indent negativeRed />
+            {bs.equity.opening !== 0 && (
+              <Row label="Số dư ban đầu (tài sản − nợ có từ trước khi dùng app)" value={bs.equity.opening} indent negativeRed />
+            )}
+            <Row label="Lãi/lỗ từ lúc theo dõi" value={bs.equity.retained} indent negativeRed />
             <div className="mt-auto">
               <SubTotal label="Cộng vốn chủ sở hữu" value={bs.equity.total} />
             </div>

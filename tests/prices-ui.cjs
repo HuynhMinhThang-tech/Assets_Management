@@ -44,7 +44,7 @@ const num = (s) => Number(String(s).replace(/[^\d-]/g, ''));
   log(/\(1\)/.test(btnTxt), 'V5', 'nút "Áp dụng giá tự động" đếm đúng: 1 giá ok (HPG lệch bị loại)', btnTxt);
 
   // Xem trước khi nhập tay
-  const carInput = page.locator('[data-price-row="car"] input');
+  const carInput = page.locator('[data-price-row="car"] input:not([data-source-input])');
   await carInput.fill('430000000');
   const prev = await page.locator('[data-price-row="car"] [data-price-preview]').innerText();
   log(/430\.000\.000/.test(prev) && /-70\.000\.000/.test(prev), 'V6', 'nhập giá → xem trước tổng giá trị + lãi/lỗ', prev);
@@ -55,13 +55,21 @@ const num = (s) => Number(String(s).replace(/[^\d-]/g, ''));
   const car = await asset('car');
   log(car.currentValue === 430e6 && car.valuationHistory?.length >= 1 && car.lastValuationDate.length === 10, 'V7', 'Lưu tay: giá trị đổi + ghi lịch sử định giá', JSON.stringify(car));
 
+  // Nguồn định giá (tùy chọn) được ghi vào lịch sử
+  await page.locator('[data-price-row="car"] input:not([data-source-input])').fill('420000000');
+  await page.locator('[data-price-row="car"] [data-source-input]').fill('Ngân hàng thẩm định');
+  await page.locator('[data-price-row="car"]').getByRole('button', { name: 'Lưu' }).click();
+  await page.waitForTimeout(150);
+  const carSrc = await asset('car');
+  log(carSrc.currentValue === 420e6 && carSrc.valuationHistory[carSrc.valuationHistory.length - 1].source === 'Ngân hàng thẩm định', 'V7b', 'Nhập tay + nguồn định giá: lịch sử ghi nguồn', JSON.stringify(carSrc.valuationHistory));
+
   // Nhập tay lệch bất thường → hỏi xác nhận
-  await page.locator('[data-price-row="car"] input').fill('900000000');
+  await page.locator('[data-price-row="car"] input:not([data-source-input])').fill('900000000');
   await page.locator('[data-price-row="car"]').getByRole('button', { name: 'Lưu' }).click();
   await page.getByRole('button', { name: 'Vẫn lưu' }).waitFor({ timeout: 2000 });
   await page.getByRole('button', { name: 'Hủy' }).click();
   await page.waitForTimeout(100);
-  log((await asset('car')).currentValue === 430e6, 'V8', 'giá lệch > 20% → hỏi xác nhận; Hủy thì không đổi');
+  log((await asset('car')).currentValue === 420e6, 'V8', 'giá lệch > 20% → hỏi xác nhận; Hủy thì không đổi');
 
   // Áp dụng tất cả giá tự động
   await page.locator('[data-apply-all]').click();

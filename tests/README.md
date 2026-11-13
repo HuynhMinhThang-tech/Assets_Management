@@ -1,8 +1,16 @@
 # Tests
 - `logic.test.ts` – engine tài chính + lưu trữ (chạy `npm run test:logic`, hoặc `TZ=... npx tsx tests/logic.test.ts`).
-- `e2e.cjs` – 70 kịch bản giao diện trên Chromium (Playwright). Cần bundle: `bash tests/run-all.sh` (offline: dùng stub icon).
+- `e2e.cjs` – 70 kịch bản giao diện trên Chromium (Playwright). Cần bundle: `bash tests/run-all.sh` (offline: dùng stub icon). **Hiện hỏng sẵn** từ khi app có đăng nhập/API (dừng ở bước vào tab Danh mục Tài sản); phần logic của `run-all.sh` vẫn chạy bình thường.
 - Trên máy có mạng, nên chuyển e2e sang `@playwright/test` chạy trên `vite preview` để kiểm cả Tailwind/responsive.
 - `phase1…phase5.test.ts` – các giai đoạn nghiệp vụ; `phase5` = tab Cập nhật giá (dòng giá, gợi ý, áp hàng loạt, import CSV).
 - `api/*.test.ts` – API với cơ sở dữ liệu giả trong bộ nhớ (`npm run test:api`), gồm `prices.test.ts` cho GET /api/prices.
 - `prices-ui.cjs` – giao diện tab Cập nhật giá trên Chromium với giá thị trường giả (`npm run test:prices-ui`; cần playwright + esbuild + stub lucide từ `tests/gen-stubs.sh`).
-- Ca A9 (lãi ưu đãi) đỏ có chủ đích = việc còn thiếu trong REVIEW.md.
+- `loans.test.ts` – giai đoạn 2: một mức lãi, nút Đổi lãi suất (xem trước, mốc, hai phương thức), khoản vay đang trả dở, số dư ban đầu, nâng cấp dữ liệu v4.
+- `edits.test.ts` – giai đoạn 3: sửa thông tin tài sản/khoản vay, khóa số lượng/giá vốn khi đã có giao dịch, lịch sử chỉnh sửa.
+- `positions.test.ts` – giai đoạn 4: vị thế theo mã, mua thêm, giá vốn bình quân, bán/cổ tức theo vị thế, hủy cả nhóm, chi phí cải tạo.
+- `valuation.test.ts` – giai đoạn 5: ngưỡng nhắc định giá theo loại, nguồn định giá, gợi ý khấu hao, nhãn "định giá cũ".
+- `consistency.test.ts` – giai đoạn 6: các lỗi nhỏ (thu nhập cho thuê, ngày định giá, trả nợ ngoài ví, thứ tự hủy, dữ liệu cũ trên trình duyệt, bán + tất toán).
+- `api/handlers.test.ts` – gồm các ca giai đoạn 7 (P7-*): yêu cầu đặt lại không bị ghi đè, giới hạn tần suất, khóa theo cặp, scrypt 2^17 + băm lại.
+- `python/test_fetch_prices.py` – hàm thuần của `scripts/fetch_prices.py` (`python3 -m unittest discover -s tests/python`).
+- `ui-smoke.cjs` – giao diện thật trên Chromium: hộp thoại xung đột, vị thế, sửa thông tin, form khoản vay, đổi lãi suất, và bố cục điện thoại 375px (CSS Tailwind dựng ngoại tuyến bằng `tests/build-css.cjs`).
+- **Chạy tất cả:** `bash tests/run-all.sh` (đặt `E2E=1` để chạy thêm e2e cũ).

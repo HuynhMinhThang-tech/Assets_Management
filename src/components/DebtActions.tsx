@@ -1,12 +1,13 @@
 import React, { useState } from 'react';
 import { CheckCircle2, Undo2 } from 'lucide-react';
-import { CashTransaction, Debt } from '../types/finance';
+import { CashTransaction, Debt, EditLogEntry } from '../types/finance';
+import type { DebtEditInput } from '../utils/editOps';
+import { EditDebtModal } from './EditInfoModals';
 import { checkPayable, formatVND, isLiveTx, isOpenItem, payLockLabel, todayLocalStr } from '../utils/calculations';
 import { currentRate, ensureTimeline, PrepayMode, previewPrepay, previewSettlement } from '../utils/debtCore';
 import {
-  PrepayInput, RateChangeInput, ReconcileInput, SettleInput, canRemoveRateChange, canUndoReconcile,
+  PrepayInput, RateChangeInput, ReconcileInput, SettleInput, canRemoveRateChange, canUndoReconcile, previewRateChange,
 } from '../utils/debtOps';
-import { MAX_RATE } from '../utils/validation';
 import { CurrencyInput } from './CurrencyInput';
 import { FieldError, Modal, ModalBody, ModalFooter } from './ui/Modal';
 
@@ -20,6 +21,8 @@ export interface DebtActionHandlers {
   onPrepay: (input: PrepayInput) => Result;
   onReconcile: (input: ReconcileInput) => Result;
   onUndoReconcile: (debtId: string) => Result;
+  /** Sửa tên, ngân hàng, ghi chú, ngày trả (có kiểm tra + lịch sử chỉnh sửa). */
+  onEditDebt?: (debtId: string, patch: DebtEditInput) => Result;
 }
 
 const inputCls = 'w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-slate-900';
@@ -39,49 +42,54 @@ const rateText = (r: { annualRate: number; baseRate?: number; margin?: number })
   r.baseRate !== undefined && r.margin !== undefined ? `${r.annualRate}% (cơ sở ${r.baseRate}% + biên độ ${r.margin}%)` : `${r.annualRate}%`;
 
 // ------------------------------------------------------------------ Đổi lãi suất
+const vnDate = (d: string) => (/^\d{4}-\d{2}-\d{2}$/.test(d) ? `${d.slice(8, 10)}/${d.slice(5, 7)}/${d.slice(0, 4)}` : d);
+const signed = (n: number) => `${n > 0 ? '+' : n < 0 ? '−' : ''}${formatVND(Math.abs(n))}`;
+
 const RateChangeModal: React.FC<{ debt: Debt; onClose: () => void; onSave: (i: RateChangeInput) => Result }> = ({ debt, onClose, onSave }) => {
-  const floating = debt.rateType === 'floating';
-  const tl = ensureTimeline(debt);
-  const [date, setDate] = useState(todayLocalStr());
+  const today = todayLocalStr();
+  const [date, setDate] = useState(today);
   const [rate, setRate] = useState('');
-  const [base, setBase] = useState('');
-  const [margin, setMargin] = useState('');
   const [note, setNote] = useState('');
-  const rateNum = floating ? parseFloat(base) + parseFloat(margin) : parseFloat(rate);
-  const error = !date
-    ? 'Chọn ngày hiệu lực.'
-    : date < tl[0].effectiveDate
-    ? `Ngày hiệu lực không được sớm hơn mốc đầu tiên (${tl[0].effectiveDate}).`
-    : !Number.isFinite(rateNum)
-    ? 'Nhập lãi suất mới.'
-    : rateNum < 0 || rateNum > MAX_RATE
-    ? `Lãi suất phải trong khoảng 0% – ${MAX_RATE}%/năm.`
-    : '';
+  const rateNum = parseFloat(rate.replace(',', '.'));
+  const hasRate = Number.isFinite(rateNum);
+  const preview = hasRate && date ? previewRateChange(debt, { effectiveDate: date, annualRate: rateNum }, today) : null;
+  const error = !date ? 'Chọn ngày hiệu lực.' : !hasRate ? 'Nhập lãi suất mới.' : preview && !preview.ok ? preview.error : '';
   return (
     <Modal title="Đổi lãi suất" subtitle={`${debt.name} · đang áp dụng ${currentRate(debt)}%/năm`} onClose={onClose}>
       <ModalBody>
-        <div>
-          <label className="text-xs font-semibold text-slate-700 block mb-1">Ngày hiệu lực (có thể ở quá khứ hoặc tương lai)</label>
-          <input type="date" data-testid="rate-date" value={date} onChange={(e) => setDate(e.target.value)} className={dateCls} />
-        </div>
-        {floating ? (
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="text-xs font-semibold text-slate-700 block mb-1">Lãi cơ sở mới (%/năm)</label>
-              <input type="text" inputMode="decimal" data-testid="rate-base" value={base} onChange={(e) => setBase(e.target.value)} className={inputCls} />
-            </div>
-            <div>
-              <label className="text-xs font-semibold text-slate-700 block mb-1">Biên độ (%/năm)</label>
-              <input type="text" inputMode="decimal" data-testid="rate-margin" value={margin} onChange={(e) => setMargin(e.target.value)} className={inputCls} />
-            </div>
-          </div>
-        ) : (
+        <div className="grid grid-cols-2 gap-3">
           <div>
             <label className="text-xs font-semibold text-slate-700 block mb-1">Lãi suất mới (%/năm)</label>
-            <input type="text" inputMode="decimal" data-testid="rate-value" value={rate} onChange={(e) => setRate(e.target.value)} className={inputCls} />
+            <input type="text" inputMode="decimal" data-testid="rate-value" placeholder="Ví dụ 10" value={rate} onChange={(e) => setRate(e.target.value)} className={inputCls} />
+          </div>
+          <div>
+            <label className="text-xs font-semibold text-slate-700 block mb-1">Ngày hiệu lực</label>
+            <input type="date" data-testid="rate-date" value={date} onChange={(e) => setDate(e.target.value)} className={dateCls} />
+          </div>
+        </div>
+        <p className="text-[11px] leading-relaxed text-slate-500">
+          Ngày hiệu lực mặc định là hôm nay, có thể ở quá khứ. Các kỳ đã trả giữ nguyên; các kỳ chưa trả tự tính lại. Nếu ngày này rơi giữa kỳ, lãi của kỳ đó tính theo số ngày
+          thực tế của từng mức lãi (chia 365). Nếu ngân hàng áp lãi mới từ đầu kỳ kế tiếp, nhập đúng ngày đến hạn của kỳ trước để khớp sao kê.
+        </p>
+        {preview && preview.ok && (
+          <Box testId="rate-preview">
+            <Row label="Lãi suất" value={`${preview.currentRate}% → ${preview.newRate}%`} />
+            {preview.next && (
+              <Row label={`Tiền kỳ tới (#${preview.next.period}, ${vnDate(preview.next.dueDate)})`} value={`${formatVND(preview.next.before)} → ${formatVND(preview.next.after)}`} />
+            )}
+            <Row
+              label="Kỳ đầu tiên bị ảnh hưởng"
+              value={preview.firstAffected ? `#${preview.firstAffected.period} (${vnDate(preview.firstAffected.dueDate)}) · ${preview.affectedPeriods} kỳ` : 'Không có'}
+            />
+            <Row label="Tổng lãi còn phải trả" value={`${formatVND(preview.remainingInterest.before)} → ${formatVND(preview.remainingInterest.after)}`} />
+            <Row label="Thay đổi tổng lãi" value={signed(preview.remainingInterest.delta)} strong />
+          </Box>
+        )}
+        {preview && preview.ok && preview.inPast && (
+          <div className="rounded-lg bg-amber-50 px-3 py-2 text-[11px] font-medium text-amber-800">
+            Ngày hiệu lực ở quá khứ: kỳ đã trả giữ nguyên số liệu đã ghi, chỉ các kỳ chưa trả được tính lại.
           </div>
         )}
-        {floating && Number.isFinite(rateNum) && <div className="text-xs font-semibold text-slate-700">Lãi suất áp dụng: {rateNum}%/năm</div>}
         <div>
           <label className="text-xs font-semibold text-slate-700 block mb-1">Ghi chú</label>
           <input type="text" value={note} onChange={(e) => setNote(e.target.value)} className={inputCls} />
@@ -94,7 +102,7 @@ const RateChangeModal: React.FC<{ debt: Debt; onClose: () => void; onSave: (i: R
           type="button"
           disabled={!!error}
           onClick={() => {
-            const ok = onSave(floating ? { debtId: debt.id, effectiveDate: date, baseRate: parseFloat(base), margin: parseFloat(margin), note } : { debtId: debt.id, effectiveDate: date, annualRate: rateNum, note });
+            const ok = onSave({ debtId: debt.id, effectiveDate: date, annualRate: rateNum, note });
             if (ok !== false) onClose();
           }}
           className={btnPrimary}
@@ -326,15 +334,16 @@ const ReconcileModal: React.FC<{ debt: Debt; onClose: () => void; onSave: (i: Re
 
 // ------------------------------------------------------------------ Chi tiết khoản vay (lịch trả, lịch sử, lãi suất)
 type Tab = 'schedule' | 'history' | 'rates' | 'adjust';
-type Dialog = null | 'rate' | 'settle' | 'prepay' | 'reconcile';
+type Dialog = null | 'rate' | 'settle' | 'prepay' | 'reconcile' | 'edit';
 
 export const DebtDetailModal: React.FC<{
   debt: Debt;
   cash: number;
   transactions: CashTransaction[];
   handlers: DebtActionHandlers;
+  editLog?: EditLogEntry[];
   onClose: () => void;
-}> = ({ debt, cash, transactions, handlers, onClose }) => {
+}> = ({ debt, cash, transactions, handlers, editLog = [], onClose }) => {
   const [tab, setTab] = useState<Tab>('schedule');
   const [dialog, setDialog] = useState<Dialog>(null);
   const [showPre, setShowPre] = useState(false);
@@ -385,7 +394,7 @@ export const DebtDetailModal: React.FC<{
 
         {active && (
           <div className="flex shrink-0 flex-wrap gap-2 border-b border-slate-200 px-4 py-3">
-            {([['rate', 'Đổi lãi suất'], ['prepay', 'Trả trước gốc'], ['settle', 'Tất toán sớm'], ['reconcile', 'Đối chiếu sao kê']] as Array<[Dialog, string]>).map(([k, label]) => (
+            {([['rate', 'Đổi lãi suất'], ['prepay', 'Trả trước gốc'], ['settle', 'Tất toán sớm'], ['reconcile', 'Đối chiếu sao kê'], ['edit', 'Sửa thông tin']] as Array<[Dialog, string]>).map(([k, label]) => (
               <button
                 key={k as string}
                 type="button"
@@ -422,7 +431,7 @@ export const DebtDetailModal: React.FC<{
                   Hiện {preCount} kỳ đã qua trước khi bắt đầu theo dõi
                 </label>
               )}
-              <table className="w-full text-left text-xs border-collapse" data-table="schedule">
+              <div className="overflow-x-auto"><table className="w-full text-left text-xs border-collapse" data-table="schedule">
                 <thead className="sticky top-0 bg-white shadow-xs">
                   <tr className="border-b border-slate-200 text-slate-500 font-semibold">
                     <th className="py-2.5 px-3">Kỳ</th>
@@ -483,7 +492,7 @@ export const DebtDetailModal: React.FC<{
                     );
                   })}
                 </tbody>
-              </table>
+              </table></div>
             </>
           )}
 
@@ -491,7 +500,7 @@ export const DebtDetailModal: React.FC<{
             payments.length === 0 ? (
               <div className="py-10 text-center text-xs text-slate-400">Chưa có khoản trả nào được ghi nhận kể từ lúc theo dõi.</div>
             ) : (
-              <table className="w-full text-left text-xs border-collapse" data-table="history">
+              <div className="overflow-x-auto"><table className="w-full text-left text-xs border-collapse" data-table="history">
                 <thead className="sticky top-0 bg-white shadow-xs">
                   <tr className="border-b border-slate-200 text-slate-500 font-semibold">
                     <th className="py-2.5 px-3">Kỳ</th>
@@ -519,12 +528,12 @@ export const DebtDetailModal: React.FC<{
                     );
                   })}
                 </tbody>
-              </table>
+              </table></div>
             )
           )}
 
           {tab === 'rates' && (
-            <table className="w-full text-left text-xs border-collapse" data-table="rates">
+            <div className="overflow-x-auto"><table className="w-full text-left text-xs border-collapse" data-table="rates">
               <thead className="sticky top-0 bg-white shadow-xs">
                 <tr className="border-b border-slate-200 text-slate-500 font-semibold">
                   <th className="py-2.5 px-3">Hiệu lực từ</th>
@@ -556,11 +565,11 @@ export const DebtDetailModal: React.FC<{
                   );
                 })}
               </tbody>
-            </table>
+            </table></div>
           )}
 
           {tab === 'adjust' && (
-            <table className="w-full text-left text-xs border-collapse" data-table="adjust">
+            <div className="overflow-x-auto"><table className="w-full text-left text-xs border-collapse" data-table="adjust">
               <thead className="sticky top-0 bg-white shadow-xs">
                 <tr className="border-b border-slate-200 text-slate-500 font-semibold">
                   <th className="py-2.5 px-3">Ngày</th>
@@ -581,7 +590,7 @@ export const DebtDetailModal: React.FC<{
                   </tr>
                 ))}
               </tbody>
-            </table>
+            </table></div>
           )}
         </div>
 
@@ -592,6 +601,9 @@ export const DebtDetailModal: React.FC<{
         </ModalFooter>
       </Modal>
 
+      {dialog === 'edit' && handlers.onEditDebt && (
+        <EditDebtModal debt={debt} editLog={editLog} onClose={() => setDialog(null)} onSave={(patch) => handlers.onEditDebt!(debt.id, patch)} />
+      )}
       {dialog === 'rate' && <RateChangeModal debt={debt} onClose={() => setDialog(null)} onSave={handlers.onAddRateChange} />}
       {dialog === 'settle' && <SettleModal debt={debt} cash={cash} onClose={() => setDialog(null)} onSave={handlers.onSettle} />}
       {dialog === 'prepay' && <PrepayModal debt={debt} cash={cash} onClose={() => setDialog(null)} onSave={handlers.onPrepay} />}

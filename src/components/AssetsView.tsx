@@ -19,6 +19,7 @@ import {
   ShieldCheck,
   Percent,
   CalendarClock,
+  Pencil,
 } from 'lucide-react';
 import {
   Asset,
@@ -33,7 +34,6 @@ import {
   DebtCategory,
   DebtSecurityType,
   PaymentMethod,
-  InterestRateType,
 } from '../types/finance';
 import {
   formatVND,
@@ -62,6 +62,11 @@ const CATEGORY_COLORS: Record<AssetCategory, string> = {
   other: '#64748b',
 };
 
+import { EditAssetModal } from './EditInfoModals';
+import { ImprovementModal, PositionsPanel } from './PositionsPanel';
+import type { BuyMoreInput, ImprovementInput, PositionSellInput } from '../utils/positions';
+import type { AssetEditInput } from '../utils/editOps';
+
 interface AssetsViewProps {
   state: UserFinancialState;
   onAddAsset: (
@@ -73,9 +78,15 @@ interface AssetsViewProps {
   autoOpenAdd?: boolean;
   onAutoOpenConsumed?: () => void;
   onUpdateAsset: (asset: Asset) => void;
+  /** Sửa thông tin (tên, ghi chú, ngày mua, mã, số lượng/giá vốn khi chưa có giao dịch) qua hàm thuần có kiểm tra + lịch sử. */
+  onEditAsset: (assetId: string, patch: AssetEditInput) => boolean | void;
+  onBuyMore: (p: BuyMoreInput) => boolean | void;
+  onSellPosition: (p: PositionSellInput) => boolean | void;
+  onPositionDividend: (p: { key: string; amount: number; date: string; note?: string }) => boolean | void;
+  onImprovement: (p: ImprovementInput) => boolean | void;
   /** Hủy bản ghi nhập nhầm (thay cho xóa): dữ liệu được giữ lại, tiền ví hoàn bằng bút toán đảo. */
   onVoidAsset: (assetId: string) => void;
-  onSellAsset: (params: SellParams) => boolean | void;
+  onSellAsset: (params: SellParams, settleLinkedDebt?: boolean) => boolean | void;
   /** Nhận lãi sổ tiết kiệm về ví. */
   onReceiveInterest: (p: { assetId: string; amount: number; date: string; note?: string }) => boolean | void;
   /** Tái tục sổ tiết kiệm (đổi kỳ hạn, lãi suất; nhập lãi vào gốc hoặc rút lãi về ví). */
@@ -260,12 +271,18 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
   onAutoOpenConsumed,
   onAddAsset,
   onUpdateAsset,
+  onEditAsset,
+  onBuyMore,
+  onSellPosition,
+  onPositionDividend,
+  onImprovement,
   onVoidAsset,
   onReceiveInterest,
   onRolloverSavings,
   onSellAsset,
 }) => {
-  const { confirm: confirmDialog } = useDialog();
+  const { confirm: confirmDialog, choose: chooseDialog } = useDialog();
+  const dialogApi = { choose: chooseDialog };
   const [selectedCategory, setSelectedCategory] = useState<AssetCategory | 'all'>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'sold' | 'voided'>('active');
@@ -285,6 +302,8 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
 
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [sellQty, setSellQty] = useState<number>(0);
+  const [editInfoAsset, setEditInfoAsset] = useState<Asset | null>(null);
+  const [improveAsset, setImproveAsset] = useState<Asset | null>(null);
 
   // Thu nhập định kỳ hàng tháng (cho thuê nhà / xe…) – hiển thị trên trang Lịch
   const [incomeEditAsset, setIncomeEditAsset] = useState<Asset | null>(null);
@@ -416,17 +435,27 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
     const pledgedDebts = state.debts.filter(
       (d) => d.status === 'active' && d.collateralAssetId === sellAssetTarget.id
     );
+    let settleLinked = false;
     if (!pv.isPartial && pledgedDebts.length > 0) {
       const names = pledgedDebts.map((d) => `• ${d.name} – dư nợ ${formatVND(d.remainingPrincipal)}`).join('\n');
-      const ok = await confirmDialog({
+      const canSettleNow = pledgedDebts.length === 1;
+      const choice = await dialogApi.choose<'settle' | 'sell_only' | 'cancel'>({
         tone: 'warning',
         title: 'Tài sản đang thế chấp',
         message:
-          `Tài sản này đang thế chấp cho:\n${names}\n\nBán xong bạn cần tất toán khoản vay (ngân hàng thường thu hồi nợ khi giải chấp). ` +
-          `Ứng dụng KHÔNG tự tất toán nợ – hãy ghi nhận trả nợ sau đó.`,
-        confirmText: 'Vẫn bán',
+          `Tài sản này đang thế chấp cho:\n${names}\n\nBán xong, ngân hàng thường thu hồi nợ khi giải chấp. ` +
+          (canSettleNow
+            ? 'Bạn có thể dùng ngay tiền bán để tất toán khoản vay trong cùng một thao tác (ngày tất toán = ngày bán; nếu tiền không đủ trả nợ thì không bán gì).'
+            : 'Có nhiều khoản vay cùng thế chấp nên hãy bán rồi ghi nhận tất toán từng khoản.'),
+        choices: [
+          ...(canSettleNow ? [{ value: 'settle' as const, label: 'Bán và tất toán khoản vay bằng tiền bán', tone: 'primary' as const }] : []),
+          { value: 'sell_only' as const, label: 'Chỉ bán (tôi tự ghi nhận trả nợ sau)', tone: 'neutral' as const },
+        ],
+        dismissValue: 'cancel',
+        dismissText: 'Hủy, không bán',
       });
-      if (!ok) return;
+      if (choice === 'cancel') return;
+      settleLinked = choice === 'settle';
     }
     if (pv.fees < 0) {
       const ok = await confirmDialog({
@@ -446,7 +475,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
       date: sellDate,
       note: sellNote,
       repriceRemainder: sellReprice && pv.isPartial && sellUnitPriced,
-    });
+    }, settleLinked);
     if (done !== false) setSellAssetTarget(null);
   };
 
@@ -531,6 +560,12 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
           </span>
         </div>
       </div>
+
+      {/* Vị thế theo mã: gộp các lô cùng mã (mua thêm / bán theo giá vốn bình quân / cổ tức) */}
+      <PositionsPanel
+        state={state}
+        handlers={{ onBuyMore, onSellPosition, onPositionDividend }}
+      />
 
       {/* 2. FILTER & TOOLBAR (nằm dưới các thẻ, giống tab Khoản nợ) */}
       <div className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-3.5 lg:flex-row lg:items-end">
@@ -832,6 +867,24 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                         <div className="flex items-center justify-center gap-1.5">
                           {!isSold && !isVoided && (
                             <>
+                              <button
+                                data-asset-action="edit"
+                                onClick={() => setEditInfoAsset(asset)}
+                                title="Sửa thông tin (tên, ghi chú, ngày mua…)"
+                                className="p-1.5 text-slate-500 hover:text-slate-900 hover:bg-slate-100 rounded transition-colors"
+                              >
+                                <Pencil className="w-3.5 h-3.5" />
+                              </button>
+                              {(asset.category === 'real_estate' || asset.category === 'other') && (
+                                <button
+                                  data-asset-action="improve"
+                                  onClick={() => setImproveAsset(asset)}
+                                  title="Ghi chi phí cải tạo / đầu tư thêm (cộng vào giá vốn)"
+                                  className="px-1.5 py-1 text-[11px] font-semibold text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded transition-colors"
+                                >
+                                  + Cải tạo
+                                </button>
+                              )}
                               {(asset.category === 'real_estate' || asset.category === 'other') && (
                                 <button
                                   onClick={() => openIncomeEdit(asset)}
@@ -1098,6 +1151,24 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
       )}
 
       {/* MODAL: THU NHẬP ĐỊNH KỲ HÀNG THÁNG */}
+      {improveAsset && (
+        <ImprovementModal
+          asset={state.assets.find((a) => a.id === improveAsset.id) || improveAsset}
+          cash={state.wallet.availableCash}
+          onClose={() => setImproveAsset(null)}
+          onSave={onImprovement}
+        />
+      )}
+
+      {editInfoAsset && (
+        <EditAssetModal
+          asset={state.assets.find((a) => a.id === editInfoAsset.id) || editInfoAsset}
+          state={state}
+          onClose={() => setEditInfoAsset(null)}
+          onSave={(patch) => onEditAsset(editInfoAsset.id, patch)}
+        />
+      )}
+
       {incomeEditAsset && (
         <Modal
           title="Thu nhập hàng tháng"
@@ -1198,11 +1269,9 @@ const AddAssetModal: React.FC<AddAssetModalProps> = ({ availableCash, onClose, o
   const [loanLender, setLoanLender] = useState<string>('');
   const [loanCategory, setLoanCategory] = useState<DebtCategory>('mortgage');
   const [loanSecurityType, setLoanSecurityType] = useState<DebtSecurityType>('secured');
-  const [loanRate, setLoanRate] = useState<number>(9.5);
-  const [loanRateType, setLoanRateType] = useState<InterestRateType>('floating');
-  const [loanBaseRate, setLoanBaseRate] = useState<number>(6.2);
-  const [loanMargin, setLoanMargin] = useState<number>(3.3);
-  const [loanTenorMonths, setLoanTenorMonths] = useState<number>(240);
+  // Một mức lãi suất tại một thời điểm; để trống, không điền sẵn (tránh lưu nhầm). Hết ưu đãi → nút "Đổi lãi suất".
+  const [loanRateInput, setLoanRateInput] = useState<string>('');
+  const [loanTenorInput, setLoanTenorInput] = useState<string>('');
   const [loanPaymentDay, setLoanPaymentDay] = useState<number>(15);
   const [loanMethod, setLoanMethod] = useState<PaymentMethod>('declining_balance');
 
@@ -1291,7 +1360,10 @@ const AddAssetModal: React.FC<AddAssetModalProps> = ({ availableCash, onClose, o
   };
 
   // Calculate live loan stats
-  const effectiveLoanRate = loanRateType === 'floating' ? loanBaseRate + loanMargin : loanRate;
+  const loanRateParsed = parseFloat(loanRateInput);
+  const loanRateMissing = !Number.isFinite(loanRateParsed);
+  const effectiveLoanRate = loanRateMissing ? 0 : loanRateParsed;
+  const loanTenorMonths = parseInt(loanTenorInput) || 0;
   const ltvPercent = totalAssetPrice > 0 ? (loanPrincipal / totalAssetPrice) * 100 : 0;
   const equityPercent = totalAssetPrice > 0 ? (downPayment / totalAssetPrice) * 100 : 0;
 
@@ -1348,7 +1420,8 @@ const AddAssetModal: React.FC<AddAssetModalProps> = ({ availableCash, onClose, o
       loanErrors.push(
         `Vốn tự có + tiền vay (${formatVND(downPayment + loanPrincipal)}) vượt tổng giá trị tài sản (${formatVND(totalAssetPrice)}).`
       );
-    if (effectiveLoanRate < 0 || effectiveLoanRate > MAX_RATE)
+    if (loanRateMissing) loanErrors.push('Nhập lãi suất hiện tại của khoản vay (%/năm).');
+    else if (effectiveLoanRate < 0 || effectiveLoanRate > MAX_RATE)
       loanErrors.push(`Lãi suất phải trong khoảng 0% – ${MAX_RATE}%/năm.`);
     if (loanTenorMonths < 1 || loanTenorMonths > MAX_TENOR_MONTHS)
       loanErrors.push(`Thời hạn vay phải từ 1 đến ${MAX_TENOR_MONTHS} tháng.`);
@@ -1472,9 +1545,7 @@ const AddAssetModal: React.FC<AddAssetModalProps> = ({ availableCash, onClose, o
         principalAmount: loanPrincipal,
         remainingPrincipal: loanPrincipal,
         annualInterestRate: effectiveLoanRate,
-        rateType: loanRateType,
-        baseRate: loanRateType === 'floating' ? loanBaseRate : undefined,
-        floatingMargin: loanRateType === 'floating' ? loanMargin : undefined,
+        rateType: 'fixed',
         tenorMonths: loanTenorMonths,
         startDate: purchaseDate,
         paymentDayOfMonth: loanPaymentDay,
@@ -2037,74 +2108,24 @@ const AddAssetModal: React.FC<AddAssetModalProps> = ({ availableCash, onClose, o
                   </div>
                 </div>
 
-                {/* Interest Rate Mechanism */}
-                <div className="grid grid-cols-2 gap-3 pt-1">
-                  <div>
-                    <label className="text-xs text-slate-600 block mb-1">Cơ chế lãi suất</label>
-                    <div className="flex items-center gap-3 text-xs pt-1">
-                      <label className="flex items-center gap-1.5 cursor-pointer">
-                        <input
-                          type="radio"
-                          name="loanRateType"
-                          checked={loanRateType === 'floating'}
-                          onChange={() => setLoanRateType('floating')}
-                        />
-                        <span>Thả nổi</span>
-                      </label>
-                      <label className="flex items-center gap-1.5 cursor-pointer">
-                        <input
-                          type="radio"
-                          name="loanRateType"
-                          checked={loanRateType === 'fixed'}
-                          onChange={() => setLoanRateType('fixed')}
-                        />
-                        <span>Cố định</span>
-                      </label>
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="text-xs text-slate-600 block mb-1">
-                      {loanRateType === 'floating' ? 'Lãi suất tổng (%/năm)' : 'Lãi suất cố định (%/năm)'}
-                    </label>
-                    <input
-                      type="number"
-                      step="0.05"
-                      value={effectiveLoanRate}
-                      onChange={(e) => {
-                        const val = parseFloat(e.target.value) || 0;
-                        if (loanRateType === 'fixed') setLoanRate(val);
-                        else setLoanMargin(val - loanBaseRate);
-                      }}
-                      className="w-full px-2.5 py-1 text-xs bg-white border border-slate-300 rounded font-mono font-bold"
-                    />
-                  </div>
+                {/* Lãi suất hiện tại: một mức duy nhất */}
+                <div>
+                  <label className="text-xs text-slate-600 block mb-1">Lãi suất hiện tại (%/năm) *</label>
+                  <input
+                    type="number"
+                    step="0.05"
+                    min="0"
+                    required
+                    placeholder="Ví dụ 8,5"
+                    value={loanRateInput}
+                    onChange={(e) => setLoanRateInput(e.target.value)}
+                    aria-invalid={loanRateMissing || undefined}
+                    className="w-full px-2.5 py-1 text-xs bg-white border border-slate-300 rounded font-mono font-bold"
+                  />
+                  <span className="mt-1 block text-[11px] text-slate-500">
+                    Chỉ nhập mức lãi đang áp dụng. Khi ngân hàng đổi lãi (hết ưu đãi…), vào khoản vay và bấm <strong>Đổi lãi suất</strong>: lịch trả tự tính lại.
+                  </span>
                 </div>
-
-                {loanRateType === 'floating' && (
-                  <div className="grid grid-cols-2 gap-3 p-2 bg-white rounded border border-slate-200 text-xs">
-                    <div>
-                      <span className="text-[11px] text-slate-500 block mb-0.5">Lãi suất cơ sở (%)</span>
-                      <input
-                        type="number"
-                        step="0.05"
-                        value={loanBaseRate}
-                        onChange={(e) => setLoanBaseRate(parseFloat(e.target.value) || 0)}
-                        className="w-full px-2 py-1 text-xs border border-slate-300 rounded font-mono"
-                      />
-                    </div>
-                    <div>
-                      <span className="text-[11px] text-slate-500 block mb-0.5">Biên độ thả nổi (%)</span>
-                      <input
-                        type="number"
-                        step="0.05"
-                        value={loanMargin}
-                        onChange={(e) => setLoanMargin(parseFloat(e.target.value) || 0)}
-                        className="w-full px-2 py-1 text-xs border border-slate-300 rounded font-mono"
-                      />
-                    </div>
-                  </div>
-                )}
 
                 {/* Method & Tenor */}
                 <div className="grid grid-cols-3 gap-3">
@@ -2123,8 +2144,9 @@ const AddAssetModal: React.FC<AddAssetModalProps> = ({ availableCash, onClose, o
                     <label className="text-xs text-slate-600 block mb-1">Thời hạn vay (tháng)</label>
                     <input
                       type="number"
-                      value={loanTenorMonths}
-                      onChange={(e) => setLoanTenorMonths(parseInt(e.target.value) || 12)}
+                      value={loanTenorInput}
+                      placeholder="Ví dụ 240"
+                      onChange={(e) => setLoanTenorInput(e.target.value)}
                       className="w-full px-2.5 py-1.5 text-xs bg-white border border-slate-300 rounded-lg font-mono"
                     />
                   </div>

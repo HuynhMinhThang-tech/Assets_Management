@@ -75,8 +75,10 @@ t('R2d', 'Hiệu lực ở quá khứ hoặc tương lai đều được; mốc 
   const bad = [err(applyAddRateChange(s0, { debtId: 'd1', effectiveDate: '2027-01-01', annualRate: -1 }, uid, '2026-11-05')), err(applyAddRateChange(s0, { debtId: 'd1', effectiveDate: '2027-01-01', annualRate: 500 }, uid, '2026-11-05')), err(applyAddRateChange(s0, { debtId: 'd1', effectiveDate: '', annualRate: 9 }, uid, '2026-11-05'))];
   return ensureTimeline(fut).length === 2 && fut.annualInterestRate === 9.5 && past.annualInterestRate === 9 && ensureTimeline(past).length === 1 && early !== '' && bad.every((b) => b !== '') ? true : JSON.stringify([fut.annualInterestRate, past.annualInterestRate, early, bad]);
 });
-t('R2e', 'Thả nổi: lãi = lãi cơ sở + biên độ; lãi hiện hành của khoản vay cập nhật theo ngày hôm nay', () => {
-  const s = ok(applyAddRateChange(st({ debts: [tracked({ rateType: 'floating', baseRate: 6, margin: 3.5 })] }), { debtId: 'd1', effectiveDate: '2026-11-20', baseRate: 7, margin: 3.5, note: 'điều chỉnh quý' }, uid, '2026-11-25'));
+t('R2e', '(dữ liệu cũ) Thả nổi: lãi = lãi cơ sở + biên độ; lãi hiện hành của khoản vay cập nhật theo ngày hôm nay', () => {
+  // Dữ liệu cũ thả nổi (giao diện mới không còn tạo kiểu này nhưng vẫn phải tính đúng)
+  const legacy: Debt = { ...tracked(), rateType: 'floating', baseRate: 6, floatingMargin: 3.5 };
+  const s = ok(applyAddRateChange(st({ debts: [legacy] }), { debtId: 'd1', effectiveDate: '2026-11-20', baseRate: 7, margin: 3.5, note: 'điều chỉnh quý' }, uid, '2026-11-25'));
   const d = s.debts[0]; const tl = ensureTimeline(d);
   return tl[1].annualRate === 10.5 && tl[1].baseRate === 7 && tl[1].margin === 3.5 && d.annualInterestRate === 10.5 && d.baseRate === 7 ? true : JSON.stringify(tl);
 });

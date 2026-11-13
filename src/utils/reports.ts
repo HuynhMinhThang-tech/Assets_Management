@@ -1,6 +1,6 @@
 import { Asset, CashTransaction, Debt, SavingsMetadata, UserFinancialState } from '../types/finance';
 import { daysInMonth, getSavingsAccrual, isLiveTx, parseYMD, todayLocalStr } from './calculations';
-import { BalanceSheet, calculateBalanceSheet } from './balanceSheet';
+import { BalanceSheet, calculateBalanceSheet, openingBalanceOf } from './balanceSheet';
 import { addDaysStr, txEffect } from './ledger';
 
 /**
@@ -227,7 +227,8 @@ export function cashFlowReport(state: UserFinancialState, period: ReportPeriod, 
   // phi tiền mặt
   const lv = live(state);
   const assets = state.assets.filter((a) => a.status !== 'voided' && inPeriod(a.purchaseDate, period));
-  const assetPart = assets.map((a) => Math.max(0, assetCostAt(state, a, a.purchaseDate) - sumBy(lv.filter((t) => t.type === 'buy_asset' && t.linkedAssetId === a.id), (t) => t.amount))).filter((x) => x > 0);
+  // Chỉ trừ khoản mua đầu tiên (từ ngày mua trở về trước); các khoản đầu tư thêm sau đó (cải tạo, nhập lãi vào gốc) đã nằm ngoài giá vốn tại ngày mua
+  const assetPart = assets.map((a) => Math.max(0, assetCostAt(state, a, a.purchaseDate) - sumBy(lv.filter((t) => t.type === 'buy_asset' && t.linkedAssetId === a.id && t.date.slice(0, 10) <= a.purchaseDate), (t) => t.amount))).filter((x) => x > 0);
   const loans = state.debts.filter((d) => d.status !== 'voided' && !d.trackingStartDate && inPeriod(d.startDate, period) && !lv.some((t) => t.type === 'loan_disbursement' && t.linkedDebtId === d.id));
   const ext = lv.filter((t) => t.type === 'debt_payment' && t.noCash && inPeriod(t.date, period));
   const unrec: number[] = [];
@@ -394,8 +395,9 @@ export interface PeriodBalance {
 
 export function periodBalance(state: UserFinancialState, period: ReportPeriod, today: string = todayLocalStr()): PeriodBalance {
   const dayBefore = addDaysStr(period.from, -1);
-  const start = calculateBalanceSheet(stateAt(state, dayBefore, today), dayBefore);
-  const end = calculateBalanceSheet(stateAt(state, period.to, today), period.to);
+  // Số dư ban đầu tính trên toàn bộ dữ liệu (stateAt đã lọc bớt tài sản/nợ), chỉ lấy phần đã tồn tại tại ngày đó.
+  const start = calculateBalanceSheet(stateAt(state, dayBefore, today), dayBefore, openingBalanceOf(state, dayBefore));
+  const end = calculateBalanceSheet(stateAt(state, period.to, today), period.to, openingBalanceOf(state, period.to));
   return { period, start, end, startGroups: groupsOf(start), endGroups: groupsOf(end) };
 }
 
@@ -411,6 +413,8 @@ export interface ReconcileCheck {
   causes: string[];
   /** Với phép 2: các thành phần của vế phải. */
   parts?: Array<{ label: string; value: number }>;
+  /** Lưu ý khi đọc kết quả (luôn hiển thị, kể cả khi "Khớp"). */
+  notes?: string[];
 }
 
 export function reconcileReports(state: UserFinancialState, period: ReportPeriod, today: string = todayLocalStr()): ReconcileCheck[] {
@@ -462,6 +466,10 @@ export function reconcileReports(state: UserFinancialState, period: ReportPeriod
     diff: delta - expected,
     causes: causes2,
     parts,
+    notes: [
+      'Phép này có nhiều dòng bù (phi tiền mặt, nợ trả ngoài ví, điều chỉnh sao kê) nên báo "Khớp" chỉ cho thấy các số cộng được với nhau, chưa chứng minh từng số đúng.',
+      'Số đầu kỳ là ước tính dựng lại từ dữ liệu hiện tại (giá tài sản, dư nợ), không phải sổ chụp tại thời điểm đó, trừ khi có ảnh chụp chi tiết.',
+    ],
   };
 
   // 3. Tổng nguồn vốn = tổng tài sản
@@ -469,7 +477,7 @@ export function reconcileReports(state: UserFinancialState, period: ReportPeriod
   const c3: ReconcileCheck = {
     id: 'sources',
     title: 'Tổng nguồn vốn = tổng tài sản',
-    ok: Math.abs(e.totalLiabilitiesAndEquity - e.totalAssets) < 1 && Math.abs(e.equity.contributed + e.equity.retained - e.equity.total) < 1,
+    ok: Math.abs(e.totalLiabilitiesAndEquity - e.totalAssets) < 1 && Math.abs(e.equity.contributed + e.equity.opening + e.equity.retained - e.equity.total) < 1,
     left: { label: 'Tổng nguồn vốn (nợ + vốn chủ)', value: e.totalLiabilitiesAndEquity },
     right: { label: 'Tổng tài sản', value: e.totalAssets },
     diff: e.totalLiabilitiesAndEquity - e.totalAssets,

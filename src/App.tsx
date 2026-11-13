@@ -22,7 +22,8 @@ import {
 import { normalizeState, emptyState, createDemoState, findLocalLegacyData, exportStateToJson } from './utils/storage';
 import { PublicUser, AdminAccount, countPendingWork } from './utils/auth';
 import { api, ApiError } from './utils/api';
-import { PortfolioSyncer, SyncStatus } from './utils/syncer';
+import { firstOpenIndex } from './utils/debtCore';
+import { PortfolioSyncer, SyncStatus, type ConflictChoice } from './utils/syncer';
 import { Theme, getStoredTheme, applyTheme } from './utils/theme';
 import {
   calculateFinancialSummary,
@@ -31,14 +32,18 @@ import {
   todayLocalStr,
   checkPayable,
   payLockLabel,
+  isLiveTx,
 } from './utils/calculations';
-import { ApplyResult, PriceUpdate, STALE_DAYS, applyPriceUpdates, listPriceRows } from './utils/priceSync';
+import { ApplyResult, PriceUpdate, applyPriceUpdates, listPriceRows } from './utils/priceSync';
 import { insertTx } from './utils/ledger';
 import {
-  OpResult, SellInput, applyAddDebt, applyDeposit, applyIncome, applyPayPeriod, applySell, applySetFundUse, applyVoidAsset,
+  AddDebtOptions, OpResult, SellInput, applyAddDebt, applyDeposit, applyIncome, applyPayPeriod, applySell, applySetFundUse, applyVoidAsset,
   applyVoidDebt, applyVoidTx, applyWithdraw, canVoidAsset, canVoidDebt, canVoidTx, IncomeInput,
 } from './utils/ops';
 import { PayDateField } from './components/PayDateField';
+import { AssetEditInput, DebtEditInput, applyEditAsset, applyEditDebt } from './utils/editOps';
+import { applySellAndSettle } from './utils/debtOps';
+import { BuyMoreInput, ImprovementInput, PositionSellInput, applyBuyMore, applyImprovement, applyPositionDividend, applySellPosition, applyVoidGroup } from './utils/positions';
 import { calculateBalanceSheet } from './utils/balanceSheet';
 import { groupsOf } from './utils/reports';
 import {
@@ -92,6 +97,18 @@ function FinanceApp({
   }, [user.role]);
   const [currentTab, setCurrentTab] = useState<NavTab>('dashboard');
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [isDesktop, setIsDesktop] = useState(() => (typeof window === 'undefined' || !window.matchMedia ? true : window.matchMedia('(min-width: 1024px)').matches));
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) return;
+    const mq = window.matchMedia('(min-width: 1024px)');
+    const on = () => {
+      setIsDesktop(mq.matches);
+      if (mq.matches) setMobileNavOpen(false);
+    };
+    mq.addEventListener?.('change', on);
+    return () => mq.removeEventListener?.('change', on);
+  }, []);
   const [pendingAction, setPendingAction] = useState<PendingAction>(null);
   const dialog = useDialog();
 
@@ -107,15 +124,20 @@ function FinanceApp({
             return { data: res.data ? normalizeState(res.data) : null, version: res.version };
           },
           onConflict: async () => {
-            const keepMine = await dialog.confirm({
-              tone: 'danger',
+            // Hai nút có tên rõ ràng. Esc / đóng hộp thoại / "Để sau" = chưa quyết định,
+            // giữ nguyên dữ liệu đang mở và tạm dừng tự lưu (không mất gì, không ghi đè gì).
+            return dialog.choose<ConflictChoice>({
+              tone: 'warning',
               title: 'Dữ liệu đã thay đổi ở nơi khác',
               message:
-                'Dữ liệu trên máy chủ vừa được cập nhật từ thiết bị khác, khác với bản đang mở ở đây.\n\n• "Tải bản máy chủ": bỏ các thay đổi chưa lưu ở đây.\n• "Giữ bản của tôi": ghi đè lên bản trên máy chủ.',
-              confirmText: 'Giữ bản của tôi',
-              cancelText: 'Tải bản máy chủ',
+                'Dữ liệu trên máy chủ vừa được cập nhật từ thiết bị khác, khác với bản đang mở ở đây. Hãy chọn một cách xử lý:',
+              choices: [
+                { value: 'use_server', label: 'Tải bản máy chủ (bỏ các thay đổi chưa lưu ở đây)', tone: 'neutral' },
+                { value: 'overwrite', label: 'Giữ bản của tôi (ghi đè lên bản trên máy chủ)', tone: 'danger' },
+              ],
+              dismissValue: 'defer',
+              dismissText: 'Để sau – chưa chọn',
             });
-            return keepMine ? 'overwrite' : 'use_server';
           },
           onReplace: (next) => setState(next),
           onStatus: setSyncStatus,
@@ -267,12 +289,19 @@ function FinanceApp({
       }
 
       const assetToAdd = { ...newAsset };
+      // Không trừ ví = tài sản đã sở hữu từ trước khi dùng app → tính vào "số dư ban đầu" (không phải lãi/lỗ)
+      if (!deductFromWallet && !assetToAdd.preexisting) {
+        assetToAdd.preexisting = true;
+        assetToAdd.openingValue = Math.max(0, Math.round(newAsset.initialCost));
+      }
       let debtsToAdd = prev.debts;
 
       if (linkedDebt) {
         assetToAdd.linkedDebtId = linkedDebt.id;
         const linkedDebtWithCollateral: Debt = {
           ...linkedDebt,
+          // Mua tài sản không qua ví bằng vốn vay: phần tiền vay là nợ có từ trước đối ứng với tài sản "có từ trước"
+          openingBalance: !deductFromWallet && linkedDebt.openingBalance === undefined ? Math.round(linkedDebt.principalAmount) : linkedDebt.openingBalance,
           collateralAssetId:
             linkedDebt.securityType === 'unsecured'
               ? undefined
@@ -327,9 +356,9 @@ function FinanceApp({
    * Bán tài sản: nhập số lượng, giá bán, số tiền THỰC NHẬN và ngày bán.
    * Phí/thuế = giá trị ghi nhận − thực nhận; lãi/lỗ chốt = thực nhận − giá vốn phần bán.
    */
-  const handleSellAsset = (params: SellParams): boolean => {
-    const ok = runOp((st) => applySell(st, params, uid), 'Không ghi nhận được lần bán');
-    if (ok) dialog.toast('Đã ghi nhận bán tài sản và cộng tiền vào ví.');
+  const handleSellAsset = (params: SellParams, settleLinkedDebt = false): boolean => {
+    const ok = runOp((st) => applySellAndSettle(st, params, { settle: settleLinkedDebt }, uid), settleLinkedDebt ? 'Không bán và tất toán được' : 'Không ghi nhận được lần bán');
+    if (ok) dialog.toast(settleLinkedDebt ? 'Đã bán tài sản và tất toán khoản vay thế chấp.' : 'Đã ghi nhận bán tài sản và cộng tiền vào ví.');
     return ok;
   };
 
@@ -361,23 +390,67 @@ function FinanceApp({
   };
 
   const handleVoidTx = async (txId: string) => {
+    const t = state.transactions.find((x) => x.id === txId);
+    // Giao dịch thuộc một lần bán/cổ tức theo vị thế (nhiều lô): hủy cả nhóm cùng lúc để các lô luôn khớp nhau
+    const members = t?.groupId ? state.transactions.filter((x) => x.groupId === t.groupId && isLiveTx(x)) : [];
+    if (t && t.groupId && members.length > 1) {
+      const total = members.reduce((s, x) => s + x.amount, 0);
+      const okGroup = await confirmVoid(
+        'Hủy cả lần ghi theo vị thế?',
+        `Giao dịch này thuộc một thao tác gồm ${members.length} dòng (các lô cùng mã), tổng ${formatVND(total)}, ngày ${t.date}.\n\nCả ${members.length} dòng được hủy cùng lúc, ví và các lô trở về đúng như trước.`
+      );
+      if (okGroup && runOp((st) => applyVoidGroup(st, t.groupId!, uid), 'Không hủy được')) dialog.toast(`Đã hủy ${members.length} dòng giao dịch.`);
+      return;
+    }
     const chk = canVoidTx(state, txId);
     if (!chk.ok) return void dialog.alert({ tone: 'warning', title: 'Chưa thể hủy giao dịch', message: chk.reason || '' });
-    const t = state.transactions.find((x) => x.id === txId)!;
+    const tt = t!;
     const ok = await confirmVoid(
       'Hủy giao dịch này?',
-      `${t.title}\n${formatVND(t.amount)} · ngày ${t.date}\n\nDòng này được đánh dấu "đã hủy" và một bút toán đảo cùng ngày được ghi để ví trở về đúng số cũ. Các thay đổi lên tài sản / khoản vay (nếu có) được hoàn nguyên.`
+      `${tt.title}\n${formatVND(tt.amount)} · ngày ${tt.date}\n\nDòng này được đánh dấu "đã hủy" và một bút toán đảo cùng ngày được ghi để ví trở về đúng số cũ. Các thay đổi lên tài sản / khoản vay (nếu có) được hoàn nguyên.`
     );
     if (ok && runOp((st) => applyVoidTx(st, txId, uid), 'Không hủy được giao dịch')) dialog.toast('Đã hủy giao dịch.');
   };
 
   // 2. DEBT HANDLERS
-  const handleAddDebt = (newDebt: Debt, disburseToWallet = false): boolean =>
-    runOp((st) => applyAddDebt(st, newDebt, { disburseToWallet }, uid), 'Không thêm được khoản vay');
+  const handleAddDebt = (newDebt: Debt, disburseToWallet = false, extra: Omit<AddDebtOptions, 'disburseToWallet'> = {}): boolean =>
+    runOp((st) => applyAddDebt(st, newDebt, { disburseToWallet, ...extra }, uid), 'Không thêm được khoản vay');
 
   /** Bổ sung nơi dùng vốn cho khoản nợ cũ: chỉ gắn nhãn, không đổi ví. */
   const handleSetFundUse = (debtId: string, fundUse: FundUse): boolean =>
     runOp((st) => applySetFundUse(st, debtId, fundUse), 'Không lưu được nơi dùng vốn');
+
+  const handleBuyMore = (p: BuyMoreInput): boolean => {
+    const ok = runOp((st) => applyBuyMore(st, p, uid), 'Không ghi được lần mua thêm');
+    if (ok) dialog.toast('Đã ghi mua thêm thành một lô mới.');
+    return ok;
+  };
+  const handleSellPosition = (p: PositionSellInput): boolean => {
+    const ok = runOp((st) => applySellPosition(st, p, uid), 'Không ghi nhận được lần bán');
+    if (ok) dialog.toast('Đã ghi nhận bán theo vị thế và cộng tiền vào ví.');
+    return ok;
+  };
+  const handlePositionDividend = (p: { key: string; amount: number; date: string; note?: string }): boolean => {
+    const ok = runOp((st) => applyPositionDividend(st, p, uid), 'Không ghi được cổ tức');
+    if (ok) dialog.toast('Đã ghi cổ tức và chia cho các lô.');
+    return ok;
+  };
+  const handleImprovement = (p: ImprovementInput): boolean => {
+    const ok = runOp((st) => applyImprovement(st, p, uid), 'Không ghi được chi phí cải tạo');
+    if (ok) dialog.toast('Đã cộng chi phí vào giá vốn tài sản.');
+    return ok;
+  };
+
+  const handleEditAsset = (assetId: string, patch: AssetEditInput): boolean => {
+    const ok = runOp((st) => applyEditAsset(st, assetId, patch, uid), 'Không sửa được tài sản');
+    if (ok && Object.keys(patch).length > 0) dialog.toast('Đã lưu thay đổi tài sản.');
+    return ok;
+  };
+  const handleEditDebt = (debtId: string, patch: DebtEditInput): boolean => {
+    const ok = runOp((st) => applyEditDebt(st, debtId, patch, uid), 'Không sửa được khoản vay');
+    if (ok && Object.keys(patch).length > 0) dialog.toast('Đã lưu thay đổi khoản vay.');
+    return ok;
+  };
 
   const handleUpdateDebt = (updatedDebt: Debt) => {
     setState((prev) => ({
@@ -396,12 +469,12 @@ function FinanceApp({
     const item = targetDebt.schedule[periodIndex];
     if (item.isPaid) return false;
 
-    const firstUnpaid = targetDebt.schedule.findIndex((i) => !i.isPaid);
+    const firstUnpaid = firstOpenIndex(targetDebt);
     if (firstUnpaid !== periodIndex) {
       void dialog.alert({
         tone: 'warning',
         title: 'Chưa đến lượt kỳ này',
-        message: `Hãy thanh toán kỳ #${targetDebt.schedule[firstUnpaid].period} trước. Các kỳ phải được ghi nhận theo thứ tự.`,
+        message: `Hãy thanh toán kỳ #${targetDebt.schedule[firstUnpaid]?.period ?? ''} trước. Các kỳ phải được ghi nhận theo thứ tự.`,
       });
       return false;
     }
@@ -533,14 +606,20 @@ function FinanceApp({
   };
 
   const priceAlertCount = listPriceRows(state, todayLocalStr()).filter(
-    (r) => r.mode !== 'readonly' && r.staleDays !== null && r.staleDays > STALE_DAYS
+    (r) => r.mode !== 'readonly' && r.stale
   ).length;
 
   return (
     <div className="min-h-screen bg-slate-50 flex font-sans antialiased text-slate-900">
       <Sidebar
         currentTab={currentTab}
-        onSelectTab={setCurrentTab}
+        onSelectTab={(tab) => {
+          setCurrentTab(tab);
+          setMobileNavOpen(false);
+        }}
+        mobileOpen={mobileNavOpen}
+        onCloseMobile={() => setMobileNavOpen(false)}
+        isDesktop={isDesktop}
         upcomingPaymentCount={summary.upcomingPayments.length}
         isCollapsed={isSidebarCollapsed}
         onToggleCollapse={() => setIsSidebarCollapsed((prev) => !prev)}
@@ -549,7 +628,10 @@ function FinanceApp({
         onToggleTheme={onToggleTheme}
         adminPendingCount={isAdmin && adminAccounts ? countPendingWork(adminAccounts) : 0}
         priceAlertCount={priceAlertCount}
-        onOpenAccount={() => setAccountOpen(true)}
+        onOpenAccount={() => {
+          setAccountOpen(true);
+          setMobileNavOpen(false);
+        }}
         onLogout={onLogout}
       />
 
@@ -561,9 +643,11 @@ function FinanceApp({
           onOpenAddDebt={() => openAction('debts', 'add_debt')}
           onOpenDeposit={() => openAction('wallet', 'deposit')}
           syncStatus={syncStatus}
+          onResolveConflict={() => syncer.resolveConflict()}
+          onOpenNav={() => setMobileNavOpen(true)}
         />
 
-        <main className="flex-1 p-6 max-w-7xl w-full mx-auto">
+        <main className="flex-1 p-3 sm:p-6 max-w-7xl w-full mx-auto">
           {state.isDemo && (
             <div role="status" className="mb-4 flex flex-col sm:flex-row sm:items-center gap-3 rounded-xl border border-sky-200 bg-sky-50 p-4 text-sm text-sky-900">
               <Info className="w-5 h-5 shrink-0" />
@@ -608,6 +692,11 @@ function FinanceApp({
               onAutoOpenConsumed={() => setPendingAction(null)}
               onAddAsset={handleAddAsset}
               onUpdateAsset={handleUpdateAsset}
+              onEditAsset={handleEditAsset}
+              onBuyMore={handleBuyMore}
+              onSellPosition={handleSellPosition}
+              onPositionDividend={handlePositionDividend}
+              onImprovement={handleImprovement}
               onVoidAsset={handleVoidAsset}
               onSellAsset={handleSellAsset}
               onReceiveInterest={handleReceiveInterest}
@@ -624,6 +713,7 @@ function FinanceApp({
               onAutoOpenConsumed={() => setPendingAction(null)}
               onAddDebt={handleAddDebt}
               onUpdateDebt={handleUpdateDebt}
+              onEditDebt={handleEditDebt}
               onVoidDebt={handleVoidDebt}
               onSetFundUse={handleSetFundUse}
               onPayDebtPeriod={handlePayDebtPeriod}

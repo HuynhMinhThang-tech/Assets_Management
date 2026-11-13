@@ -1,0 +1,6 @@
+# Luôn lưu và checkout bằng LF để patch áp sạch trên mọi hệ điều hành (kể cả Windows).
+* text=auto eol=lf
+*.bat text eol=crlf
+*.png binary
+*.jpg binary
+*.ico binary

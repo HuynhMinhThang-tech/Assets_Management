@@ -169,3 +169,84 @@ test('rời trang: lưu ngay bằng keepalive nếu nhỏ; dừng thì không g�
   await sleep(50);
   assert.equal(h.calls.length, 1);
 });
+
+test('xung đột + đóng hộp thoại (defer) → không đổi dữ liệu, không ghi đè, tạm dừng tự lưu', async () => {
+  let n = 0;
+  let asked = 0;
+  const h = harness({
+    onConflict: async () => {
+      asked++;
+      return 'defer';
+    },
+    save: async () => {
+      n++;
+      throw Object.assign(new Error('conflict'), { status: 409, data: { version: 9 } });
+    },
+  });
+  h.syncer.start();
+  h.syncer.update(st(1));
+  await sleep(80);
+  assert.equal(asked, 1);
+  assert.equal(h.replaced.length, 0, 'không được thay state bằng bản máy chủ');
+  assert.equal(n, 1, 'không được thử ghi đè');
+  assert.equal(h.syncer.hasPendingConflict(), true);
+  assert.equal(h.syncer.isDirty(), true, 'thay đổi cục bộ vẫn còn nguyên, chưa bị bỏ');
+  assert.equal(h.statuses[h.statuses.length - 1], 'conflict');
+  // chỉnh sửa tiếp trong lúc chờ: không tự lưu, không tự hỏi lại
+  h.syncer.update(st(2));
+  h.syncer.flushOnLeave();
+  await sleep(80);
+  assert.equal(n, 1);
+  assert.equal(asked, 1);
+  h.syncer.stop();
+});
+
+test('xung đột đã hoãn → người dùng bấm xử lý lại, chọn ghi đè → lưu bản mới nhất', async () => {
+  const calls: { cash: number; base: number }[] = [];
+  let choice: 'defer' | 'overwrite' = 'defer';
+  const h = harness({
+    onConflict: async () => choice,
+    // Máy chủ đang ở phiên bản 7: chỉ chấp nhận khi gửi đúng base = 7
+    save: async (d, base) => {
+      calls.push({ cash: d.wallet.availableCash, base });
+      if (base !== 7) throw Object.assign(new Error('conflict'), { status: 409, data: { version: 7 } });
+      return { version: 8 };
+    },
+  });
+  h.syncer.start();
+  h.syncer.update(st(1));
+  await sleep(60);
+  assert.equal(h.syncer.hasPendingConflict(), true);
+  h.syncer.update(st(2)); // sửa tiếp trong lúc chờ: không tự gửi
+  await sleep(40);
+  assert.equal(calls.length, 1);
+  choice = 'overwrite';
+  h.syncer.resolveConflict();
+  await sleep(150);
+  assert.equal(h.syncer.hasPendingConflict(), false);
+  const last = calls[calls.length - 1];
+  assert.equal(last.cash, 2, 'lưu bản mới nhất của người dùng');
+  assert.equal(last.base, 7, 'ghi đè dùng phiên bản hiện có của máy chủ');
+  assert.equal(h.syncer.isDirty(), false);
+  h.syncer.stop();
+});
+
+test('xung đột đã hoãn → bấm xử lý lại, chọn dùng bản máy chủ → mới thay state', async () => {
+  let choice: 'defer' | 'use_server' = 'defer';
+  const h = harness({
+    onConflict: async () => choice,
+    save: async () => {
+      throw Object.assign(new Error('conflict'), { status: 409, data: { version: 9 } });
+    },
+  });
+  h.syncer.start();
+  h.syncer.update(st(1));
+  await sleep(60);
+  assert.equal(h.replaced.length, 0);
+  choice = 'use_server';
+  h.syncer.resolveConflict();
+  await sleep(80);
+  assert.equal(h.replaced.length, 1);
+  assert.equal(h.replaced[0][0].wallet.availableCash, 777);
+  h.syncer.stop();
+});

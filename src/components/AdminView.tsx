@@ -101,7 +101,7 @@ export const AdminView: React.FC<AdminViewProps> = ({ currentUser, accounts, onC
                 const ok = await confirm({
                   tone: 'warning',
                   title: `Đặt lại mật khẩu cho "${a.displayName}"?`,
-                  message: `Mật khẩu mới do ${a.email} đã nhập khi gửi yêu cầu sẽ có hiệu lực ngay. Mật khẩu cũ không còn dùng được.\n\nChỉ duyệt khi bạn chắc chính chủ đã gửi yêu cầu.`,
+                  message: `Yêu cầu gửi lúc ${fmtTime(a.resetRequestedAt ?? undefined)}. Mật khẩu mới do người gửi nhập sẽ có hiệu lực ngay, mật khẩu cũ không còn dùng được.\n\nTrang này không chứng minh người gửi là chính chủ: ai biết Gmail cũng gửi được yêu cầu. Hãy xác minh qua một kênh khác (gọi điện, nhắn tin…) TRƯỚC khi duyệt. Nếu không chắc, chọn Từ chối.`,
                   confirmText: 'Duyệt đặt lại',
                 });
                 if (ok) run(() => api.adminAction(a.id, 'reset-approve'), `Đã đặt lại mật khẩu cho ${a.email}.`);
@@ -181,7 +181,7 @@ export const AdminView: React.FC<AdminViewProps> = ({ currentUser, accounts, onC
   };
 
   const subline = (a: AdminAccount) => {
-    if (tab === 'reset') return `Gửi yêu cầu lúc ${fmtTime(a.resetRequestedAt ?? undefined)}`;
+    if (tab === 'reset') return `Gửi yêu cầu lúc ${fmtTime(a.resetRequestedAt ?? undefined)} · cần xác minh chính chủ qua kênh khác trước khi duyệt`;
     if (tab === 'pending') return `Đăng ký lúc ${fmtTime(a.createdAt)}`;
     if (tab === 'blocked') return `${a.status === 'locked' ? 'Đã khóa' : 'Đã từ chối'} · đăng ký ${fmtTime(a.createdAt)}`;
     return `Tham gia ${fmtTime(a.approvedAt || a.createdAt)}`;

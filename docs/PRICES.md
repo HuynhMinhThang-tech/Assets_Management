@@ -50,6 +50,29 @@ Thêm vào bước chạy trong `.github/workflows/close-prices.yml`, ví dụ:
 - **Nhập từ file CSV:** "Tải file mẫu" để lấy sẵn đúng định dạng (`loai;ma_hoac_ten;ngay;gia`, có điền giá hiện tại). Sửa cột giá rồi "Nhập từ file CSV". App khớp theo mã hoặc tên tài sản, hiện bảng xem trước (sẵn sàng / không khớp / lệch / cũ hơn) rồi mới áp. Excel: Tệp → Lưu thành → CSV UTF-8. Số có thể viết `125.000`, `125,000` hoặc `12.345,67`; ngày `2026-11-03` hoặc `03/11/2026`.
 - Tiết kiệm không cần cập nhật giá: app tự tính theo lãi suất.
 
+## Nếu nguồn bị chặn trên GitHub Actions
+
+Một số nguồn dữ liệu chặn dải IP của máy chủ GitHub. Dấu hiệu: bước thăm dò báo `::error::` cho mọi mã (timeout, 403, trả về rỗng). Thử theo thứ tự:
+
+1. **Đổi nguồn:** khai báo `VNSTOCK_SOURCE` trong workflow (ví dụ `VCI` thay cho `KBS`), chạy lại `mode = probe`.
+2. **Chạy trên máy Windows của bạn:** script đã đọc `DATABASE_URL` từ môi trường nên ghi vào cùng Neon. Cài Python 3.12, rồi `pip install -r scripts/requirements-prices.txt`. Tạo file `lay-gia.bat`:
+
+   ```bat
+   @echo off
+   set DATABASE_URL=chuỗi-kết-nối-neon-của-bạn
+   python scripts\fetch_prices.py
+   ```
+
+   Mở Task Scheduler → Create Basic Task → chạy hằng ngày lúc 15:30 (thứ 2 đến thứ 6). Không commit file `.bat` này lên GitHub vì có chuỗi kết nối.
+3. **Tạm thời nhập tay hoặc CSV:** tab Cập nhật giá vẫn dùng bình thường, không phụ thuộc nguồn tự động.
+
+## Script tự bảo vệ khỏi sai đơn vị
+
+- Chế độ `auto` chọn **một** hệ số cho cả lượt chạy theo trung vị giá của tất cả các mã (không còn quyết định riêng từng mã). Vẫn nên đặt cố định `VNSTOCK_PRICE_SCALE` sau khi xem log thăm dò.
+- Trước khi ghi, script so giá mới với phiên đã lưu trước đó của chính mã đó. Lệch ngoài khoảng 0,4× đến 2,5× thì **không ghi** mã đó và báo lỗi rõ (thường là sai đơn vị ×1000 hoặc ÷1000).
+- Cuối mỗi lần chạy, trang kết quả của GitHub Actions có tóm tắt: bao nhiêu mã thành công, mã nào lỗi và vì sao.
+- Kiểm thử các hàm này: `python3 -m unittest discover -s tests/python -v`.
+
 ## Xử lý sự cố
 
 | Hiện tượng | Nguyên nhân thường gặp |

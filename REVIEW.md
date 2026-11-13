@@ -1,7 +1,17 @@
-# FinTrack VN — Rà soát, sửa lỗi & kế hoạch (v1.3 → v1.4)
+# FinTrack VN — Rà soát, sửa lỗi & kế hoạch
 
-Phương pháp: đọc toàn bộ mã nguồn (~6.000 dòng) → viết test mô tả **hành vi đúng ngoài thực tế** → chạy trên bản cũ (lộ lỗi) → sửa → chạy lại.
-Test: `tests/run-all.sh` (logic ×3 múi giờ + 70 kịch bản giao diện trên Chromium thật).
+> **Trạng thái hiện hành (11/2026).** Tài liệu này giữ lại phần rà soát v1.3 → v1.4 (mục 1–3, **lịch sử**) để đối chiếu.
+> Việc đang làm nằm trong **Kế hoạch thực hiện** (giai đoạn 0–9): 0 dọn nền · 1 lấy giá tự động · 2 khoản vay một mức lãi + số dư ban đầu ·
+> 3 sửa thông tin · 4 mua thêm/gộp vị thế · 5 tài sản không có giá online · 6 nhất quán dữ liệu · 7 bảo mật máy chủ · 8 di động + tách file · 9 quỹ/vàng tự động.
+>
+> **Tiến độ kế hoạch (patch tổng hợp):** đã làm giai đoạn 0, 2, 3, 4, 5, 6, 7, 8 (phần giao diện điện thoại; chưa tách file lớn) và phần không phụ thuộc log của giai đoạn 1 (script lấy giá). **Chưa làm:** giai đoạn 9 (quỹ/vàng tự động, cần log thăm dò của giai đoạn 1), phần cần log của giai đoạn 1, xác minh Gmail bằng email (giai đoạn 7, tùy chọn) và tách `AssetsView.tsx`/`DebtsView.tsx`/`App.tsx` thành các file nhỏ (giai đoạn 8).
+>
+> Khác biệt so với phần lịch sử bên dưới:
+> - Dữ liệu lưu trên **Neon** qua API (`api/`), đăng nhập bằng Gmail + quản trị viên duyệt. **Đã bỏ** xuất/nhập Excel và Supabase (nay: sao lưu JSON trong *Tài khoản của tôi*).
+> - Có tab **Cập nhật giá** (giá đóng cửa tự động bằng vnstock + GitHub Actions) và tab **Báo cáo** (bảng cân đối, lưu chuyển tiền, kết quả đầu tư).
+> - Mã nguồn hiện khoảng 15.000 dòng (`src` + `api`), không còn ~6.000 như lúc rà soát đầu.
+> - Test: `npm run test:logic`, `test:phase1…5`, `test:api` (xem `tests/README.md`). Ca A9 (lãi ưu đãi) đã gỡ: mỗi khoản vay chỉ có một mức lãi tại một thời điểm, đổi lãi bằng nút **Đổi lãi suất** (`tests/loans.test.ts`).
+> - Bộ e2e Chromium (`tests/e2e.cjs`) viết cho bản chưa có đăng nhập/API nên **hiện không chạy được** (dừng ở bước vào tab Danh mục Tài sản). Cần viết lại với API giả trước khi dựa vào nó.
 
 ## 1. Lỗi thật đã phát hiện & đã sửa
 
@@ -41,7 +51,7 @@ Test: `tests/run-all.sh` (logic ×3 múi giờ + 70 kịch bản giao diện tr�
 ## 3. Còn thiếu so với thực tế — kế hoạch (chưa làm)
 
 **Giai đoạn 1 – độ chính xác tài chính (ưu tiên cao)**
-1. Lãi suất ưu đãi → thả nổi (`preferentialMonths` đã có trong model nhưng chưa tác động lịch; test A9 đang đỏ có chủ đích).
+1. ~~Lãi suất ưu đãi → thả nổi~~ → đã thay bằng nút Đổi lãi suất (một mức lãi tại một thời điểm).
 2. Trả nợ trước hạn: chọn *giảm tiền mỗi kỳ* hoặc *rút ngắn kỳ hạn* + phí tất toán sớm (1–3%).
 3. Khoản trả thực tế khác lịch (trả dư/thiếu, ngày trả thực) và sửa/xóa/hoàn tác từng giao dịch (hiện sổ cái chỉ thêm, chưa sửa được).
 4. Tự tất toán nợ khi bán tài sản thế chấp (hiện chỉ cảnh báo).

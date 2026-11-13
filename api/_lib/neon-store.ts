@@ -97,6 +97,10 @@ export function createNeonStore(): Store {
         where id = ${id}`;
     },
 
+    async updatePasswordHash(id, passwordHash) {
+      await db()`update users set password_hash = ${passwordHash} where id = ${id}`;
+    },
+
     async setResetRequest(id, hash) {
       const at = hash ? new Date().toISOString() : null;
       await db()`update users set reset_request_hash = ${hash}, reset_requested_at = ${at} where id = ${id}`;

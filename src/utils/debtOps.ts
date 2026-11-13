@@ -1,8 +1,8 @@
 import { AmortizationScheduleItem, CashTransaction, Debt, DebtAdjustment, RateChange, UserFinancialState } from '../types/finance';
 import { isOpenItem, todayLocalStr } from './calculations';
-import { accruedInterest, ensureTimeline, PrepayMode, previewPrepay, previewSettlement, rebuildSchedule } from './debtCore';
+import { accruedInterest, currentRate, ensureTimeline, PrepayMode, previewPrepay, previewSettlement, rebuildSchedule } from './debtCore';
 import { insertTx } from './ledger';
-import { checkTxDate, IdGen, OpResult } from './ops';
+import { checkTxDate, IdGen, OpResult, SellInput, applySell } from './ops';
 import { MAX_RATE } from './validation';
 
 /** Thao tác trên khoản vay (R2, C3, C7): hàm thuần, trả về trạng thái mới hoặc lỗi. */
@@ -16,24 +16,24 @@ const lastPaidIndex = (d: Debt) => (d.schedule || []).reduce((m, it, i) => (it.i
 export interface RateChangeInput {
   debtId: string;
   effectiveDate: string;
-  /** Lãi suất áp dụng (%/năm). Thả nổi: bỏ trống và nhập baseRate + margin. */
+  /** Lãi suất mới (%/năm): một mức duy nhất từ ngày hiệu lực. */
   annualRate?: number;
+  /** (di sản) lãi cơ sở + biên độ; giao diện mới không dùng nữa. */
   baseRate?: number;
   margin?: number;
   note?: string;
 }
 
-export function applyAddRateChange(state: UserFinancialState, p: RateChangeInput, uid: IdGen = defaultId, today = todayLocalStr()): OpResult {
-  const debt = state.debts.find((d) => d.id === p.debtId);
-  if (!debt) return fail('Không tìm thấy khoản vay.');
-  if (debt.status !== 'active') return fail('Chỉ đổi lãi suất của khoản vay đang vay.');
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(p.effectiveDate || '')) return fail('Chọn ngày hiệu lực.');
+/** Dựng khoản vay sau khi đổi lãi (chưa ghi vào state). Dùng chung cho xem trước và lưu. */
+function rebuildWithRateChange(debt: Debt, p: RateChangeInput, uid: IdGen, today: string): { ok: true; debt: Debt } | { ok: false; error: string } {
+  if (debt.status !== 'active') return { ok: false, error: 'Chỉ đổi lãi suất của khoản vay đang vay.' };
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(p.effectiveDate || '')) return { ok: false, error: 'Chọn ngày hiệu lực.' };
   const floating = p.baseRate !== undefined && p.margin !== undefined;
   const rate = floating ? p.baseRate! + p.margin! : p.annualRate;
-  if (rate === undefined || !Number.isFinite(rate)) return fail('Nhập lãi suất mới.');
-  if (rate < 0 || rate > MAX_RATE) return fail(`Lãi suất phải trong khoảng 0% – ${MAX_RATE}%/năm.`);
+  if (rate === undefined || !Number.isFinite(rate)) return { ok: false, error: 'Nhập lãi suất mới.' };
+  if (rate < 0 || rate > MAX_RATE) return { ok: false, error: `Lãi suất phải trong khoảng 0% – ${MAX_RATE}%/năm.` };
   const tl = ensureTimeline(debt);
-  if (p.effectiveDate < tl[0].effectiveDate) return fail(`Ngày hiệu lực không được sớm hơn mốc đầu tiên (${tl[0].effectiveDate}).`);
+  if (p.effectiveDate < tl[0].effectiveDate) return { ok: false, error: `Ngày hiệu lực không được sớm hơn mốc đầu tiên (${tl[0].effectiveDate}).` };
 
   const entry: RateChange = {
     id: uid('rate'),
@@ -47,9 +47,74 @@ export function applyAddRateChange(state: UserFinancialState, p: RateChangeInput
   // Cùng ngày hiệu lực: thay mốc cũ (trừ mốc đầu: đổi lãi của mốc đầu cũng được vì chưa có kỳ nào dùng riêng)
   const next = [...tl.filter((r) => r.effectiveDate !== p.effectiveDate), entry];
   if (p.effectiveDate === tl[0].effectiveDate) entry.source = tl[0].source;
-  const rebuilt = rebuildSchedule({ ...debt, rateTimeline: next }, {}, today);
-  return { ok: true, state: replaceDebt(state, rebuilt) };
+  return { ok: true, debt: rebuildSchedule({ ...debt, rateTimeline: next }, {}, today) };
 }
+
+export function applyAddRateChange(state: UserFinancialState, p: RateChangeInput, uid: IdGen = defaultId, today = todayLocalStr()): OpResult {
+  const debt = state.debts.find((d) => d.id === p.debtId);
+  if (!debt) return fail('Không tìm thấy khoản vay.');
+  const r = rebuildWithRateChange(debt, p, uid, today);
+  if (!r.ok) return fail(r.error);
+  return { ok: true, state: replaceDebt(state, r.debt) };
+}
+
+export type RateChangePreview =
+  | {
+      ok: true;
+      currentRate: number;
+      newRate: number;
+      effectiveDate: string;
+      /** Kỳ chưa trả đầu tiên (tiền kỳ tới). */
+      next: { period: number; dueDate: string; before: number; after: number } | null;
+      /** Kỳ đầu tiên có số tiền thay đổi do đổi lãi (null = không kỳ nào đổi). */
+      firstAffected: { period: number; dueDate: string; before: number; after: number } | null;
+      affectedPeriods: number;
+      /** Tổng lãi còn phải trả (các kỳ chưa trả) trước và sau khi đổi. */
+      remainingInterest: { before: number; after: number; delta: number };
+      /** Ngày hiệu lực ở quá khứ: các kỳ đã trả giữ nguyên, chỉ tính lại các kỳ chưa trả. */
+      inPast: boolean;
+      debt: Debt;
+    }
+  | { ok: false; error: string };
+
+/** Xem trước đổi lãi suất: tiền kỳ tới, kỳ bị ảnh hưởng đầu tiên, thay đổi tổng lãi còn phải trả. Không ghi gì. */
+export function previewRateChange(debt: Debt, p: Omit<RateChangeInput, 'debtId'>, today = todayLocalStr()): RateChangePreview {
+  const r = rebuildWithRateChange(debt, { ...p, debtId: debt.id }, (x) => `${x}-preview`, today);
+  if (!r.ok) return r;
+  const open = (d: Debt) => (d.schedule || []).map((it, i) => ({ it, i })).filter((x) => isOpenItem(x.it));
+  const before = open(debt);
+  const after = open(r.debt);
+  const sumInt = (l: typeof before) => l.reduce((s, x) => s + x.it.interestPayable, 0);
+  let firstAffected: { period: number; dueDate: string; before: number; after: number } | null = null;
+  let affected = 0;
+  after.forEach((x, k) => {
+    const b = before[k]?.it;
+    if (!b) return;
+    if (b.totalMonthlyPayment !== x.it.totalMonthlyPayment || b.interestPayable !== x.it.interestPayable) {
+      affected++;
+      if (!firstAffected) firstAffected = { period: x.it.period, dueDate: x.it.dueDate, before: b.totalMonthlyPayment, after: x.it.totalMonthlyPayment };
+    }
+  });
+  const nb = before[0]?.it;
+  const na = after[0]?.it;
+  const bi = sumInt(before);
+  const ai = sumInt(after);
+  const lastPaid = (debt.schedule || []).reduce((m, it) => (it.isPaid && it.paidDate && it.paidDate > m ? it.paidDate : m), '');
+  return {
+    ok: true,
+    currentRate: rateAtToday(debt, today),
+    newRate: r.debt.rateTimeline!.find((x) => x.effectiveDate === p.effectiveDate)?.annualRate ?? NaN,
+    effectiveDate: p.effectiveDate,
+    next: nb && na ? { period: na.period, dueDate: na.dueDate, before: nb.totalMonthlyPayment, after: na.totalMonthlyPayment } : null,
+    firstAffected,
+    affectedPeriods: affected,
+    remainingInterest: { before: bi, after: ai, delta: ai - bi },
+    inPast: p.effectiveDate < today && (lastPaid !== '' ? p.effectiveDate <= lastPaid : p.effectiveDate < today),
+    debt: r.debt,
+  };
+}
+
+const rateAtToday = (debt: Debt, today: string) => currentRate(debt, today);
 
 export function canRemoveRateChange(debt: Debt, changeId: string): { ok: boolean; reason?: string } {
   const tl = ensureTimeline(debt);
@@ -235,3 +300,32 @@ export function applyUndoReconcile(state: UserFinancialState, debtId: string, to
 }
 
 export { accruedInterest };
+
+// ---------------------------------------------------------------- Bán tài sản đang thế chấp + tất toán khoản vay liên kết
+export interface SellSettleOptions {
+  /** true = dùng tiền bán để tất toán khoản vay đang thế chấp bằng tài sản này, trong cùng một thao tác. */
+  settle: boolean;
+  /** Phí trả trước hạn của ngân hàng (nhập tay theo thông báo). */
+  fee?: number;
+}
+
+/**
+ * Bán tài sản và (tùy chọn) tất toán khoản vay liên kết ngay bằng tiền vừa bán. Nguyên tử: nếu tiền bán không đủ trả nợ,
+ * hoặc không tất toán được vào ngày bán, thì không bán gì và không tất toán gì.
+ */
+export function applySellAndSettle(state: UserFinancialState, p: SellInput, opts: SellSettleOptions, uid: IdGen = defaultId, today = todayLocalStr()): OpResult {
+  const sold = applySell(state, p, uid, today);
+  if (!sold.ok || !opts.settle) return sold;
+  const before = state.assets.find((a) => a.id === p.assetId);
+  const debt = state.debts.find((d) => d.status === 'active' && (d.id === before?.linkedDebtId || d.collateralAssetId === p.assetId));
+  if (!debt) return sold;
+  const after = sold.state.assets.find((a) => a.id === p.assetId);
+  if (!after || after.status !== 'sold') return fail('Chỉ tất toán khoản vay khi bán hết tài sản thế chấp. Hãy bán hết, hoặc bán không kèm tất toán.');
+  const pv = previewSettlement(debt, p.date, today);
+  if (!pv.ok) return fail(`Không tất toán được khoản vay "${debt.name}" cùng lúc: ${pv.error}`);
+  const fee = Math.max(0, Math.round(opts.fee || 0));
+  const need = pv.total + fee;
+  if (need > sold.state.wallet.availableCash)
+    return fail(`Ví sau khi nhận tiền bán là ${money(sold.state.wallet.availableCash)}, không đủ để tất toán khoản vay "${debt.name}" (cần ${money(need)}). Hãy bán không kèm tất toán hoặc nạp thêm tiền.`);
+  return applySettle(sold.state, { debtId: debt.id, date: p.date, fee, actualPaid: need, deductFromWallet: true }, uid, today);
+}

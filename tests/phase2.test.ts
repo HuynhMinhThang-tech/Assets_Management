@@ -259,7 +259,7 @@ t('P1', 'Trả kỳ nợ có ngày chọn: giao dịch mang ngày đó và chỉ
 });
 
 // ============ C5: nâng cấp dữ liệu cũ ============
-t('C5a', 'Dữ liệu v2: nâng lên v3, nơi dùng vốn = chưa xác định, sổ sắp theo ngày, số liệu tài chính không đổi', () => {
+t('C5a', 'Dữ liệu v2: nâng lên v4, nơi dùng vốn = chưa xác định, sổ sắp theo ngày, số liệu tài chính không đổi', () => {
   const old: any = {
     schemaVersion: 2, wallet: { availableCash: 5 * M, totalDeposited: 5 * M, totalWithdrawn: 0 },
     assets: [stock()], debts: [{ ...debtOf(3), fundUse: undefined }],
@@ -267,7 +267,7 @@ t('C5a', 'Dữ liệu v2: nâng lên v3, nơi dùng vốn = chưa xác định, 
   };
   const a = normalizeState(old)!; const sumOld = calculateFinancialSummary(st({ ...old } as any));
   const sumNew = calculateFinancialSummary(a);
-  return a.schemaVersion === SCHEMA_VERSION && SCHEMA_VERSION === 3 && a.debts[0].fundUse?.kind === 'unspecified' && a.transactions[0].id === 'x2' &&
+  return a.schemaVersion === SCHEMA_VERSION && SCHEMA_VERSION === 4 && a.debts[0].fundUse?.kind === 'unspecified' && a.transactions[0].id === 'x2' &&
     sumNew.netWorth === sumOld.netWorth && a.wallet.availableCash === 5 * M ? true : JSON.stringify([a.schemaVersion, a.debts[0].fundUse, a.transactions.map((x) => x.id)]);
 });
 t('C5b', 'Nâng cấp lặp lại không đổi dữ liệu (idempotent) và giữ trạng thái đã hủy / bút toán đảo', () => {

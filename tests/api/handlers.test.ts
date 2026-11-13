@@ -11,16 +11,16 @@ import type { ApiRequest, ApiResponse } from '../../api/_lib/http.js';
 const ADMIN = 'chu.admin88@gmail.com';
 const HOST = 'app.example.com';
 
-function makeEnv(opts: { adminEmails?: string[]; clock?: { t: number } } = {}) {
+function makeEnv(opts: { adminEmails?: string[]; clock?: { t: number }; scryptN?: number; rateLimit?: boolean } = {}) {
   const clock = opts.clock ?? { t: Date.parse('2026-10-27T08:00:00Z') };
   const store = createMemoryStore(() => new Date(clock.t));
-  const handler = createApp(store, { adminEmails: opts.adminEmails ?? [ADMIN], secureCookies: true, now: () => new Date(clock.t) });
+  const handler = createApp(store, { adminEmails: opts.adminEmails ?? [ADMIN], secureCookies: true, now: () => new Date(clock.t), scryptN: opts.scryptN ?? 16384, rateLimit: opts.rateLimit });
 
   /** Mỗi "trình duyệt" có một túi cookie riêng. */
-  function client() {
+  function client(ip?: string) {
     let cookie = '';
     async function call(method: string, path: string, body?: unknown, extraHeaders: Record<string, string> = {}) {
-      const headers: Record<string, string> = { host: HOST, origin: `https://${HOST}`, 'content-type': 'application/json', ...extraHeaders };
+      const headers: Record<string, string> = { host: HOST, origin: `https://${HOST}`, 'content-type': 'application/json', ...(ip ? { 'x-forwarded-for': ip } : {}), ...extraHeaders };
       if (cookie) headers.cookie = cookie;
       const req: ApiRequest = { method, url: path, headers, body };
       const out: { status: number; headers: Record<string, string | string[]>; body: any } = { status: 0, headers: {}, body: null };
@@ -123,7 +123,7 @@ test('đăng ký trùng Gmail (khác dấu chấm) bị chặn; đuôi khác @gm
   assert.equal((await reg(client(), '', 'nguoi.dung1@gmail.com')).status, 400);
 });
 
-test('đăng nhập sai 5 lần → khóa tạm 15 phút, hết hạn thì thử lại được', async () => {
+test('đăng nhập sai 5 lần từ cùng một IP → khóa cặp (Gmail, IP) 15 phút, hết hạn thì thử lại được', async () => {
   const { client, clock } = makeEnv();
   const c = client();
   await reg(c, 'Chủ', ADMIN);
@@ -407,4 +407,133 @@ test('mã phiên không lưu dạng gốc trong cơ sở dữ liệu; mật kh�
   assert.equal(dump.sessions[0].length, 64); // sha256 hex
   assert.match(dump.users[0].passwordHash, /^scrypt\$16384\$8\$1\$/);
   assert.ok(!JSON.stringify(dump).includes('matkhau123'));
+});
+
+// ============================================================ Giai đoạn 7 – bảo mật
+const LAN = 'lan.nguyen88@gmail.com';
+async function adminWithLan(env: ReturnType<typeof makeEnv>) {
+  const admin = env.client();
+  await reg(admin, 'Chủ', ADMIN);
+  await reg(env.client(), 'Lan', LAN);
+  const lanId = (await admin.call('GET', '/api/admin/accounts')).body.accounts.find((a: any) => a.email.startsWith('lan')).id;
+  await admin.call('POST', `/api/admin/accounts/${lanId}/approve`, {});
+  return { admin, lanId };
+}
+
+test('P7-1 quên mật khẩu: yêu cầu đang chờ KHÔNG bị người lạ ghi đè; admin thấy thời điểm yêu cầu', async () => {
+  const env = makeEnv();
+  const { admin, lanId } = await adminWithLan(env);
+  const real = await env.client().call('POST', '/api/auth/forgot', { email: LAN, password: 'matkhauthat99' });
+  assert.equal(real.status, 200);
+  const at = (await admin.call('GET', '/api/admin/accounts')).body.accounts.find((a: any) => a.id === lanId).resetRequestedAt;
+  assert.ok(at);
+  // Kẻ gian gửi yêu cầu khác cho cùng Gmail: vẫn 200 (không lộ gì) nhưng không ghi đè
+  env.clock.t += 60_000;
+  const evil = await env.client('9.9.9.9').call('POST', '/api/auth/forgot', { email: LAN, password: 'matkhaucuakegian1' });
+  assert.equal(evil.status, 200);
+  assert.deepEqual(evil.body, real.body);
+  const acc = (await admin.call('GET', '/api/admin/accounts')).body.accounts.find((a: any) => a.id === lanId);
+  assert.equal(acc.resetRequestedAt, at, 'thời điểm yêu cầu thật không đổi');
+  await admin.call('POST', `/api/admin/accounts/${lanId}/reset-approve`, {});
+  assert.equal((await login(env.client(), LAN, 'matkhauthat99')).status, 200, 'mật khẩu thật có hiệu lực');
+  assert.equal((await login(env.client(), LAN, 'matkhaucuakegian1')).status, 401, 'mật khẩu của kẻ gian không có hiệu lực');
+});
+
+test('P7-2 quên mật khẩu: sau khi admin từ chối hoặc quá 72 giờ thì gửi yêu cầu mới được', async () => {
+  const env = makeEnv();
+  const { admin, lanId } = await adminWithLan(env);
+  await env.client().call('POST', '/api/auth/forgot', { email: LAN, password: 'matkhauA12345' });
+  await admin.call('POST', `/api/admin/accounts/${lanId}/reset-deny`, {});
+  await env.client().call('POST', '/api/auth/forgot', { email: LAN, password: 'matkhauB12345' });
+  await admin.call('POST', `/api/admin/accounts/${lanId}/reset-approve`, {});
+  assert.equal((await login(env.client(), LAN, 'matkhauB12345')).status, 200, 'sau khi từ chối, yêu cầu mới có hiệu lực');
+  // hết hạn giữ 72 giờ
+  await env.client().call('POST', '/api/auth/forgot', { email: LAN, password: 'matkhauC12345' });
+  env.clock.t += 73 * 3_600_000;
+  await env.client().call('POST', '/api/auth/forgot', { email: LAN, password: 'matkhauD12345' });
+  await admin.call('POST', `/api/admin/accounts/${lanId}/reset-approve`, {});
+  assert.equal((await login(env.client(), LAN, 'matkhauD12345')).status, 200, 'yêu cầu mới thay yêu cầu đã quá hạn');
+});
+
+test('P7-3 giới hạn tần suất theo IP: đăng ký, quên mật khẩu, đăng nhập; IP khác không bị ảnh hưởng; hết cửa sổ thì dùng lại được', async () => {
+  const env = makeEnv();
+  const a = env.client('1.1.1.1');
+  const codes: number[] = [];
+  for (let i = 0; i < 11; i++) codes.push((await reg(a, 'X' + i, `bot.number${i}@gmail.com`)).status);
+  assert.deepEqual(codes.slice(0, 10).every((c) => c === 201 || c === 503), true);
+  const over = await reg(a, 'X', 'bot.last@gmail.com');
+  assert.equal(over.status, 429);
+  assert.equal(over.body.code, 'rate_limited');
+  assert.ok(Number(over.headers['retry-after']) > 0);
+  assert.notEqual((await reg(env.client('2.2.2.2'), 'Y', 'nguoi.that@gmail.com')).status, 429, 'IP khác không bị chặn');
+  env.clock.t += 61 * 60_000;
+  assert.notEqual((await reg(a, 'Z', 'bot.after@gmail.com')).status, 429, 'hết cửa sổ thì đăng ký lại được');
+
+  const f = env.client('3.3.3.3');
+  for (let i = 0; i < 5; i++) assert.equal((await f.call('POST', '/api/auth/forgot', { email: 'nguoi.xa.la88@gmail.com', password: 'matkhau12345' })).status, 200);
+  assert.equal((await f.call('POST', '/api/auth/forgot', { email: 'nguoi.xa.la88@gmail.com', password: 'matkhau12345' })).status, 429);
+
+  const l = env.client('4.4.4.4');
+  let last = 0;
+  for (let i = 0; i < 41; i++) last = (await l.call('POST', '/api/auth/login', { email: 'khong.co@gmail.com', password: 'sai' })).status;
+  assert.equal(last, 429);
+});
+
+test('P7-4 khóa theo cặp (Gmail, IP): kẻ đoán mật khẩu bị khóa ở IP của họ, chủ tài khoản đăng nhập từ IP khác vẫn được', async () => {
+  const env = makeEnv();
+  const { } = await adminWithLan(env);
+  const attacker = env.client('6.6.6.6');
+  for (let i = 0; i < 5; i++) assert.equal((await login(attacker, LAN, 'doan' + i + 'xxxxx')).status, 401);
+  assert.equal((await login(attacker, LAN, 'matkhau123')).status, 429, 'từ IP kẻ gian: bị khóa cả khi đúng mật khẩu');
+  const owner = env.client('7.7.7.7');
+  assert.equal((await login(owner, LAN, 'matkhau123')).status, 200, 'chủ tài khoản từ IP khác không bị khóa');
+  env.clock.t += 16 * 60_000;
+  assert.equal((await login(attacker, LAN, 'matkhau123')).status, 200, 'hết 15 phút thì cặp đó đăng nhập lại được');
+});
+
+test('P7-5 khóa toàn tài khoản chỉ là lớp chặn cuối khi bị dò từ nhiều IP (ngưỡng cao hơn nhiều)', async () => {
+  const env = makeEnv({ rateLimit: false });
+  await adminWithLan(env);
+  for (let i = 0; i < 29; i++) assert.equal((await login(env.client('10.0.0.' + (i + 1)), LAN, 'doan' + i + 'xxxxx')).status, 401);
+  assert.equal((await login(env.client('10.0.1.1'), LAN, 'matkhau123')).status, 200, 'dưới ngưỡng: chủ vẫn đăng nhập được');
+  for (let i = 0; i < 30; i++) await login(env.client('10.0.2.' + (i + 1)), LAN, 'doan' + i + 'yyyyy');
+  const locked = await login(env.client('10.0.3.1'), LAN, 'matkhau123');
+  assert.equal(locked.status, 429);
+  assert.equal(locked.body.code, 'throttled');
+});
+
+test('P7-6 nâng mức băm scrypt: băm cũ (N thấp) được băm lại khi đăng nhập đúng; không đụng yêu cầu đặt lại đang chờ; mật khẩu vẫn dùng được', async () => {
+  const clock = { t: Date.parse('2026-10-27T08:00:00Z') };
+  const old = makeEnv({ clock, scryptN: 16384 });
+  const { admin, lanId } = await adminWithLan(old);
+  await old.client().call('POST', '/api/auth/forgot', { email: LAN, password: 'matkhauho123' });
+  const before = JSON.parse(JSON.stringify((old.store as any)._dump().users.find((u: any) => u.email === LAN)));
+  assert.match(before.passwordHash, /^scrypt\$16384\$/);
+  // Cùng cơ sở dữ liệu, máy chủ mới đặt mức băm cao hơn
+  const handler = createApp(old.store, { adminEmails: [ADMIN], secureCookies: true, now: () => new Date(clock.t), scryptN: 32768 });
+  const call = async (body: unknown) => {
+    const out = { status: 0 };
+    const res: ApiResponse = { statusCode: 200, setHeader() {}, end() {} };
+    await handler({ method: 'POST', url: '/api/auth/login', headers: { host: HOST, origin: `https://${HOST}`, 'content-type': 'application/json' }, body }, res);
+    out.status = res.statusCode;
+    return out;
+  };
+  assert.equal((await call({ email: LAN, password: 'matkhau123' })).status, 200);
+  const after = (old.store as any)._dump().users.find((u: any) => u.email === LAN);
+  assert.match(after.passwordHash, /^scrypt\$32768\$/);
+  assert.notEqual(after.passwordHash, before.passwordHash);
+  assert.equal(after.resetRequestHash, before.resetRequestHash, 'yêu cầu đặt lại đang chờ không bị xóa');
+  assert.equal((await call({ email: LAN, password: 'matkhau123' })).status, 200, 'mật khẩu vẫn đăng nhập được sau khi băm lại');
+  assert.equal((await call({ email: LAN, password: 'saimatkhau' })).status, 401);
+  void admin; void lanId;
+});
+
+test('P7-7 mức băm mặc định là N = 2^17', async () => {
+  const { hashPassword, passwordNeedsRehash, verifyPassword } = await import('../../api/_lib/passwords.js');
+  const h = await hashPassword('mot-mat-khau-thu-nghiem');
+  assert.match(h, /^scrypt\$131072\$8\$1\$/);
+  assert.equal(await verifyPassword('mot-mat-khau-thu-nghiem', h), true);
+  assert.equal(passwordNeedsRehash(h), false);
+  assert.equal(passwordNeedsRehash('scrypt$16384$8$1$abc$def'), true);
+  assert.equal(passwordNeedsRehash('khong-phai-scrypt'), false);
 });

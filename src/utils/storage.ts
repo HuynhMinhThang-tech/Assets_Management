@@ -5,14 +5,15 @@ import {
   CashTransaction,
   Wallet,
   FundUse,
+  EditLogEntry,
 } from '../types/finance';
-import { normalizeDebt, savingsCurrentValue, todayLocalStr } from './calculations';
+import { isLiveTx, normalizeDebt, savingsCurrentValue, todayLocalStr } from './calculations';
 import { sortLedger } from './ledger';
-import { ensureTimeline } from './debtCore';
+import { ensureTimeline, inferDebtOpening } from './debtCore';
 
 const STORAGE_KEY = 'fintrack_vn_portfolio_v1';
 const BACKUP_KEY = 'fintrack_vn_portfolio_v1_backup';
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 
 // Mỗi tài khoản có kho dữ liệu riêng: <khóa gốc>_u_<id người dùng>
 let activeUserId: string | null = null;
@@ -339,6 +340,50 @@ function flagPreTracking(debts: Debt[], txs: CashTransaction[]): Debt[] {
   });
 }
 
+/**
+ * Nâng cấp v4: số dư ban đầu.
+ *  - Tài sản chưa từng có giao dịch mua trừ ví = "đã sở hữu từ trước" (openingValue = giá vốn).
+ *  - Khoản vay đang trả dở / giải ngân từ trước khi theo dõi: openingBalance = dư nợ lúc bắt đầu theo dõi.
+ *  - Khoản vay mua tài sản "có từ trước" không qua ví: openingBalance = số tiền vay.
+ * Chạy lặp lại không đổi dữ liệu: chỉ điền trường còn trống.
+ */
+export function migrateOpening(assets: Asset[], debts: Debt[], transactions: CashTransaction[]): { assets: Asset[]; debts: Debt[] } {
+  const live = transactions.filter(isLiveTx);
+  const newAssets = assets.map((a) => {
+    if (a.status === 'voided' || a.preexisting !== undefined || a.openingValue !== undefined) return a;
+    if (live.some((t) => t.type === 'buy_asset' && t.linkedAssetId === a.id)) return a;
+    return { ...a, preexisting: true, openingValue: Math.max(0, Math.round(a.initialCost)) };
+  });
+  const newDebts = debts.map((d) => {
+    if (d.openingBalance !== undefined || d.status === 'voided') return d;
+    let opening = inferDebtOpening(d);
+    if (opening === undefined && d.fundUse?.kind === 'asset' && !(d.fundUse.cashRecorded)) {
+      const a = newAssets.find((x) => x.id === d.fundUse!.assetId);
+      if (a && a.preexisting) opening = Math.max(0, Math.round(d.principalAmount));
+    }
+    return opening === undefined ? d : { ...d, openingBalance: opening };
+  });
+  return { assets: newAssets, debts: newDebts };
+}
+
+function normalizeEditLog(raw: any): EditLogEntry[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const list = raw
+    .filter((e: any) => e && typeof e === 'object' && e.id && e.field && (e.targetType === 'asset' || e.targetType === 'debt'))
+    .map((e: any) => ({
+      id: String(e.id),
+      date: String(e.date || '').slice(0, 10),
+      targetType: e.targetType,
+      targetId: String(e.targetId || ''),
+      targetName: String(e.targetName || ''),
+      field: String(e.field),
+      from: String(e.from ?? ''),
+      to: String(e.to ?? ''),
+    }))
+    .slice(0, 500);
+  return list.length ? list : undefined;
+}
+
 const FUND_USE_KINDS = ['wallet', 'asset', 'spent', 'unspecified'];
 function normalizeFundUse(raw: any): FundUse {
   if (!raw || typeof raw !== 'object' || !FUND_USE_KINDS.includes(raw.kind)) return { kind: 'unspecified' };
@@ -420,15 +465,20 @@ export function normalizeState(raw: any): UserFinancialState | null {
       return base;
     });
 
+  const normAssets = assets.map((a) => (a.status === 'active' && a.category === 'savings' && savingsReady(a) ? { ...a, currentValue: savingsCurrentValue(a), lastValuationDate: todayLocalStr() } : a));
+  // Mọi khoản vay đều có dòng thời gian lãi suất (dữ liệu cũ: một mốc đầu = lãi hiện tại)
+  const normDebts = flagPreTracking(ensureDebtsSchedules(rawDebts).map((d) => ({ ...d, rateTimeline: ensureTimeline(d) })), transactions);
+  const opened = migrateOpening(normAssets, normDebts, transactions);
+
   return {
     schemaVersion: SCHEMA_VERSION,
     isDemo: raw.isDemo === true,
     snapshots,
+    editLog: normalizeEditLog(raw.editLog),
     wallet,
     // Giá trị sổ tiết kiệm suy ra từ gốc + lãi chưa nhận (không có giá để nhập tay)
-    assets: assets.map((a) => (a.status === 'active' && a.category === 'savings' && savingsReady(a) ? { ...a, currentValue: savingsCurrentValue(a), lastValuationDate: todayLocalStr() } : a)),
-    // Mọi khoản vay đều có dòng thời gian lãi suất (dữ liệu cũ: một mốc đầu = lãi hiện tại)
-    debts: flagPreTracking(ensureDebtsSchedules(rawDebts).map((d) => ({ ...d, rateTimeline: ensureTimeline(d) })), transactions),
+    assets: opened.assets,
+    debts: opened.debts,
     // Sổ giao dịch luôn theo thứ tự ngày (mới → cũ); cùng ngày giữ thứ tự nhập
     transactions: sortLedger(transactions),
   };
@@ -454,27 +504,20 @@ export const createDemoState = () => demoState();
  * Bỏ qua dữ liệu mẫu, bản sao lưu và bản hỏng; chọn bản có nhiều bản ghi nhất.
  */
 export function findLocalLegacyData(): UserFinancialState | null {
+  // Chỉ đọc ĐÚNG khóa gốc của bản cũ (trước khi có tài khoản). Không quét các khóa có tiền tố giống nhau:
+  // trên máy dùng chung, các khóa đó có thể thuộc tài khoản khác.
   try {
-    let best: UserFinancialState | null = null;
-    let bestScore = 0;
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i) || '';
-      if (!key.startsWith(STORAGE_KEY) || key.includes('_backup') || key.includes('_corrupt')) continue;
-      let parsed: any = null;
-      try {
-        parsed = JSON.parse(localStorage.getItem(key) || 'null');
-      } catch {
-        continue;
-      }
-      const st = normalizeState(parsed);
-      if (!st || st.isDemo) continue;
-      const score = st.assets.length + st.debts.length + st.transactions.length;
-      if (score > bestScore) {
-        best = st;
-        bestScore = score;
-      }
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return null;
+    let parsed: any = null;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      return null;
     }
-    return best;
+    const st = normalizeState(parsed);
+    if (!st || st.isDemo) return null;
+    return st.assets.length + st.debts.length + st.transactions.length > 0 ? st : null;
   } catch {
     return null;
   }

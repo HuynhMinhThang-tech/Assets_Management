@@ -21,7 +21,6 @@ import {
   DebtCategory,
   DebtSecurityType,
   PaymentMethod,
-  InterestRateType,
   UserFinancialState,
   Asset,
   FundUse,
@@ -42,9 +41,10 @@ import {
 import { CurrencyInput } from './CurrencyInput';
 import { Modal, ModalBody, ModalFooter, FieldError } from './ui/Modal';
 import { MAX_RATE, MAX_TENOR_MONTHS } from '../utils/validation';
-import { canVoidDebt } from '../utils/ops';
-import { buildTrackedDebt } from '../utils/debtCore';
+import { AddDebtOptions, canVoidDebt, PreexistingAssetInput } from '../utils/ops';
+import { buildTrackedDebt, changeAt, ensureTimeline } from '../utils/debtCore';
 import { DebtActionHandlers, DebtDetailModal } from './DebtActions';
+import type { DebtEditInput } from '../utils/editOps';
 
 const DEBT_CATEGORY_OPTIONS: { id: DebtCategory; label: string }[] = [
   { id: 'mortgage', label: 'Vay nhà / BĐS' },
@@ -57,10 +57,13 @@ const DEBT_CATEGORY_OPTIONS: { id: DebtCategory; label: string }[] = [
 
 const isSecuredDebt = (d: Debt) => d.securityType === 'secured' || !!d.collateralAssetId;
 
+const vnDate = (d: string) => (/^\d{4}-\d{2}-\d{2}$/.test(d) ? `${d.slice(8, 10)}/${d.slice(5, 7)}/${d.slice(0, 4)}` : d);
+
 interface DebtsViewProps {
   state: UserFinancialState;
-  onAddDebt: (debt: Debt, disburseToWallet?: boolean) => boolean | void;
+  onAddDebt: (debt: Debt, disburseToWallet?: boolean, extra?: Omit<AddDebtOptions, 'disburseToWallet'>) => boolean | void;
   onUpdateDebt: (debt: Debt) => void;
+  onEditDebt: (debtId: string, patch: DebtEditInput) => boolean | void;
   /** Hủy bản ghi nhập nhầm (thay cho xóa): dữ liệu được giữ lại, tiền ví hoàn bằng bút toán đảo. */
   onVoidDebt: (debtId: string) => void;
   /** Bổ sung nơi dùng vốn cho khoản nợ cũ: chỉ gắn nhãn, không đổi ví. */
@@ -80,6 +83,7 @@ export const DebtsView: React.FC<DebtsViewProps> = ({
   state,
   onAddDebt,
   onUpdateDebt,
+  onEditDebt,
   onVoidDebt,
   onSetFundUse,
   onPayDebtPeriod,
@@ -396,11 +400,9 @@ export const DebtsView: React.FC<DebtsViewProps> = ({
                     <span className="font-bold text-slate-900 font-mono">
                       {debt.annualInterestRate}%/năm
                     </span>
-                    <span className="text-[10px] text-slate-500 block">
-                      {debt.rateType === 'floating'
-                        ? `Thả nổi (${debt.baseRate || 0}% + ${debt.floatingMargin || 0}%)`
-                        : 'Cố định'}
-                    </span>
+                    {debt.status === 'active' && (
+                      <span className="text-[10px] text-slate-500 block">Áp dụng từ {vnDate(changeAt(ensureTimeline(debt), todayLocalStr()).effectiveDate)}</span>
+                    )}
                   </div>
 
                   <div>
@@ -529,6 +531,7 @@ export const DebtsView: React.FC<DebtsViewProps> = ({
           cash={state.wallet.availableCash}
           transactions={state.transactions}
           onClose={() => setScheduleDebtId(null)}
+          editLog={state.editLog}
           handlers={{
             onPayPeriod: (periodIndex, deduct) => {
               onPayDebtPeriod(selectedDebtForSchedule.id, periodIndex, deduct);
@@ -539,6 +542,7 @@ export const DebtsView: React.FC<DebtsViewProps> = ({
             onPrepay: onPrepayDebt,
             onReconcile: onReconcileDebt,
             onUndoReconcile,
+            onEditDebt,
           }}
         />
       )}
@@ -549,8 +553,8 @@ export const DebtsView: React.FC<DebtsViewProps> = ({
           assets={state.assets.filter((a) => a.status === 'active')}
           fundAssets={unlinkedAssets}
           onClose={() => setIsAddModalOpen(false)}
-          onAdd={(debt, disburse) => {
-            if (onAddDebt(debt, disburse) !== false) setIsAddModalOpen(false);
+          onAdd={(debt, disburse, extra) => {
+            if (onAddDebt(debt, disburse, extra) !== false) setIsAddModalOpen(false);
           }}
         />
       )}
@@ -641,7 +645,7 @@ interface AddDebtModalProps {
   /** Tài sản có thể chọn làm nơi dùng vốn (chưa gắn khoản vay khác). */
   fundAssets: Asset[];
   onClose: () => void;
-  onAdd: (debt: Debt, disburseToWallet: boolean) => void;
+  onAdd: (debt: Debt, disburseToWallet: boolean, extra?: Omit<AddDebtOptions, 'disburseToWallet'>) => void;
 }
 
 const AddDebtModal: React.FC<AddDebtModalProps> = ({ assets, fundAssets, onClose, onAdd }) => {
@@ -650,18 +654,24 @@ const AddDebtModal: React.FC<AddDebtModalProps> = ({ assets, fundAssets, onClose
   const [category, setCategory] = useState<DebtCategory>('mortgage');
   const [principalAmount, setPrincipalAmount] = useState<number>(0);
   const [remainingPrincipal, setRemainingPrincipal] = useState<number>(0);
-  const [annualInterestRate, setAnnualInterestRate] = useState('9.5');
-  const [rateType, setRateType] = useState<InterestRateType>('floating');
-  const [baseRate, setBaseRate] = useState('6.0');
-  const [floatingMargin, setFloatingMargin] = useState('3.5');
-  const [tenorMonths, setTenorMonths] = useState('240');
+  // Một mức lãi suất tại một thời điểm; để trống (không điền sẵn) để không lưu nhầm số mẫu.
+  const [annualInterestRate, setAnnualInterestRate] = useState('');
+  const [tenorMonths, setTenorMonths] = useState('');
+  // Tùy chọn: số tiền vay ban đầu và ngày giải ngân (khoản vay đang trả dở) để biết tổng lãi đã/sẽ trả và LTV
+  const [originalPrincipal, setOriginalPrincipal] = useState<number>(0);
+  const [disbursedDate, setDisbursedDate] = useState('');
+  // Tài sản đã sở hữu từ trước, chưa nhập vào app (nơi dùng vốn = "asset_new")
+  const [newAssetName, setNewAssetName] = useState('');
+  const [newAssetKind, setNewAssetKind] = useState<PreexistingAssetInput['kind']>('real_estate');
+  const [newAssetValue, setNewAssetValue] = useState<number>(0);
+  const [newAssetCollateral, setNewAssetCollateral] = useState(true);
   const [startDate, setStartDate] = useState(todayLocalStr());
   const [graceMonths, setGraceMonths] = useState('0');
   const [disburse, setDisburse] = useState(false);
   // Khoản vay đang trả dở: theo dõi từ hôm nay, lịch chỉ gồm các kỳ còn lại (không dựng lịch sử từ lúc giải ngân)
   const [mode, setMode] = useState<'new' | 'tracked'>('tracked');
   // Nơi dùng vốn: bắt buộc chọn (tiền vay đã đi đâu)
-  const [fundKind, setFundKind] = useState<FundUseKind | ''>('');
+  const [fundKind, setFundKind] = useState<FundUseKind | 'asset_new' | ''>('');
   const [fundAssetId, setFundAssetId] = useState('');
   const [paymentDayOfMonth, setPaymentDayOfMonth] = useState('15');
   const [method, setMethod] = useState<PaymentMethod>('declining_balance');
@@ -683,20 +693,23 @@ const AddDebtModal: React.FC<AddDebtModalProps> = ({ assets, fundAssets, onClose
   if (mode === 'new' && principal <= 0) missing.push('Nhập số gốc vay ban đầu.');
   if (mode === 'tracked' && !(remainingPrincipal > 0)) missing.push('Nhập dư nợ gốc còn lại.');
   if (!startDate) missing.push(mode === 'tracked' ? 'Chọn ngày đến hạn kỳ tiếp theo.' : 'Chọn ngày giải ngân.');
-  if (!fundKind) missing.push('Chọn nơi dùng vốn của khoản vay.');
+  if (!fundKind) missing.push('Chọn nơi dùng vốn của khoản vay (hoặc \"Chưa rõ\").');
   if (fundKind === 'asset' && !fundAssetId) missing.push('Chọn tài sản được mua bằng vốn vay.');
+  if (fundKind === 'asset_new' && !newAssetName.trim()) missing.push('Nhập tên tài sản đã có từ trước.');
+  if (fundKind === 'asset_new' && !(newAssetValue > 0)) missing.push('Nhập giá trị hiện tại của tài sản.');
 
   const remainingError =
     mode === 'new' && principal > 0 && remainingInput !== undefined && remainingInput > principal
       ? 'Dư nợ còn lại không thể lớn hơn số gốc vay ban đầu.'
       : '';
   const rateError = Number.isNaN(rate)
-    ? 'Nhập lãi suất áp dụng.'
+    ? 'Nhập lãi suất hiện tại của khoản vay.'
     : rate < 0 || rate > MAX_RATE
     ? `Lãi suất phải trong khoảng 0% – ${MAX_RATE}%/năm.`
     : '';
   const termErrors: string[] = [];
-  if (tenor < 1 || tenor > MAX_TENOR_MONTHS) termErrors.push(`Thời hạn vay phải từ 1 đến ${MAX_TENOR_MONTHS} tháng.`);
+  if (!tenorMonths.trim()) termErrors.push(mode === 'tracked' ? 'Nhập số kỳ còn lại (tháng).' : 'Nhập thời hạn vay (tháng).');
+  else if (tenor < 1 || tenor > MAX_TENOR_MONTHS) termErrors.push(`Thời hạn vay phải từ 1 đến ${MAX_TENOR_MONTHS} tháng.`);
   else if (grace >= tenor) termErrors.push('Ân hạn gốc phải ngắn hơn thời hạn vay.');
   if (day < 1 || day > 31) termErrors.push('Ngày trả hàng tháng phải từ 1 đến 31.');
 
@@ -707,17 +720,41 @@ const AddDebtModal: React.FC<AddDebtModalProps> = ({ assets, fundAssets, onClose
     e.preventDefault();
     if (hasProblems) return;
 
+    // Nơi dùng vốn: "tài sản chưa nhập" → tạo tài sản "đã sở hữu từ trước" (không trừ ví); "chưa rõ" → cho lưu và nhắc bổ sung sau
+    const extra: Omit<AddDebtOptions, 'disburseToWallet'> =
+      fundKind === 'asset_new'
+        ? {
+            preexistingAsset: {
+              name: newAssetName.trim(),
+              kind: newAssetKind,
+              value: newAssetValue,
+              collateral: newAssetCollateral,
+            },
+          }
+        : fundKind === 'unspecified'
+        ? { allowUnspecified: true }
+        : {};
+    const fundUse: FundUse =
+      fundKind === 'asset'
+        ? { kind: 'asset', assetId: fundAssetId }
+        : fundKind === 'wallet' || fundKind === 'spent'
+        ? { kind: fundKind }
+        : { kind: 'unspecified' };
+    const id = `debt-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+
     if (mode === 'tracked') {
       const trackedDebt = buildTrackedDebt(
         {
-          id: `debt-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`,
+          id,
           name: name || `Khoản vay ${lender}`,
           lender,
           category,
           securityType: collateralAssetId ? 'secured' : 'unsecured',
           collateralAssetId: collateralAssetId || undefined,
-          fundUse: { kind: fundKind as FundUseKind, assetId: fundKind === 'asset' ? fundAssetId : undefined },
+          fundUse,
           notes,
+          originalPrincipal: originalPrincipal > 0 ? originalPrincipal : undefined,
+          disbursedDate: disbursedDate || undefined,
         },
         {
           balance: remainingPrincipal,
@@ -726,21 +763,18 @@ const AddDebtModal: React.FC<AddDebtModalProps> = ({ assets, fundAssets, onClose
           trackingStart: todayLocalStr(),
           paymentDay: day,
           annualRate: rate,
-          rateType,
-          baseRate: parseFloat(baseRate) || 0,
-          margin: parseFloat(floatingMargin) || 0,
           method,
           graceLeft: grace,
         }
       );
-      onAdd(trackedDebt, false);
+      onAdd(trackedDebt, false, extra);
       return;
     }
 
     const schedule = generateAmortizationSchedule(principal, rate, tenor, startDate, day, method, grace);
 
     const rawDebt: Debt = {
-      id: `debt-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`,
+      id,
       name: name || `Khoản vay ${lender}`,
       lender,
       category,
@@ -748,23 +782,21 @@ const AddDebtModal: React.FC<AddDebtModalProps> = ({ assets, fundAssets, onClose
       principalAmount: principal,
       remainingPrincipal: remainingInput ?? principal,
       annualInterestRate: rate,
-      rateType,
-      baseRate: rateType === 'floating' ? parseFloat(baseRate) || 0 : undefined,
-      floatingMargin: rateType === 'floating' ? parseFloat(floatingMargin) || 0 : undefined,
+      rateType: 'fixed',
       tenorMonths: tenor,
       startDate,
       paymentDayOfMonth: day,
       method,
       graceMonths: grace || undefined,
       collateralAssetId: collateralAssetId || undefined,
-      fundUse: { kind: fundKind as FundUseKind, assetId: fundKind === 'asset' ? fundAssetId : undefined },
+      fundUse,
       notes,
       status: 'active',
       schedule,
     };
     // Khoản vay đã giải ngân trong quá khứ: kỳ đã qua = đã trả; các kỳ còn lại căn theo dư nợ thực tế người dùng nhập
     const newDebt = applyHistoricalPayments(rawDebt, remainingInput);
-    onAdd(newDebt, fundKind === 'wallet' && disburse && startDate <= todayLocalStr());
+    onAdd(newDebt, fundKind === 'wallet' && disburse && startDate <= todayLocalStr(), extra);
   };
 
   return (
@@ -884,81 +916,56 @@ const AddDebtModal: React.FC<AddDebtModalProps> = ({ assets, fundAssets, onClose
             </div>
           </div>
 
-          {/* Rates & Mechanism */}
-          <div className="p-3 bg-slate-50 rounded-lg border border-slate-200 space-y-3">
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="text-xs font-semibold text-slate-700 block mb-1">
-                  Cơ chế lãi suất
-                </label>
-                <div className="flex items-center gap-2 text-xs">
-                  <label className="flex items-center gap-1.5 cursor-pointer">
-                    <input
-                      type="radio"
-                      name="rateType"
-                      checked={rateType === 'floating'}
-                      onChange={() => setRateType('floating')}
-                    />
-                    <span>Thả nổi</span>
-                  </label>
-                  <label className="flex items-center gap-1.5 cursor-pointer">
-                    <input
-                      type="radio"
-                      name="rateType"
-                      checked={rateType === 'fixed'}
-                      onChange={() => setRateType('fixed')}
-                    />
-                    <span>Cố định</span>
-                  </label>
-                </div>
-              </div>
-
-              <div>
-                <label className="text-xs font-semibold text-slate-700 block mb-1">
-                  Lãi suất áp dụng (%/năm) *
-                </label>
-                <input
-                  type="number"
-                  step="0.1"
-                  required
-                  value={annualInterestRate}
-                  onChange={(e) => setAnnualInterestRate(e.target.value)}
-                  aria-invalid={rateError ? true : undefined}
-                  className="w-full px-2.5 py-1 text-xs bg-white border border-slate-300 rounded font-mono"
-                />
-              </div>
-            </div>
-
-            {rateType === 'floating' && (
-              <div className="grid grid-cols-2 gap-3 pt-1 border-t border-slate-200">
+          {mode === 'tracked' && (
+            <details className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs">
+              <summary className="cursor-pointer font-semibold text-slate-700">Thông tin ban đầu (tùy chọn)</summary>
+              <p className="mt-1.5 text-[11px] leading-relaxed text-slate-500">
+                Nhập nếu có để biết tổng lãi đã/sẽ trả và tỷ lệ vay trên giá trị tài sản (LTV). Bỏ trống cũng không ảnh hưởng lịch trả.
+              </p>
+              <div className="mt-2 grid grid-cols-2 gap-3">
                 <div>
-                  <label className="text-[11px] text-slate-600 block mb-0.5">Lãi suất cơ sở (%)</label>
-                  <input
-                    type="number"
-                    step="0.1"
-                    value={baseRate}
-                    onChange={(e) => {
-                      setBaseRate(e.target.value);
-                      setAnnualInterestRate(((parseFloat(e.target.value) || 0) + (parseFloat(floatingMargin) || 0)).toFixed(2));
-                    }}
-                    className="w-full px-2.5 py-1 text-xs bg-white border border-slate-300 rounded font-mono"
+                  <label className="text-[11px] font-semibold text-slate-700 block mb-1">Số tiền vay ban đầu (VND)</label>
+                  <CurrencyInput
+                    value={originalPrincipal}
+                    onChange={setOriginalPrincipal}
+                    className="w-full px-3 py-1.5 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-slate-900"
                   />
                 </div>
                 <div>
-                  <label className="text-[11px] text-slate-600 block mb-0.5">Biên độ thả nổi (%)</label>
+                  <label className="text-[11px] font-semibold text-slate-700 block mb-1">Ngày giải ngân</label>
                   <input
-                    type="number"
-                    step="0.1"
-                    value={floatingMargin}
-                    onChange={(e) => {
-                      setFloatingMargin(e.target.value);
-                      setAnnualInterestRate(((parseFloat(baseRate) || 0) + (parseFloat(e.target.value) || 0)).toFixed(2));
-                    }}
-                    className="w-full px-2.5 py-1 text-xs bg-white border border-slate-300 rounded font-mono"
+                    type="date"
+                    value={disbursedDate}
+                    max={todayLocalStr()}
+                    onChange={(e) => setDisbursedDate(e.target.value)}
+                    className="w-full px-2.5 py-1.5 text-xs border border-slate-300 rounded-lg font-mono"
                   />
                 </div>
               </div>
-            )}
+            </details>
+          )}
+
+          {/* Lãi suất hiện tại: một mức duy nhất */}
+          <div className="p-3 bg-slate-50 rounded-lg border border-slate-200 space-y-1">
+            <label className="text-xs font-semibold text-slate-700 block mb-1" htmlFor="debt-rate">
+              Lãi suất hiện tại (%/năm) *
+            </label>
+            <input
+              id="debt-rate"
+              type="number"
+              step="0.1"
+              min="0"
+              required
+              placeholder="Ví dụ 8,5"
+              value={annualInterestRate}
+              onChange={(e) => setAnnualInterestRate(e.target.value)}
+              aria-invalid={rateError ? true : undefined}
+              className="w-full px-2.5 py-1 text-xs bg-white border border-slate-300 rounded font-mono"
+            />
+            <p className="text-[11px] leading-relaxed text-slate-500">
+              Chỉ nhập mức lãi đang áp dụng. Hết ưu đãi hoặc ngân hàng đổi lãi: vào khoản vay, bấm <strong>Đổi lãi suất</strong>,
+              nhập lãi mới và ngày hiệu lực — các kỳ chưa trả tự tính lại.
+            </p>
           </div>
 
           {/* Payment Method & Tenor */}
@@ -984,6 +991,7 @@ const AddDebtModal: React.FC<AddDebtModalProps> = ({ assets, fundAssets, onClose
               <input
                 type="number"
                 required
+                placeholder={mode === 'tracked' ? 'Số kỳ còn phải trả' : 'Ví dụ 240'}
                 value={tenorMonths}
                 onChange={(e) => setTenorMonths(e.target.value)}
                 className="w-full px-2.5 py-1.5 text-xs border border-slate-300 rounded-lg font-mono"
@@ -1014,6 +1022,7 @@ const AddDebtModal: React.FC<AddDebtModalProps> = ({ assets, fundAssets, onClose
                 onChange={(e) => setGraceMonths(e.target.value)}
                 className="w-full px-2.5 py-1.5 text-xs border border-slate-300 rounded-lg font-mono"
               />
+              <span className="mt-0.5 block text-[11px] leading-snug text-slate-500">Số tháng đầu chỉ trả lãi, chưa trả gốc. Không có thì để 0.</span>
             </div>
 
             {mode === 'new' && (
@@ -1037,22 +1046,78 @@ const AddDebtModal: React.FC<AddDebtModalProps> = ({ assets, fundAssets, onClose
           {/* Nơi dùng vốn: bắt buộc */}
           <div>
             <label className="text-xs font-semibold text-slate-700 block mb-1">Nơi dùng vốn *</label>
+            <p className="mb-1.5 text-[11px] leading-relaxed text-slate-500">
+              Tiền vay đã đi đâu? Chọn đúng để bảng cân đối không coi khoản nợ cũ là &quot;lỗ&quot;.
+            </p>
             <select
               data-testid="fund-kind"
               value={fundKind}
               onChange={(e) => {
-                const k = e.target.value as FundUseKind | '';
+                const k = e.target.value as FundUseKind | 'asset_new' | '';
                 setFundKind(k);
                 setFundAssetId('');
                 setDisburse(k === 'wallet' && startDate === todayLocalStr());
+                if (k === 'asset_new') setNewAssetKind(category === 'car_loan' ? 'vehicle' : 'real_estate');
               }}
               className="w-full px-3 py-1.5 text-xs border border-slate-300 rounded-lg bg-white"
             >
               <option value="">-- Chọn tiền vay đã đi đâu --</option>
+              <option value="asset">Mua tài sản đã có trong app (gắn khoản vay vào tài sản đó)</option>
+              <option value="asset_new">Mua tài sản đã có từ trước, chưa nhập vào app (nhập luôn, không trừ ví)</option>
               <option value="wallet">Vào ví đầu tư</option>
-              <option value="asset">Mua tài sản (gắn với tài sản trong danh mục)</option>
-              <option value="spent">Đã chi tiêu (không có tài sản đối ứng)</option>
+              <option value="spent">Đã chi tiêu (không còn tài sản đối ứng)</option>
+              <option value="unspecified">Chưa rõ – lưu trước, bổ sung sau</option>
             </select>
+            {fundKind === 'unspecified' && (
+              <div className="mt-1 text-[11px] font-medium text-amber-700">
+                Khoản vay sẽ được lưu với nơi dùng vốn &quot;chưa xác định&quot; và nhắc bạn bổ sung. Báo cáo sẽ chưa phản ánh đúng cho tới khi bổ sung.
+              </div>
+            )}
+            {fundKind === 'asset_new' && (
+              <div className="mt-2 space-y-2 rounded-lg border border-slate-200 bg-slate-50 p-3" data-testid="new-asset-box">
+                <p className="text-[11px] leading-relaxed text-slate-500">
+                  Tài sản được ghi vào danh mục với nhãn &quot;đã sở hữu từ trước&quot;, <strong>không trừ ví</strong>. Giá trị của nó và dư nợ này sẽ nằm trong
+                  &quot;Số dư ban đầu&quot; của bảng cân đối.
+                </p>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-[11px] font-semibold text-slate-700 block mb-1">Tên tài sản *</label>
+                    <input
+                      type="text"
+                      data-testid="new-asset-name"
+                      value={newAssetName}
+                      onChange={(e) => setNewAssetName(e.target.value)}
+                      className="w-full px-3 py-1.5 text-xs border border-slate-300 rounded-lg bg-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[11px] font-semibold text-slate-700 block mb-1">Loại</label>
+                    <select
+                      value={newAssetKind}
+                      onChange={(e) => setNewAssetKind(e.target.value as PreexistingAssetInput['kind'])}
+                      className="w-full px-3 py-1.5 text-xs border border-slate-300 rounded-lg bg-white"
+                    >
+                      <option value="real_estate">Bất động sản</option>
+                      <option value="vehicle">Xe</option>
+                      <option value="other">Tài sản khác</option>
+                    </select>
+                  </div>
+                </div>
+                <div>
+                  <label className="text-[11px] font-semibold text-slate-700 block mb-1">Giá trị hiện tại (VND) *</label>
+                  <CurrencyInput
+                    value={newAssetValue}
+                    onChange={setNewAssetValue}
+                    className="w-full px-3 py-1.5 text-xs border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-1 focus:ring-slate-900"
+                  />
+                  <span className="text-[11px] text-slate-500 font-mono block mt-0.5">{newAssetValue > 0 ? formatVND(newAssetValue) : ''}</span>
+                </div>
+                <label className="flex items-center gap-2 text-xs text-slate-700 cursor-pointer">
+                  <input type="checkbox" checked={newAssetCollateral} onChange={(e) => setNewAssetCollateral(e.target.checked)} />
+                  Dùng tài sản này làm tài sản thế chấp của khoản vay
+                </label>
+              </div>
+            )}
             {fundKind === 'asset' && (
               <div className="mt-2">
                 <select
@@ -1097,6 +1162,9 @@ const AddDebtModal: React.FC<AddDebtModalProps> = ({ assets, fundAssets, onClose
             <label className="text-xs font-semibold text-slate-700 block mb-1">
               Liên kết Tài sản Thế chấp (Tùy chọn)
             </label>
+            <p className="mb-1.5 text-[11px] leading-relaxed text-slate-500">
+              Chọn tài sản đang đảm bảo cho khoản vay để theo dõi LTV. Để trống nếu là vay tín chấp.
+            </p>
             <select
               value={collateralAssetId}
               onChange={(e) => setCollateralAssetId(e.target.value)}

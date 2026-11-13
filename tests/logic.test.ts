@@ -75,13 +75,7 @@ t('A8', 'ân hạn gốc 6 tháng: 6 kỳ đầu chỉ trả lãi, tổng gốc 
   const ok = sum(s.map(x => x.principalPayable)) === 600_000_000 && s[23].remainingBalance === 0;
   return g && ok ? true : JSON.stringify({ g, sumP: sum(s.map(x => x.principalPayable)) });
 });
-t('A9', '[KNOWN GAP – roadmap] lãi suất ưu đãi (preferentialMonths) ảnh hưởng lịch trả', () => {
-  const d = INITIAL_DEMO_STATE.debts[0];
-  const s = generateAmortizationSchedule(d.principalAmount, d.annualInterestRate, d.tenorMonths, d.startDate, d.paymentDayOfMonth, d.method);
-  // nếu có ưu đãi 12 tháng thì lãi tháng 1 và tháng 13 theo cùng dư nợ phải khác tỷ lệ
-  const r1 = s[0].interestPayable / 1_800_000_000, r13 = s[12].interestPayable / s[11].remainingBalance;
-  return Math.abs(r1 - r13) > 1e-6 ? true : `preferentialMonths=${d.preferentialMonths} nhưng lãi suất kỳ 1 và kỳ 13 giống nhau (${(r1*1200).toFixed(2)}%/năm)`;
-});
+// A9 (lãi ưu đãi → thả nổi) đã bỏ: mỗi khoản vay chỉ dùng một mức lãi tại một thời điểm; đổi lãi xem tests/loans.test.ts.
 
 // ================= NEXT DUE / CURRENT-LOAN ENTRY =================
 t('B1', 'khoản vay cũ (bắt đầu 2023) nhập qua form: kỳ quá khứ = đã trả, kỳ kế tiếp không quá hạn, Σ gốc chưa trả = dư nợ nhập', () => {

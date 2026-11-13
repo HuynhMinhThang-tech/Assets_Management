@@ -33,13 +33,18 @@ interface SidebarProps {
   priceAlertCount?: number;
   onOpenAccount: () => void;
   onLogout: () => void;
+  /** Điện thoại / màn hình hẹp: thanh bên là ngăn kéo, mở bằng nút ☰ ở đầu trang. */
+  mobileOpen?: boolean;
+  onCloseMobile?: () => void;
+  /** Màn hình rộng (≥ 1024px): thanh bên cố định và có thể thu gọn. Trên màn hình hẹp luôn hiện đầy đủ chữ. */
+  isDesktop?: boolean;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
   currentTab,
   onSelectTab,
   upcomingPaymentCount,
-  isCollapsed,
+  isCollapsed: isCollapsedProp,
   onToggleCollapse,
   user,
   isDark,
@@ -48,7 +53,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
   priceAlertCount = 0,
   onOpenAccount,
   onLogout,
+  mobileOpen = false,
+  onCloseMobile,
+  isDesktop = true,
 }) => {
+  const isCollapsed = isCollapsedProp && isDesktop;
   const navItems: { id: NavTab; label: string; icon: React.ReactNode; badge?: number }[] = [
     {
       id: 'dashboard',
@@ -101,10 +110,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
   );
 
   return (
+    <>
+    {mobileOpen && <div data-nav-backdrop className="fixed inset-0 z-30 bg-black/50 lg:hidden" onClick={onCloseMobile} aria-hidden="true" />}
     <aside
+      data-sidebar
+      aria-label="Điều hướng"
       className={`${
-        isCollapsed ? 'w-20' : 'w-64'
-      } theme-fixed-dark bg-slate-900 text-slate-300 flex flex-col shrink-0 border-r border-slate-800 select-none h-screen sticky top-0 self-start transition-all duration-300 ease-in-out relative`}
+        isCollapsed ? 'w-20' : 'w-64 max-w-[85vw]'
+      } theme-fixed-dark bg-slate-900 text-slate-300 flex flex-col shrink-0 border-r border-slate-800 select-none h-screen overflow-y-auto fixed inset-y-0 left-0 z-40 transition-transform lg:transition-all duration-300 ease-in-out lg:sticky lg:top-0 lg:z-auto lg:self-start lg:translate-x-0 ${
+        mobileOpen ? 'translate-x-0 shadow-2xl' : '-translate-x-full'
+      }`}
     >
       {/* Brand Header */}
       <div
@@ -134,7 +149,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       <button
         onClick={onToggleCollapse}
         title={isCollapsed ? 'Mở rộng thanh điều hướng' : 'Thu gọn thanh điều hướng'}
-        className="absolute -right-3 top-5 z-30 grid h-6 w-6 place-items-center rounded-full border border-slate-600 bg-slate-800 text-slate-300 shadow hover:bg-slate-700 hover:text-white transition-colors"
+        className="absolute -right-3 top-5 z-30 hidden lg:grid h-6 w-6 place-items-center rounded-full border border-slate-600 bg-slate-800 text-slate-300 shadow hover:bg-slate-700 hover:text-white transition-colors"
       >
         {isCollapsed ? <ChevronRight className="h-3.5 w-3.5" /> : <ChevronLeft className="h-3.5 w-3.5" />}
       </button>
@@ -253,5 +268,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </button>
       </div>
     </aside>
+    </>
   );
 };

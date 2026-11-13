@@ -1,6 +1,6 @@
 import { header, parseCookies, readJson, sendJson, serializeCookie, type ApiRequest, type ApiResponse } from './http.js';
-import { hashPassword, hashToken, burnPasswordTime, newSessionToken, verifyPassword } from './passwords.js';
-import { LOCK_MINUTES, MAX_FAILED_LOGINS, PRICE_KINDS, type PriceKind, type Store, type UserRecord } from './store.js';
+import { hashPassword, hashToken, burnPasswordTime, newSessionToken, passwordNeedsRehash, TARGET_N, verifyPassword } from './passwords.js';
+import { LOCK_MINUTES, MAX_FAILED_LOGINS, MAX_PAIR_FAILURES, PRICE_KINDS, type PriceKind, type Store, type UserRecord } from './store.js';
 import {
   GMAIL_SUFFIX,
   canonicalEmail,
@@ -18,7 +18,22 @@ export interface AppConfig {
   /** Đặt cờ Secure cho cookie (true khi chạy HTTPS / production). */
   secureCookies: boolean;
   now?: () => Date;
+  /** Mức băm scrypt (N). Mặc định 2^17; kiểm thử có thể hạ xuống để chạy nhanh. */
+  scryptN?: number;
+  /** Giới hạn tần suất theo IP. Đặt false để tắt (chỉ nên dùng khi kiểm thử). */
+  rateLimit?: boolean;
 }
+
+/** Giới hạn: số lần tối đa trong một khoảng thời gian, theo IP. */
+const LIMITS = {
+  register: { max: 10, windowMs: 60 * 60_000 },
+  forgot: { max: 5, windowMs: 60 * 60_000 },
+  login: { max: 40, windowMs: 15 * 60_000 },
+} as const;
+type LimitName = keyof typeof LIMITS;
+
+/** Yêu cầu đặt lại mật khẩu đang chờ được giữ nguyên trong khoảng này: người lạ không ghi đè được yêu cầu thật. */
+export const RESET_HOLD_HOURS = 72;
 
 export const SESSION_COOKIE = 'fintrack_session';
 const REMEMBER_DAYS = 30;
@@ -46,8 +61,43 @@ const adminAccount = (u: UserRecord) => ({
   resetRequestedAt: u.resetRequestedAt,
 });
 
+/** Địa chỉ IP của người gọi (Vercel đặt x-forwarded-for; phần tử đầu là IP gốc). */
+export function clientIp(req: ApiRequest): string {
+  const fwd = header(req, 'x-forwarded-for').split(',')[0]?.trim();
+  return fwd || header(req, 'x-real-ip').trim() || 'unknown';
+}
+
 export function createApp(store: Store, config: AppConfig) {
   const now = config.now ?? (() => new Date());
+  const scryptN = config.scryptN ?? TARGET_N;
+  const rateLimitOn = config.rateLimit !== false;
+  const hash = (pw: string) => hashPassword(pw, scryptN);
+
+  // Bộ đếm trong bộ nhớ của từng tiến trình máy chủ. Trên Vercel mỗi instance có bộ đếm riêng nên đây là lớp giảm thiểu
+  // (chặn dò/đăng ký hàng loạt từ một IP trên cùng instance), không phải giới hạn tuyệt đối toàn hệ thống.
+  const hits = new Map<string, number[]>();
+  const pairFails = new Map<string, { count: number; lockedUntil: number }>();
+  const prune = () => {
+    if (hits.size > 5000) hits.clear();
+    if (pairFails.size > 5000) pairFails.clear();
+  };
+
+  /** Ghi một lượt gọi; vượt giới hạn thì báo lỗi 429 kèm thời gian chờ. */
+  function limit(req: ApiRequest, res: ApiResponse, name: LimitName) {
+    if (!rateLimitOn) return;
+    prune();
+    const { max, windowMs } = LIMITS[name];
+    const key = `${name}|${clientIp(req)}`;
+    const t = now().getTime();
+    const list = (hits.get(key) ?? []).filter((x) => t - x < windowMs);
+    if (list.length >= max) {
+      const retry = Math.max(1, Math.ceil((windowMs - (t - list[0])) / 1000));
+      res.setHeader('Retry-After', String(retry));
+      throw new HttpError(429, `Quá nhiều yêu cầu từ địa chỉ của bạn. Thử lại sau ${Math.ceil(retry / 60)} phút.`, 'rate_limited');
+    }
+    list.push(t);
+    hits.set(key, list);
+  }
   const adminEmails = config.adminEmails.map((e) => canonicalEmail(e)).filter(Boolean);
 
   function startSession(res: ApiResponse, user: UserRecord, remember: boolean) {
@@ -115,6 +165,7 @@ export function createApp(store: Store, config: AppConfig) {
   // Xác thực
   // ---------------------------------------------------------------------------
   async function register(req: ApiRequest, res: ApiResponse) {
+    limit(req, res, 'register');
     const body = readJson(req);
     const displayName = str(body.displayName).trim();
     const email = normalizeEmail(str(body.email));
@@ -131,7 +182,7 @@ export function createApp(store: Store, config: AppConfig) {
         'not_configured'
       );
 
-    const passwordHash = await hashPassword(password);
+    const passwordHash = await hash(password);
     const created = await store.createUser({
       email,
       emailCanonical: canon,
@@ -150,6 +201,7 @@ export function createApp(store: Store, config: AppConfig) {
   }
 
   async function login(req: ApiRequest, res: ApiResponse) {
+    limit(req, res, 'login');
     const body = readJson(req);
     const email = normalizeEmail(str(body.email));
     const password = str(body.password);
@@ -158,25 +210,48 @@ export function createApp(store: Store, config: AppConfig) {
 
     const user = email.endsWith(GMAIL_SUFFIX) ? await store.findUserByCanonical(canonicalEmail(email)) : null;
     if (!user) {
-      await burnPasswordTime(password);
+      await burnPasswordTime(password, scryptN);
       throw new HttpError(401, 'Sai Gmail hoặc mật khẩu.', 'invalid_credentials');
     }
 
     const t = now();
+    // Khóa theo cặp (Gmail, IP): kẻ đoán mật khẩu bị khóa từ IP của chính họ, không khóa được bạn khi bạn đăng nhập từ nơi khác.
+    const pairKey = `${user.id}|${clientIp(req)}`;
+    const pair = pairFails.get(pairKey);
+    if (pair && pair.lockedUntil > t.getTime()) {
+      const mins = Math.max(1, Math.ceil((pair.lockedUntil - t.getTime()) / 60_000));
+      throw new HttpError(429, `Đăng nhập sai quá nhiều lần từ địa chỉ này. Thử lại sau ${mins} phút.`, 'throttled');
+    }
+    if (pair && pair.lockedUntil && pair.lockedUntil <= t.getTime()) pairFails.delete(pairKey); // khóa tạm đã hết hạn
+    // Lớp chặn cuối toàn tài khoản (dò từ nhiều IP): ngưỡng cao hơn nhiều
     if (user.lockedUntil && new Date(user.lockedUntil) > t) {
       const mins = Math.max(1, Math.ceil((new Date(user.lockedUntil).getTime() - t.getTime()) / 60_000));
-      throw new HttpError(429, `Đăng nhập sai quá nhiều lần. Thử lại sau ${mins} phút.`, 'throttled');
+      throw new HttpError(429, `Tài khoản bị tạm khóa do quá nhiều lần đăng nhập sai. Thử lại sau ${mins} phút.`, 'throttled');
     }
     if (user.failedLogins >= MAX_FAILED_LOGINS) await store.clearLoginFailures(user.id); // khóa tạm đã hết hạn
 
     if (!(await verifyPassword(password, user.passwordHash))) {
       await store.recordLoginFailure(user.id);
+      const cur = pairFails.get(pairKey) ?? { count: 0, lockedUntil: 0 };
+      cur.count += 1;
+      if (cur.count >= MAX_PAIR_FAILURES) cur.lockedUntil = t.getTime() + LOCK_MINUTES * 60_000;
+      pairFails.set(pairKey, cur);
       throw new HttpError(401, 'Sai Gmail hoặc mật khẩu.', 'invalid_credentials');
     }
+    pairFails.delete(pairKey);
     if (user.failedLogins > 0) await store.clearLoginFailures(user.id);
 
     // Chỉ lộ trạng thái tài khoản sau khi đã nhập ĐÚNG mật khẩu
     if (user.status !== 'active') throw new HttpError(403, STATUS_MESSAGES[user.status] ?? 'Tài khoản chưa được kích hoạt.', user.status);
+
+    // Nâng mức băm: mật khẩu cũ băm với N thấp được băm lại ngay lúc đăng nhập đúng (không bắt đổi mật khẩu hàng loạt)
+    if (passwordNeedsRehash(user.passwordHash, scryptN)) {
+      try {
+        await store.updatePasswordHash(user.id, await hash(password));
+      } catch (e) {
+        console.error('[api] không băm lại được mật khẩu:', e);
+      }
+    }
 
     void store.purgeExpiredSessions().catch(() => undefined);
     await startSession(res, user, remember);
@@ -202,9 +277,18 @@ export function createApp(store: Store, config: AppConfig) {
     const password = str(body.password);
     const err = validateEmail(email) || validatePassword(password, email);
     if (err) throw new HttpError(400, err, 'invalid_input');
-    const hash = await hashPassword(password);
+    limit(req, res, 'forgot');
+    const requested = await hash(password);
     const user = await store.findUserByCanonical(canonicalEmail(email));
-    if (user && user.status === 'active') await store.setResetRequest(user.id, hash);
+    if (user && user.status === 'active') {
+      // Đã có yêu cầu đang chờ (còn trong thời hạn giữ): KHÔNG ghi đè. Người lạ không thay được yêu cầu thật bằng mật khẩu của họ.
+      // Muốn đặt lại, chủ tài khoản nhờ quản trị viên từ chối yêu cầu cũ (reset-deny) hoặc chờ hết hạn.
+      const held =
+        !!user.resetRequestHash &&
+        !!user.resetRequestedAt &&
+        now().getTime() - new Date(user.resetRequestedAt).getTime() < RESET_HOLD_HOURS * 3_600_000;
+      if (!held) await store.setResetRequest(user.id, requested);
+    }
     return sendJson(res, 200, { ok: true });
   }
 
@@ -216,7 +300,7 @@ export function createApp(store: Store, config: AppConfig) {
     if (!(await verifyPassword(current, user.passwordHash))) throw new HttpError(400, 'Mật khẩu hiện tại không đúng.', 'wrong_password');
     const err = validatePassword(next, user.email);
     if (err) throw new HttpError(400, err, 'invalid_input');
-    await store.setPassword(user.id, await hashPassword(next));
+    await store.setPassword(user.id, await hash(next));
     await store.deleteUserSessions(user.id, tokenHash); // đăng xuất các thiết bị khác
     return sendJson(res, 200, { ok: true });
   }

@@ -4,10 +4,11 @@ import type { AssetCategory, MarketQuote, PriceKind, UserFinancialState } from '
 import { formatPercent, formatVND, todayLocalStr } from '../utils/calculations';
 import { api } from '../utils/api';
 import {
-  ANOMALY_PCT, STALE_DAYS, buildPriceTemplateCsv, collectQuoteRequests, isAnomalous, listPriceRows, parsePriceCsv, planImport, previewValue,
+  ANOMALY_PCT, buildPriceTemplateCsv, collectQuoteRequests, isAnomalous, listPriceRows, parsePriceCsv, planImport, previewValue,
   quoteMapKey, quotesToMap, suggestFromQuote,
 } from '../utils/priceSync';
 import type { ApplyResult, PlanItem, PriceRow, PriceSuggestion, PriceUpdate } from '../utils/priceSync';
+import { suggestDepreciation } from '../utils/valuation';
 import { CurrencyInput } from './CurrencyInput';
 import { Modal, ModalBody, ModalFooter } from './ui/Modal';
 import { useDialog } from './ui/DialogProvider';
@@ -97,10 +98,12 @@ export const PricesView: React.FC<PricesViewProps> = ({ state, onApplyPrices }) 
   const newestQuoteDate = useMemo(() => [...quotes.values()].reduce((d, q) => (q.date > d ? q.date : d), ''), [quotes]);
   const autoApplicable = [...suggestions.values()].filter((s) => s.status === 'ok' && !s.anomaly);
   const autoAnomalies = [...suggestions.values()].filter((s) => s.status === 'ok' && s.anomaly);
-  const staleCount = rows.filter((r) => r.mode !== 'readonly' && r.staleDays !== null && r.staleDays > STALE_DAYS).length;
+  const staleCount = rows.filter((r) => r.mode !== 'readonly' && r.stale).length;
 
   // ---- Nhập tay ----
   const [edits, setEdits] = useState<Record<string, number>>({});
+  // Nguồn định giá (tùy chọn) khi nhập tay: ghi vào lịch sử định giá
+  const [sources, setSources] = useState<Record<string, string>>({});
 
   const report = (res: ApplyResult, what: string) => {
     if (res.applied.length > 0) dialog.toast(`Đã cập nhật giá ${res.applied.length} tài sản${what}.`, 'success');
@@ -120,10 +123,22 @@ export const PricesView: React.FC<PricesViewProps> = ({ state, onApplyPrices }) 
       });
       if (!ok) return;
     }
-    const update: PriceUpdate = row.mode === 'unit' ? { assetId: row.asset.id, unitPrice: value, date: today } : { assetId: row.asset.id, totalValue: value, date: today };
+    const source = (sources[row.asset.id] || '').trim() || undefined;
+    const update: PriceUpdate = row.mode === 'unit' ? { assetId: row.asset.id, unitPrice: value, date: today, source } : { assetId: row.asset.id, totalValue: value, date: today, source };
     const res = onApplyPrices([update]);
     report(res, '');
-    if (res.applied.length > 0) setEdits((e) => ({ ...e, [row.asset.id]: 0 }));
+    if (res.applied.length > 0) {
+      setEdits((e) => ({ ...e, [row.asset.id]: 0 }));
+      setSources((x) => ({ ...x, [row.asset.id]: '' }));
+    }
+  };
+
+  /** Gợi ý khấu hao: chỉ điền sẵn số vào ô nhập; bạn xem lại rồi bấm Lưu mới ghi. */
+  const useDepreciation = (row: PriceRow) => {
+    const d = suggestDepreciation(row.asset, today);
+    if (!d) return;
+    setEdits((e) => ({ ...e, [row.asset.id]: row.mode === 'unit' && row.quantity > 0 ? Math.round(d.suggestedValue / row.quantity) : d.suggestedValue }));
+    setSources((x) => ({ ...x, [row.asset.id]: `Khấu hao gợi ý ${d.ratePerYear}%/năm` }));
   };
 
   // ---- Giá tự động ----
@@ -222,7 +237,8 @@ export const PricesView: React.FC<PricesViewProps> = ({ state, onApplyPrices }) 
     const s = suggestions.get(a.id);
     const edit = edits[a.id] || 0;
     const pv = edit > 0 ? previewValue(r, edit) : null;
-    const stale = r.staleDays !== null && r.staleDays > STALE_DAYS;
+    const stale = r.stale;
+    const dep = suggestDepreciation(a, today);
     const priceLabel = r.mode === 'unit' ? `mỗi ${r.unit}` : 'tổng giá trị';
     const cur = r.mode === 'unit' ? r.currentUnitPrice : a.currentValue;
 
@@ -230,7 +246,13 @@ export const PricesView: React.FC<PricesViewProps> = ({ state, onApplyPrices }) 
       return (
         <tr key={a.id} className="border-t border-slate-100">
           <td className="px-3 py-3 align-top">
-            <div className="font-semibold text-slate-900">{a.name}</div>
+            <div className="font-semibold text-slate-900">
+      <datalist id="valuation-sources">
+        <option value="Giá rao bán cùng khu" />
+        <option value="Ngân hàng thẩm định" />
+        <option value="Hóa đơn / hợp đồng mua" />
+        <option value="Tự ước tính" />
+      </datalist>{a.name}</div>
           </td>
           <td colSpan={5} className="px-3 py-3 text-xs text-slate-500">
             Giá trị hiện tại <span className="font-mono font-semibold text-slate-800">{formatVND(a.currentValue)}</span> – tự tính theo lãi suất, không cần nhập giá.
@@ -255,8 +277,16 @@ export const PricesView: React.FC<PricesViewProps> = ({ state, onApplyPrices }) 
         <td className="px-3 py-3 text-right font-mono text-xs tabular-nums text-slate-900">
           {cur !== null ? formatVND(cur) : '—'}
           <div className={`font-sans text-[11px] ${stale ? 'font-semibold text-amber-700' : 'text-slate-400'}`}>
-            {stale ? `Quá hạn ${r.staleDays} ngày · ` : ''}định giá {fmtDate(a.lastValuationDate)}
+            {stale ? `Quá hạn ${r.staleDays} ngày (nhắc sau ${r.staleThreshold} ngày) · ` : ''}định giá {fmtDate(a.lastValuationDate)}
           </div>
+          {dep && (
+            <div data-depreciation className="mt-1 font-sans text-[11px] text-slate-500">
+              Gợi ý khấu hao {dep.ratePerYear}%/năm: <span className="font-mono font-semibold text-slate-800">{formatVND(dep.suggestedValue)}</span>
+              <button type="button" onClick={() => useDepreciation(r)} className="ml-1.5 rounded border border-slate-300 px-1.5 py-0.5 font-semibold text-slate-700 hover:bg-slate-50">
+                Điền vào ô
+              </button>
+            </div>
+          )}
         </td>
         <td className="px-3 py-3 text-right text-xs">
           {s ? (
@@ -295,6 +325,17 @@ export const PricesView: React.FC<PricesViewProps> = ({ state, onApplyPrices }) 
                 className="w-full rounded-lg border border-slate-300 px-2.5 py-1.5 text-right text-sm focus:border-slate-500 focus:outline-none"
               />
               <div className="mt-0.5 text-right text-[11px] text-slate-400">{priceLabel} (VND)</div>
+              {!s && (
+                <input
+                  type="text"
+                  list="valuation-sources"
+                  data-source-input
+                  placeholder="Nguồn định giá (tùy chọn)"
+                  value={sources[a.id] || ''}
+                  onChange={(e) => setSources((x) => ({ ...x, [a.id]: e.target.value }))}
+                  className="mt-1 w-full rounded-md border border-slate-200 px-2 py-1 text-right text-[11px] text-slate-700 placeholder:text-slate-400 focus:border-slate-400 focus:outline-none"
+                />
+              )}
             </div>
             <button
               type="button"
@@ -380,7 +421,7 @@ export const PricesView: React.FC<PricesViewProps> = ({ state, onApplyPrices }) 
           )}
           {staleCount > 0 && (
             <span className="inline-flex items-center gap-1.5 rounded-lg bg-slate-100 px-3 py-1.5 font-semibold text-slate-700">
-              <AlertTriangle className="h-3.5 w-3.5" /> {staleCount} tài sản chưa định giá lại quá {STALE_DAYS} ngày
+              <AlertTriangle className="h-3.5 w-3.5" /> {staleCount} tài sản đã quá hạn định giá lại (nhà 6 tháng, xe 3 tháng, cổ phiếu/quỹ/vàng 30 ngày)
             </span>
           )}
         </div>

@@ -236,6 +236,15 @@ export function normalizeDebt(d: Debt, today: string = todayLocalStr()): Debt {
  * Recalculate remaining amortization schedule when floating interest rate changes
  * or when principal is partially paid off ahead of schedule.
  */
+/** Thu nhập cho thuê/cho thuê lại hằng tháng của các tài sản đang giữ: nhà đất và tài sản khác (ví dụ xe cho thuê). Dùng chung mọi nơi. */
+export function monthlyRentalIncomeOf(assets: Asset[]): number {
+  return assets.reduce((s, a) => {
+    if (a.status !== 'active') return s;
+    if (a.category !== 'real_estate' && a.category !== 'other') return s;
+    return s + (Number((a.metadata as { monthlyRentalIncome?: number }).monthlyRentalIncome) || 0);
+  }, 0);
+}
+
 export function recalculateFloatingDebt(
   debt: Debt,
   newAnnualInterestRate: number,
@@ -244,8 +253,12 @@ export function recalculateFloatingDebt(
   newFloatingMargin?: number
 ): Debt {
   const schedule = [...(debt.schedule || [])];
-  const paidItems = schedule.filter((item) => item.isPaid);
-  const unpaidItems = schedule.filter((item) => !item.isPaid);
+  // Chỉ tính lại các kỳ còn mở (chưa trả, chưa hủy); kỳ đã hủy không được coi là kỳ còn lại
+  const openIdx: number[] = [];
+  schedule.forEach((item, i) => {
+    if (isOpenItem(item)) openIdx.push(i);
+  });
+  const unpaidItems = openIdx.map((i) => schedule[i]);
 
   const currentBalance =
     newRemainingPrincipal !== undefined
@@ -320,7 +333,11 @@ export function recalculateFloatingDebt(
     });
   }
 
-  const newSchedule = [...paidItems, ...recalculatedUnpaid];
+  // Giữ nguyên thứ tự và các kỳ đã trả / đã hủy; chỉ thay các kỳ còn mở
+  const newSchedule = schedule.map((it, i) => {
+    const k = openIdx.indexOf(i);
+    return k >= 0 ? recalculatedUnpaid[k] : it;
+  });
 
   return {
     ...debt,
@@ -544,11 +561,8 @@ export function calculateFinancialSummary(state: UserFinancialState) {
     }
   });
 
-  // Thu nhập cho thuê danh nghĩa hàng tháng & khả năng chi trả nợ
-  const monthlyRentalIncome = activeAssets.reduce(
-    (s, a) => s + (a.category === 'real_estate' ? (a.metadata as any).monthlyRentalIncome || 0 : 0),
-    0
-  );
+  // Thu nhập cho thuê danh nghĩa hàng tháng & khả năng chi trả nợ (cùng một định nghĩa với Bảng cân đối)
+  const monthlyRentalIncome = monthlyRentalIncomeOf(activeAssets);
 
   return {
     totalAssetValue,

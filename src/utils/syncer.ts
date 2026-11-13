@@ -1,7 +1,12 @@
 import type { UserFinancialState } from '../types/finance';
 
-export type SyncStatus = 'idle' | 'saving' | 'saved' | 'error';
-export type ConflictChoice = 'use_server' | 'overwrite';
+export type SyncStatus = 'idle' | 'saving' | 'saved' | 'error' | 'conflict';
+/**
+ * - use_server: bỏ thay đổi chưa lưu ở máy này, tải bản máy chủ (chỉ khi người dùng chọn rõ).
+ * - overwrite: ghi đè bản máy chủ bằng bản ở máy này (chỉ khi người dùng chọn rõ).
+ * - defer: chưa quyết định (Esc, đóng hộp thoại…) → giữ nguyên mọi thứ, tạm dừng tự lưu.
+ */
+export type ConflictChoice = 'use_server' | 'overwrite' | 'defer';
 
 export interface SyncerDeps {
   save: (data: UserFinancialState, baseVersion: number, opts?: { keepalive?: boolean }) => Promise<{ version: number }>;
@@ -33,6 +38,8 @@ export class PortfolioSyncer {
   private saving = false;
   private again = false;
   private active = false;
+  /** Đang chờ người dùng quyết định xung đột: không tự lưu, không tự hỏi lại. */
+  private conflictHold = false;
   private readonly delay: number;
   private readonly retry: number;
 
@@ -57,12 +64,24 @@ export class PortfolioSyncer {
   /** Gọi mỗi khi trạng thái thay đổi. */
   update(state: UserFinancialState) {
     this.latest = state;
-    if (this.active) this.schedule(this.delay);
+    if (this.active && !this.conflictHold) this.schedule(this.delay);
+  }
+
+  /** Đang tạm dừng vì xung đột chưa được người dùng quyết định. */
+  hasPendingConflict() {
+    return this.conflictHold;
+  }
+
+  /** Người dùng muốn xử lý lại xung đột đã hoãn: thử lưu lại ngay để hộp thoại hiện lại. */
+  resolveConflict() {
+    if (!this.conflictHold) return;
+    this.conflictHold = false;
+    this.schedule(0);
   }
 
   /** Lưu ngay (dùng khi người dùng rời trang). Chỉ gửi nếu còn thay đổi chưa lưu. */
   flushOnLeave() {
-    if (!this.active || !this.latest || this.saving) return;
+    if (!this.active || !this.latest || this.saving || this.conflictHold) return;
     const json = JSON.stringify(this.latest);
     if (json === this.savedJson) return;
     void this.run(json.length < KEEPALIVE_LIMIT);
@@ -73,13 +92,13 @@ export class PortfolioSyncer {
   }
 
   private schedule(ms: number) {
-    if (!this.active) return;
+    if (!this.active || this.conflictHold) return;
     if (this.timer) clearTimeout(this.timer);
     this.timer = setTimeout(() => void this.run(false), ms);
   }
 
   private async run(keepalive: boolean) {
-    if (!this.active) return;
+    if (!this.active || this.conflictHold) return;
     if (this.saving) {
       this.again = true;
       return;
@@ -100,7 +119,11 @@ export class PortfolioSyncer {
     } catch (e: any) {
       if (e?.status === 409) {
         const choice = await this.deps.onConflict();
-        if (choice === 'use_server') {
+        if (choice === 'defer') {
+          // Chưa quyết định: không đổi dữ liệu, không ghi đè, không tải bản máy chủ.
+          this.conflictHold = true;
+          this.deps.onStatus('conflict');
+        } else if (choice === 'use_server') {
           const server = await this.deps.loadServer().catch(() => null);
           if (server) {
             this.version = server.version;

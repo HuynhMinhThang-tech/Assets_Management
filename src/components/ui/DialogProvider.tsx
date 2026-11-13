@@ -25,16 +25,33 @@ export interface AlertOptions {
   tone?: 'error' | 'warning' | 'info';
 }
 
+/**
+ * Hộp thoại nhiều lựa chọn có tên rõ ràng, dành cho quyết định không được "lỡ tay"
+ * (ví dụ xung đột đồng bộ). Esc / bấm ra ngoài / nút "Để sau" đều trả về `dismissValue`
+ * – tức là KHÔNG làm gì – chỉ các nút lựa chọn mới thực hiện hành động.
+ */
+export interface ChooseOptions<T extends string> {
+  title: string;
+  message?: React.ReactNode;
+  tone?: 'danger' | 'warning' | 'default';
+  choices: { value: T; label: string; tone?: 'danger' | 'primary' | 'neutral' }[];
+  /** Giá trị trả về khi đóng hộp thoại mà chưa chọn. */
+  dismissValue: T;
+  dismissText?: string;
+}
+
 type ToastTone = 'success' | 'error' | 'info';
 
 interface DialogApi {
   confirm: (opts: ConfirmOptions) => Promise<boolean>;
+  choose: <T extends string>(opts: ChooseOptions<T>) => Promise<T>;
   alert: (opts: AlertOptions) => Promise<void>;
   toast: (message: string, tone?: ToastTone) => void;
 }
 
 type QueueItem =
   | { kind: 'confirm'; opts: ConfirmOptions; resolve: (v: boolean) => void }
+  | { kind: 'choose'; opts: ChooseOptions<string>; resolve: (v: string) => void }
   | { kind: 'alert'; opts: AlertOptions; resolve: () => void };
 
 interface ToastItem {
@@ -69,6 +86,13 @@ export const DialogProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       new Promise<boolean>((resolve) => setQueue((q) => [...q, { kind: 'confirm', opts, resolve }])),
     []
   );
+  const choose = useCallback(
+    <T extends string,>(opts: ChooseOptions<T>) =>
+      new Promise<T>((resolve) =>
+        setQueue((q) => [...q, { kind: 'choose', opts: opts as ChooseOptions<string>, resolve: resolve as (v: string) => void }])
+      ),
+    []
+  );
   const alert = useCallback(
     (opts: AlertOptions) =>
       new Promise<void>((resolve) => setQueue((q) => [...q, { kind: 'alert', opts, resolve }])),
@@ -80,13 +104,19 @@ export const DialogProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     window.setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 3800);
   }, []);
 
-  const api = useMemo<DialogApi>(() => ({ confirm, alert, toast }), [confirm, alert, toast]);
+  const api = useMemo<DialogApi>(() => ({ confirm, choose, alert, toast }), [confirm, choose, alert, toast]);
 
   const current = queue[0];
   const settle = (value: boolean) => {
     if (!current) return;
     if (current.kind === 'confirm') current.resolve(value);
+    else if (current.kind === 'choose') current.resolve(current.opts.dismissValue);
     else current.resolve();
+    setQueue((q) => q.slice(1));
+  };
+  const pickChoice = (value: string) => {
+    if (!current || current.kind !== 'choose') return;
+    current.resolve(value);
     setQueue((q) => q.slice(1));
   };
 
@@ -110,14 +140,17 @@ export const DialogProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const cancelRef = useRef<HTMLButtonElement>(null);
   useEffect(() => {
     if (!current) return;
-    const dangerous = current.kind === 'confirm' && current.opts.tone === 'danger';
-    (dangerous ? cancelRef.current : primaryRef.current)?.focus();
+    // Hộp thoại nhiều lựa chọn: focus vào nút "Để sau" (không làm gì) để lỡ bấm Enter cũng an toàn.
+    const dangerous = (current.kind === 'confirm' || current.kind === 'choose') && current.opts.tone === 'danger';
+    (dangerous || current.kind === 'choose' ? cancelRef.current : primaryRef.current)?.focus();
   }, [current]);
 
   const tone: keyof typeof TONE_STYLE = current
     ? current.kind === 'confirm'
       ? current.opts.tone ?? 'default'
-      : current.opts.tone ?? 'error'
+      : current.kind === 'choose'
+        ? current.opts.tone ?? 'default'
+        : current.opts.tone ?? 'error'
     : 'default';
   const style = TONE_STYLE[tone];
 
@@ -145,6 +178,34 @@ export const DialogProvider: React.FC<{ children: React.ReactNode }> = ({ childr
               </div>
             </div>
 
+            {current.kind === 'choose' ? (
+              <div className="mt-5 flex flex-col gap-2">
+                {current.opts.choices.map((c) => (
+                  <button
+                    key={c.value}
+                    type="button"
+                    onClick={() => pickChoice(c.value)}
+                    className={`rounded-lg px-4 py-2 text-xs font-bold shadow-sm transition-colors ${
+                      c.tone === 'danger'
+                        ? 'bg-rose-600 text-white hover:bg-rose-700'
+                        : c.tone === 'neutral'
+                          ? 'border border-slate-300 bg-white text-slate-800 hover:bg-slate-50'
+                          : 'bg-slate-900 text-white hover:bg-slate-800'
+                    }`}
+                  >
+                    {c.label}
+                  </button>
+                ))}
+                <button
+                  ref={cancelRef}
+                  type="button"
+                  onClick={() => settle(false)}
+                  className="rounded-lg px-3.5 py-1.5 text-xs font-medium text-slate-600 transition-colors hover:bg-slate-100"
+                >
+                  {current.opts.dismissText ?? 'Để sau'}
+                </button>
+              </div>
+            ) : (
             <div className="mt-5 flex items-center justify-end gap-2">
               {current.kind === 'confirm' && (
                 <button
@@ -165,6 +226,7 @@ export const DialogProvider: React.FC<{ children: React.ReactNode }> = ({ childr
                 {current.kind === 'confirm' ? current.opts.confirmText ?? 'Xác nhận' : current.opts.okText ?? 'Đã hiểu'}
               </button>
             </div>
+            )}
           </div>
         </div>
       )}

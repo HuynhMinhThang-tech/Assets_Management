@@ -102,7 +102,15 @@ export interface Asset {
   realizedPnL: number;             // Lãi lỗ thực tế đã chốt (VND) từ bán/cổ tức
   lastValuationDate: string;       // Ngày cập nhật định giá gần nhất
   linkedDebtId?: string;           // ID khoản nợ đòn bẩy liên kết (nếu mua bằng vốn vay)
-  valuationHistory?: { date: string; value: number; unitPrice?: number }[]; // Lịch sử định giá: tổng giá trị + đơn giá (CP, CCQ, chỉ, m²) nếu có
+  /** Số ngày sau đó thì nhắc định giá lại (nhà, xe, tài sản khác). Bỏ trống = theo mặc định của loại tài sản. */
+  reviewIntervalDays?: number;
+  /** Tỷ lệ mất giá mỗi năm (%) do người dùng khai báo (xe, đồ hao mòn). App chỉ GỢI Ý giá mới, bạn xác nhận mới ghi. */
+  depreciationPerYear?: number;
+  /** Tài sản đã sở hữu từ trước khi dùng app (không trừ ví khi nhập): tính vào "số dư ban đầu" của bảng cân đối. */
+  preexisting?: boolean;
+  /** Giá trị tài sản tại thời điểm nhập (VND) – phần đóng góp vào số dư ban đầu. Chỉ có khi preexisting = true. */
+  openingValue?: number;
+  valuationHistory?: { date: string; value: number; unitPrice?: number; source?: string }[]; // Lịch sử định giá: tổng giá trị + đơn giá (CP, CCQ, chỉ, m²) nếu có
 }
 
 export type DebtCategory =
@@ -188,11 +196,16 @@ export interface Debt {
   securityType: DebtSecurityType;  // 'secured' (Vay thế chấp) | 'unsecured' (Vay tín chấp)
   principalAmount: number;         // Số tiền vay ban đầu (VND)
   remainingPrincipal: number;      // Dư nợ gốc còn lại hiện tại (VND)
-  annualInterestRate: number;      // Lãi suất hiện tại (%/năm, ví dụ 9.5)
-  rateType: InterestRateType;      // Cố định hay Thả nổi
-  baseRate?: number;               // Lãi suất cơ sở (nếu thả nổi)
-  floatingMargin?: number;         // Biên độ thả nổi (ví dụ +3.5%)
-  preferentialMonths?: number;     // Số tháng ưu đãi lãi suất cố định ban đầu
+  /** Dư nợ gốc có sẵn từ trước khi theo dõi trong app (khoản vay đang trả dở): tính vào "số dư ban đầu". */
+  openingBalance?: number;
+  originalPrincipal?: number;      // (tùy chọn, khoản vay đang trả dở) Số tiền vay ban đầu – để biết tổng lãi đã/sẽ trả, LTV
+  disbursedDate?: string;          // (tùy chọn, khoản vay đang trả dở) Ngày giải ngân thực tế
+  annualInterestRate: number;      // Lãi suất HIỆN TẠI (%/năm, ví dụ 9.5). Mỗi khoản vay chỉ có một mức lãi tại một thời điểm.
+  // Các trường dưới đây là DI SẢN của bản cũ (ưu đãi/thả nổi): giữ để không làm hỏng dữ liệu đã lưu, giao diện không còn dùng.
+  rateType: InterestRateType;      // (di sản) Cố định hay Thả nổi
+  baseRate?: number;               // (di sản) Lãi suất cơ sở
+  floatingMargin?: number;         // (di sản) Biên độ thả nổi
+  preferentialMonths?: number;     // (di sản) Số tháng ưu đãi
   tenorMonths: number;             // Tổng thời hạn vay (số tháng, ví dụ 240 tháng = 20 năm)
   startDate: string;               // Ngày giải ngân / bắt đầu vay (YYYY-MM-DD)
   paymentDayOfMonth: number;       // Ngày đóng tiền hàng tháng (1 - 31)
@@ -245,6 +258,8 @@ export interface CashTransaction {
   periodIndex?: number;            // (debt_payment) chỉ số kỳ trong lịch trả (để hoàn nguyên khi hủy)
   feePortion?: number;             // (debt_payment) phí trả trước hạn (tất toán sớm / trả trước một phần gốc)
   noCash?: boolean;                // true = ghi nhận khoản trả nhưng KHÔNG đổi tiền ví (trả bằng tiền ngoài ví)
+  recordedAt?: number;             // Thời điểm GHI NHẬN (epoch ms, tăng dần). Dùng để kiểm tra thứ tự hủy; dữ liệu cũ không có.
+  groupId?: string;                // Giao dịch thuộc cùng một thao tác theo vị thế (bán/cổ tức nhiều lô): hủy cả nhóm cùng lúc
   noVoid?: string;                 // Lý do không cho hủy giao dịch này (ví dụ: sinh ra từ tái tục sổ tiết kiệm)
   /** Tất toán sớm: dữ liệu để hoàn nguyên khi hủy. */
   settlement?: { balanceBefore: number; cancelled: number[] };
@@ -283,8 +298,21 @@ export interface NetWorthSnapshot {
   debtLong?: number;
 }
 
+/** Một dòng lịch sử chỉnh sửa thông tin (không phải giao dịch tiền): để đối chiếu khi cần. */
+export interface EditLogEntry {
+  id: string;
+  date: string;                    // YYYY-MM-DD – ngày thực hiện chỉnh sửa
+  targetType: 'asset' | 'debt';
+  targetId: string;
+  targetName: string;              // tên tại thời điểm sửa
+  field: string;                   // name | notes | purchaseDate | symbol | quantity | unitCost | totalCost | lender | paymentDay
+  from: string;
+  to: string;
+}
+
 export interface UserFinancialState {
   schemaVersion?: number;
+  editLog?: EditLogEntry[];        // Lịch sử chỉnh sửa thông tin (mới → cũ, tối đa 500 dòng)
   isDemo?: boolean;                // true = đang dùng dữ liệu mẫu
   snapshots?: NetWorthSnapshot[];  // Ảnh chụp tài sản ròng theo ngày
   wallet: Wallet;

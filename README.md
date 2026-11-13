@@ -35,14 +35,18 @@ React 19 · Vite · Tailwind CSS 4 · TypeScript · API serverless trên Vercel 
 Cần Node 20 trở lên.
 
 1. `npm install`
-2. Tạo `.env.local` với `DATABASE_URL` (chuỗi kết nối Neon) và `ADMIN_EMAIL` (Gmail quản trị). Không đưa file này lên GitHub.
+2. Sao chép `.env.example` thành `.env.local`, điền `DATABASE_URL` (chuỗi kết nối Neon) và `ADMIN_EMAIL` (Gmail quản trị). **Không** đưa `.env.local` lên GitHub (đã bị `.gitignore` chặn).
 3. Mở hai cửa sổ dòng lệnh:
    - `npm run dev:api` — API, cổng 3001
    - `npm run dev` — giao diện, cổng 3000
 
 Chi tiết về Neon và Vercel: `docs/DEPLOY.md`.
 
+## Xuống dòng (line endings)
+
+Repo dùng LF cho mọi file (`.gitattributes`: `* text=auto eol=lf`), kể cả trên Windows. Nếu `git apply` báo lỗi vì CRLF, chạy một lần `git add --renormalize .` rồi commit (xem hướng dẫn kèm patch giai đoạn 0).
+
 ## Kiểm thử
 
-`npm run lint` (kiểm kiểu), `npm run build`, và `npm run test:logic`, `test:phase1` … `test:phase5`, `test:api`, `test:prices-ui`.
-Ca A9 (lãi ưu đãi chuyển sang thả nổi) đỏ có chủ đích: đó là việc còn thiếu, xem `REVIEW.md`.
+`npm run lint` (kiểm kiểu), `npm run build`, và `npm run test:logic`, `test:phase1` … `test:phase5`, `test:loans`, `test:api`, `test:prices-ui`.
+Khoản vay chỉ có một mức lãi tại một thời điểm; hết ưu đãi thì bấm **Đổi lãi suất** (test: `npm run test:loans`).

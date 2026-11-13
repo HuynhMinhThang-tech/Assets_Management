@@ -54,6 +54,10 @@ export function createMemoryStore(now: () => Date = () => new Date()): Store & {
       if (!u) return;
       Object.assign(u, { passwordHash: hash, resetRequestHash: null, resetRequestedAt: null, failedLogins: 0, lockedUntil: null });
     },
+    async updatePasswordHash(id, passwordHash) {
+      const u = users.get(id);
+      if (u) u.passwordHash = passwordHash;
+    },
     async setResetRequest(id, hash) {
       const u = users.get(id);
       if (!u) return;

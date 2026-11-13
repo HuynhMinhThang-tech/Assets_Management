@@ -1,5 +1,6 @@
 import type { Asset, MarketQuote, PriceKind, UserFinancialState } from '../types/finance';
 import { applyRevaluation, getUnitPricing, totalFromUnitPrice } from './pricing';
+import { daysBetween, staleThresholdDays } from './valuation';
 
 /**
  * Tab "Cập nhật giá": toàn bộ phần tính toán là hàm thuần (không đụng React) để kiểm thử được.
@@ -9,7 +10,7 @@ import { applyRevaluation, getUnitPricing, totalFromUnitPrice } from './pricing'
  *  - parsePriceCsv / planImport : nhập giá từ file CSV, xem trước trước khi áp
  */
 
-/** Quá số ngày này không định giá lại → hiện cảnh báo "quá hạn". */
+/** Ngưỡng mặc định (ngày) cho tài sản có giá thị trường hằng ngày. Loại khác: xem staleThresholdDays (valuation.ts). */
 export const STALE_DAYS = 30;
 /** Giá mới lệch quá ngưỡng này (%) so với giá hiện tại → coi là bất thường, phải xác nhận riêng. */
 export const ANOMALY_PCT = 20;
@@ -28,20 +29,16 @@ export interface PriceRow {
   costPerUnit: number | null;
   currentUnitPrice: number | null;
   staleDays: number | null;
+  /** Ngưỡng nhắc định giá lại của tài sản này (ngày); null với tiết kiệm. */
+  staleThreshold: number | null;
+  /** Quá ngưỡng nhắc theo loại tài sản. */
+  stale: boolean;
 }
 
 const CATEGORY_ORDER: Record<string, number> = { stock: 0, fund: 1, gold: 2, real_estate: 3, other: 4, savings: 5 };
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
-/** Số ngày từ a đến b (YYYY-MM-DD); null nếu một trong hai không hợp lệ. */
-export function daysBetween(a: string, b: string): number | null {
-  const pa = /^(\d{4})-(\d{2})-(\d{2})$/.exec(a || '');
-  const pb = /^(\d{4})-(\d{2})-(\d{2})$/.exec(b || '');
-  if (!pa || !pb) return null;
-  const da = Date.UTC(+pa[1], +pa[2] - 1, +pa[3]);
-  const db = Date.UTC(+pb[1], +pb[2] - 1, +pb[3]);
-  return Math.round((db - da) / 86_400_000);
-}
+export { daysBetween } from './valuation';
 
 /** Khóa tra giá tự động: cổ phiếu theo mã, quỹ theo mã quỹ, vàng SJC. Còn lại không có. */
 export function priceKey(asset: Asset): { kind: PriceKind; symbol: string } | null {
@@ -63,7 +60,7 @@ export function listPriceRows(state: UserFinancialState, today: string): PriceRo
     .filter((a) => a.status === 'active')
     .map((asset): PriceRow => {
       if (asset.category === 'savings') {
-        return { asset, mode: 'readonly', unit: null, quantity: 0, allowDecimal: false, quoteKey: null, costPerUnit: null, currentUnitPrice: null, staleDays: null };
+        return { asset, mode: 'readonly', unit: null, quantity: 0, allowDecimal: false, quoteKey: null, costPerUnit: null, currentUnitPrice: null, staleDays: null, staleThreshold: null, stale: false };
       }
       const p = getUnitPricing(asset);
       return {
@@ -76,6 +73,12 @@ export function listPriceRows(state: UserFinancialState, today: string): PriceRo
         costPerUnit: p && p.quantity > 0 ? asset.initialCost / p.quantity : null,
         currentUnitPrice: p ? p.unitPrice : null,
         staleDays: daysBetween(asset.lastValuationDate, today),
+        staleThreshold: staleThresholdDays(asset),
+        stale: (() => {
+          const d = daysBetween(asset.lastValuationDate, today);
+          const th = staleThresholdDays(asset);
+          return d !== null && th !== null && d > th;
+        })(),
       };
     });
   return rows.sort(
@@ -183,6 +186,8 @@ export interface PriceUpdate {
   totalValue?: number;
   /** Ngày của giá (YYYY-MM-DD) – ghi vào lịch sử định giá. */
   date: string;
+  /** Nguồn định giá (nhập tay): ghi vào lịch sử định giá. */
+  source?: string;
 }
 
 export type SkipReason = 'not_found' | 'readonly' | 'older' | 'future' | 'invalid';
@@ -225,7 +230,7 @@ export function applyPriceUpdates(state: UserFinancialState, updates: PriceUpdat
       skipped.push({ assetId: u.assetId, reason: 'older' });
       continue;
     }
-    const next = applyRevaluation(a, u.unitPrice !== undefined ? { unitPrice: u.unitPrice } : { totalValue: u.totalValue }, u.date);
+    const next = applyRevaluation(a, u.unitPrice !== undefined ? { unitPrice: u.unitPrice, source: u.source } : { totalValue: u.totalValue, source: u.source }, u.date);
     if (next === a) {
       skipped.push({ assetId: u.assetId, reason: 'invalid' });
       continue;

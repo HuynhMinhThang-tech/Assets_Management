@@ -42,7 +42,19 @@ export function sortLedger(list: CashTransaction[]): CashTransaction[] {
 }
 
 /** Chèn giao dịch mới vào đúng vị trí theo ngày (mới → cũ); cùng ngày thì đứng trước các dòng đã có. */
-export function insertTx(list: CashTransaction[], tx: CashTransaction): CashTransaction[] {
+let lastStamp = 0;
+/** Mốc thời gian ghi nhận tăng dần (không trùng nhau kể cả khi ghi liên tiếp trong cùng mili-giây). */
+const nextStamp = (): number => {
+  lastStamp = Math.max(Date.now(), lastStamp + 1);
+  return lastStamp;
+};
+
+/**
+ * Chèn giao dịch vào sổ theo ngày (mới → cũ). Mỗi giao dịch mới được đóng dấu `recordedAt` = thời điểm GHI NHẬN,
+ * để các kiểm tra thứ tự (hủy giao dịch…) dựa vào thứ tự ghi nhận thay vì ngày giao dịch (nhập bù ngày cũ vẫn đúng).
+ */
+export function insertTx(list: CashTransaction[], rawTx: CashTransaction): CashTransaction[] {
+  const tx = rawTx.recordedAt === undefined ? { ...rawTx, recordedAt: nextStamp() } : rawTx;
   const d = (tx.date || '').slice(0, 10);
   const idx = list.findIndex((t) => (t.date || '').slice(0, 10) <= d);
   const out = [...list];

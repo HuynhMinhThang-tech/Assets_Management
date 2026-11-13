@@ -52,6 +52,8 @@ export interface Store {
   setRole(id: string, role: Role): Promise<void>;
   /** Đặt mật khẩu mới: xóa luôn yêu cầu đặt lại và bộ đếm đăng nhập sai. */
   setPassword(id: string, passwordHash: string): Promise<void>;
+  /** Chỉ thay chuỗi băm (nâng mức băm khi đăng nhập), KHÔNG đụng yêu cầu đặt lại mật khẩu hay bộ đếm. */
+  updatePasswordHash(id: string, passwordHash: string): Promise<void>;
   setResetRequest(id: string, hash: string | null): Promise<void>;
   setDisplayName(id: string, displayName: string): Promise<void>;
   recordLoginFailure(id: string): Promise<void>;
@@ -72,5 +74,8 @@ export interface Store {
   getLatestPrices(kind: PriceKind, symbols: string[]): Promise<PriceRow[]>;
 }
 
-export const MAX_FAILED_LOGINS = 5;
+/** Khóa theo cặp (Gmail, IP): 5 lần sai liên tiếp từ cùng một IP → khóa cặp đó 15 phút. Người khác không khóa được bạn từ IP khác. */
+export const MAX_PAIR_FAILURES = 5;
+/** Khóa toàn tài khoản chỉ là lớp chặn cuối khi bị dò mật khẩu từ nhiều IP: ngưỡng cao hơn nhiều so với khóa theo cặp. */
+export const MAX_FAILED_LOGINS = 30;
 export const LOCK_MINUTES = 15;

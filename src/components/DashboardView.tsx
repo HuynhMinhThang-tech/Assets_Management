@@ -456,8 +456,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                       </strong>
                     </span>
                     <span>
-                      Lãi suất: <strong className="font-mono">{debt.annualInterestRate}%/năm</strong>{' '}
-                      ({debt.rateType === 'floating' ? 'Thả nổi' : 'Cố định'})
+                      Lãi suất hiện tại: <strong className="font-mono">{debt.annualInterestRate}%/năm</strong>
                     </span>
                   </div>
                 </div>
