@@ -1,2 +1,6 @@
-vnstock>=4.0,<5
+# vnstock thế hệ 6 phát hành qua kho gói của vnstocks.com (KHÔNG có trên PyPI): bắt buộc có dòng --extra-index-url.
+# Bản 4.x và thế hệ 5 đã ngừng xác thực từ 10/11/2026.
+--extra-index-url https://vnstocks.com/api/packages
+vnstock>=6.0.0,<7
+vnstock-oapi>=0.1.0,<1
 psycopg[binary]>=3.1

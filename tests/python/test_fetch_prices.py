@@ -65,6 +65,35 @@ class Sanity(unittest.TestCase):
         self.assertTrue(fp.price_sane(25000 * fp.SANITY_MIN_RATIO, 25000))
 
 
+class SourceCheck(unittest.TestCase):
+    def setUp(self):
+        self._saved = {k: os.environ.pop(k, None) for ks in fp.SOURCE_KEYS.values() for k in ks}
+
+    def tearDown(self):
+        for k, v in self._saved.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+
+    def test_old_sources_rejected(self):
+        for old in ("kbs", "vci", "", "KBS"):
+            self.assertIsNotNone(fp.check_source(old))
+
+    def test_missing_keys_named(self):
+        msg = fp.check_source("ssi")
+        self.assertIn("SSI_API_KEY", msg)
+        self.assertIn("SSI_API_SECRET", msg)
+
+    def test_ok_when_keys_present(self):
+        os.environ["FHSC_API_KEY"] = "x"
+        self.assertIsNone(fp.check_source("fhsc"))
+        os.environ["SSI_API_KEY"] = "x"
+        self.assertIsNotNone(fp.check_source("ssi"))  # còn thiếu SECRET
+        os.environ["SSI_API_SECRET"] = "y"
+        self.assertIsNone(fp.check_source("ssi"))
+
+
 class Tidy(unittest.TestCase):
     def test_sorted_dedup_and_invalid_rows_dropped(self):
         today = fp.today_vn()

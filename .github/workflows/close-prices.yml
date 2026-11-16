@@ -1,5 +1,8 @@
 name: Lấy giá đóng cửa (vnstock)
 
+# Cần vnstock thế hệ 6: khai báo biến VNSTOCK_SOURCE (Settings → Secrets and variables → Actions → tab Variables: ssi | dnse | fhsc | tcbs)
+# và khóa của nguồn đó ở tab Secrets. Xem docs/PRICES.md.
+
 # Chạy sau phiên 15h (giờ VN = UTC+7) các ngày thứ 2 – thứ 6, hai lần để dự phòng; ghi đè cùng ngày nên chạy lại vô hại.
 # Chạy tay: tab Actions → "Lấy giá đóng cửa" → Run workflow. Lần đầu nên chọn mode = probe (chỉ thăm dò, không ghi cơ sở dữ liệu).
 on:
@@ -44,12 +47,24 @@ jobs:
         if: github.event_name == 'workflow_dispatch' && inputs.mode == 'probe'
         env:
           SYMBOLS: ${{ inputs.symbols }}
-          VNSTOCK_API_KEY: ${{ secrets.VNSTOCK_API_KEY }}
+          VNSTOCK_SOURCE: ${{ vars.VNSTOCK_SOURCE }}
+          SSI_API_KEY: ${{ secrets.SSI_API_KEY }}
+          SSI_API_SECRET: ${{ secrets.SSI_API_SECRET }}
+          DNSE_API_KEY: ${{ secrets.DNSE_API_KEY }}
+          DNSE_API_SECRET: ${{ secrets.DNSE_API_SECRET }}
+          FHSC_API_KEY: ${{ secrets.FHSC_API_KEY }}
+          TCBS_API_KEY: ${{ secrets.TCBS_API_KEY }}
         run: python scripts/fetch_prices.py --probe "$SYMBOLS"
 
       - name: Lấy giá và ghi vào Neon
         if: github.event_name == 'schedule' || inputs.mode == 'fetch'
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
-          VNSTOCK_API_KEY: ${{ secrets.VNSTOCK_API_KEY }}
+          VNSTOCK_SOURCE: ${{ vars.VNSTOCK_SOURCE }}
+          SSI_API_KEY: ${{ secrets.SSI_API_KEY }}
+          SSI_API_SECRET: ${{ secrets.SSI_API_SECRET }}
+          DNSE_API_KEY: ${{ secrets.DNSE_API_KEY }}
+          DNSE_API_SECRET: ${{ secrets.DNSE_API_SECRET }}
+          FHSC_API_KEY: ${{ secrets.FHSC_API_KEY }}
+          TCBS_API_KEY: ${{ secrets.TCBS_API_KEY }}
         run: python scripts/fetch_prices.py

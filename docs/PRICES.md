@@ -4,7 +4,7 @@
 
 ```
 GitHub Actions (15:05 và 16:05 giờ VN, thứ 2–6)
-   └─ scripts/fetch_prices.py  ── vnstock (nguồn KBS) ──▶ giá đóng cửa
+   └─ scripts/fetch_prices.py  ── vnstock 6 (nguồn broker của bạn: ssi/dnse/fhsc/tcbs) ──▶ giá đóng cửa
         └─ ghi vào bảng market_prices (Neon)
              └─ API  GET /api/prices  ──▶ tab "Cập nhật giá" hiển thị giá + nút "Áp dụng"
                                               └─ người dùng bấm → giá mới vào danh mục (có lịch sử định giá)
@@ -16,9 +16,19 @@ GitHub Actions (15:05 và 16:05 giờ VN, thứ 2–6)
 ## Cài đặt (một lần)
 
 1. **Tạo bảng:** mở Neon → SQL Editor → chạy lại `db/schema.sql` (an toàn khi chạy lại; chỉ thêm bảng `market_prices`).
-2. **Khai báo bí mật trên GitHub:** repo → Settings → Secrets and variables → Actions → New repository secret:
-   - `DATABASE_URL`: chuỗi kết nối Neon (cùng chuỗi đang dùng trên Vercel).
-   - `VNSTOCK_API_KEY` *(tùy chọn)*: khóa miễn phí của vnstock, nâng hạn mức từ 20 lên 60 lượt gọi/phút. Không bắt buộc nếu bạn chỉ có vài chục mã.
+2. **Khai báo trên GitHub** (repo → Settings → Secrets and variables → Actions):
+   - Secret `DATABASE_URL`: chuỗi kết nối Neon (cùng chuỗi đang dùng trên Vercel).
+   - **Variable** (tab *Variables*) `VNSTOCK_SOURCE`: nguồn dữ liệu của bạn, một trong `ssi`, `dnse`, `fhsc`, `tcbs`.
+   - Secret **khóa Open API của đúng nguồn đó** (vnstock 6 không còn nguồn miễn phí ẩn danh, bạn dùng khóa tài khoản của chính mình):
+
+     | Nguồn | Secret cần tạo | Lấy khóa ở đâu |
+     |---|---|---|
+     | `ssi` | `SSI_API_KEY`, `SSI_API_SECRET` | Cổng nhà phát triển SSI (developers.ssi.com.vn) |
+     | `dnse` | `DNSE_API_KEY`, `DNSE_API_SECRET` | Trang quản lý API Key DNSE (Secret chỉ hiện một lần khi tạo, lưu ngay) |
+     | `fhsc` | `FHSC_API_KEY` | Mục quản lý API trong tài khoản FHSC (phục vụ 06:00–00:00 giờ VN) |
+     | `tcbs` | `TCBS_API_KEY` | TCInvest. Mỗi phiên cần Smart OTP (8–24 giờ) nên **không hợp chạy tự động hằng ngày** |
+
+   Chỉ cần khóa của một nguồn. Nếu thiếu khóa hoặc đặt sai nguồn, script dừng ngay và nêu rõ thiếu biến nào.
 3. **Chạy thăm dò (Bước 0):** repo → Actions → "Lấy giá đóng cửa (vnstock)" → Run workflow → `mode = probe`, `symbols = FPT,HPG,VCB` (hoặc mã bạn đang giữ). Chế độ này **không ghi cơ sở dữ liệu**. Đọc log để kiểm tra:
    - Có lấy được dữ liệu không, hay bị chặn/lỗi kết nối (nguồn có thể chặn IP máy chủ cloud).
    - Tên các cột và đơn vị giá: dòng `gốc=… → VND = …`. Nhiều nguồn trả giá theo **nghìn đồng** (25,5 = 25.500 đ).
@@ -30,8 +40,8 @@ GitHub Actions (15:05 và 16:05 giờ VN, thứ 2–6)
 
 | Biến | Mặc định | Ý nghĩa |
 |---|---|---|
-| `VNSTOCK_SOURCE` | `KBS` | Nguồn dữ liệu của vnstock. Khi tìm hiểu, nguồn VCI được cho là không chạy trên Google Cloud; chưa rõ trên GitHub Actions, hãy thử bằng probe. |
-| `VNSTOCK_PRICE_SCALE` | `auto` | `auto`: giá gốc nhỏ hơn 500 thì nhân 1.000 (coi là nghìn đồng). `1`: giữ nguyên. `1000`: luôn nhân 1.000. Nếu bạn giữ cổ phiếu giá dưới 500 đ, hãy đặt `1` hoặc `1000` rõ ràng sau khi xem kết quả probe. |
+| `VNSTOCK_SOURCE` | *(bắt buộc)* | `ssi`, `dnse`, `fhsc` hoặc `tcbs`. vnstock 6 không có nguồn mặc định; `kbs`/`vci` cũ không còn dùng được. |
+| `VNSTOCK_PRICE_SCALE` | `1000` | vnstock 6 trả giá cổ phiếu theo **nghìn đồng** (25,5 = 25.500 đ) nên mặc định nhân 1.000. `1`: giữ nguyên. `auto`: tự nhận theo trung vị các mã. |
 
 Thêm vào bước chạy trong `.github/workflows/close-prices.yml`, ví dụ:
 
@@ -54,7 +64,7 @@ Thêm vào bước chạy trong `.github/workflows/close-prices.yml`, ví dụ:
 
 Một số nguồn dữ liệu chặn dải IP của máy chủ GitHub. Dấu hiệu: bước thăm dò báo `::error::` cho mọi mã (timeout, 403, trả về rỗng). Thử theo thứ tự:
 
-1. **Đổi nguồn:** khai báo `VNSTOCK_SOURCE` trong workflow (ví dụ `VCI` thay cho `KBS`), chạy lại `mode = probe`.
+1. **Đổi nguồn:** sửa Variable `VNSTOCK_SOURCE` sang nguồn khác mà bạn có khóa (ví dụ `dnse` thay cho `ssi`), chạy lại `mode = probe`.
 2. **Chạy trên máy Windows của bạn:** script đã đọc `DATABASE_URL` từ môi trường nên ghi vào cùng Neon. Cài Python 3.12, rồi `pip install -r scripts/requirements-prices.txt`. Tạo file `lay-gia.bat`:
 
    ```bat
@@ -78,11 +88,12 @@ Một số nguồn dữ liệu chặn dải IP của máy chủ GitHub. Dấu hi
 | Hiện tượng | Nguyên nhân thường gặp |
 |---|---|
 | Tab hiện "Chưa có giá tự động" | Chưa chạy workflow lần nào, hoặc mã trong app không trùng mã trên sàn (kiểm tra ô "Mã" của tài sản). |
-| Workflow đỏ ở bước thăm dò | Nguồn chặn IP máy chủ GitHub, thư viện đổi tên hàm/cột, hoặc hết hạn mức. Đọc log (`::warning::`); thử `VNSTOCK_SOURCE` khác. |
+| Workflow đỏ ở bước **Cài thư viện** (`Could not find a version that satisfies … vnstock<5,>=4.0`) | Bản 4.x và thế hệ 5 đã ngừng xác thực từ 10/11/2026; phải dùng vnstock 6 qua kho gói của vnstocks.com (đã sửa trong `scripts/requirements-prices.txt`). |
+| Workflow đỏ ở bước thăm dò | Thiếu khóa/biến `VNSTOCK_SOURCE`, nguồn chặn IP máy chủ GitHub, thư viện đổi tên hàm/cột, hoặc hết hạn mức. Đọc log (`::error::` / `::warning::`); thử nguồn khác. |
 | Giá lệch 1.000 lần | Đơn vị giá: đặt `VNSTOCK_PRICE_SCALE` đúng (xem bảng trên). |
 | Giá đứng yên nhiều ngày | Ngày nghỉ/lễ không có phiên; hoặc GitHub tạm ngừng lịch khi repo lâu không có hoạt động (vào tab Actions bật lại workflow); hoặc script lỗi: xem lần chạy gần nhất. |
 | Mã mới mua chưa có giá | Script chạy sau phiên 15h: mã mới có giá từ lần chạy kế tiếp; hoặc chạy tay `mode = fetch`. |
 
 ## Lưu ý về nguồn dữ liệu và giấy phép
 
-vnstock là thư viện bên thứ ba, lấy dữ liệu từ các nguồn không chính thức nên có thể thay đổi hoặc chặn mà không báo trước. Theo trang của vnstock, thư viện miễn phí cho cá nhân và chỉ cấp quyền dùng phần mềm, không cấp quyền dùng dữ liệu của nguồn. Nếu FinTrack được dùng cho nhiều người ngoài gia đình hoặc thu phí, hãy đọc lại giấy phép vnstock và điều khoản của nguồn dữ liệu. Nhập tay và import CSV luôn dùng được kể cả khi tự động ngừng.
+vnstock là thư viện bên thứ ba và đã đổi cách phân phối giữa các thế hệ (bản cũ ngừng hoạt động có kỳ hạn), nên có thể thay đổi mà không báo trước. Thế hệ 6 lấy dữ liệu qua Open API của nguồn bằng khóa của chính bạn, theo điều khoản của nguồn đó; thư viện chỉ cấp quyền dùng phần mềm, không cấp quyền dùng dữ liệu. Mỗi bản vnstock cũng chỉ chạy trong 365 ngày kể từ ngày phát hành, nên cần cập nhật `requirements-prices.txt` định kỳ. Nếu FinTrack được dùng cho nhiều người ngoài gia đình hoặc thu phí, hãy đọc lại giấy phép vnstock và điều khoản của nguồn dữ liệu. Nhập tay và import CSV luôn dùng được kể cả khi tự động ngừng.

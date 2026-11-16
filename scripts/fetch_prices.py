@@ -7,9 +7,15 @@ Hai chế độ:
                         KHÔNG cần DATABASE_URL. Dùng để kiểm tra nguồn có chạy được trên máy chủ GitHub không.
   (mặc định)            Đọc các mã cổ phiếu đang nắm giữ của mọi tài khoản, lấy giá, ghi market_prices.
 
+Dùng vnstock THẾ HỆ 6 (bản 4.x và 5 đã ngừng xác thực từ 10/11/2026). Thế hệ 6 KHÔNG có nguồn mặc định và không còn nguồn
+miễn phí ẩn danh: bạn phải có khóa Open API của ĐÚNG MỘT nguồn (ssi, dnse, fhsc hoặc tcbs) và đặt VNSTOCK_SOURCE theo nguồn đó.
+
 Biến môi trường:
-  DATABASE_URL      chuỗi kết nối Neon (bắt buộc khi không probe)
-  VNSTOCK_API_KEY   (tùy chọn) khóa vnstock miễn phí → hạn mức 60 lượt/phút thay vì 20
+  DATABASE_URL       chuỗi kết nối Neon (bắt buộc khi không probe)
+  VNSTOCK_SOURCE     ssi | dnse | fhsc | tcbs  (bắt buộc)
+  Khóa của nguồn:    SSI_API_KEY + SSI_API_SECRET · DNSE_API_KEY + DNSE_API_SECRET · FHSC_API_KEY · TCBS_API_KEY
+                     (thư viện tự đọc các biến này; tcbs cần phiên Smart OTP nên không hợp để chạy tự động)
+  VNSTOCK_PRICE_SCALE  mặc định 1000: vnstock 6 trả giá cổ phiếu theo NGHÌN đồng
 """
 from __future__ import annotations
 
@@ -37,28 +43,42 @@ def warn(msg: str) -> None:
     print(f"::warning::{msg}", flush=True)
 
 
-def setup_vnstock() -> float:
-    """Đăng ký API key nếu có; trả về số giây nghỉ giữa hai lần gọi để không vượt hạn mức."""
-    key = os.environ.get("VNSTOCK_API_KEY", "").strip()
-    if key:
-        try:
-            from vnstock import register_user
+SOURCES = ("ssi", "dnse", "fhsc", "tcbs")
+# Biến môi trường chứa khóa của từng nguồn (vnstock-oapi tự đọc; ở đây chỉ để kiểm tra sớm và báo lỗi rõ)
+SOURCE_KEYS = {
+    "ssi": ("SSI_API_KEY", "SSI_API_SECRET"),
+    "dnse": ("DNSE_API_KEY", "DNSE_API_SECRET"),
+    "fhsc": ("FHSC_API_KEY",),
+    "tcbs": ("TCBS_API_KEY",),
+}
 
-            register_user(api_key=key)
-            log("Đã dùng VNSTOCK_API_KEY (hạn mức 60 lượt/phút).")
-            return 1.1
-        except Exception as e:  # noqa: BLE001
-            warn(f"Không đăng ký được API key ({e}); quay về hạn mức khách 20 lượt/phút.")
-    return 3.2
+
+def check_source(source: str) -> str | None:
+    """Trả về thông báo lỗi nếu nguồn không hợp lệ hoặc thiếu khóa; None nếu ổn."""
+    if source not in SOURCES:
+        return f"VNSTOCK_SOURCE phải là một trong {', '.join(SOURCES)} (đang là {source!r}). vnstock 6 không còn nguồn mặc định hay nguồn kbs/vci."
+    missing = [k for k in SOURCE_KEYS[source] if not os.environ.get(k, "").strip()]
+    if missing:
+        return f"Thiếu khóa nguồn {source}: chưa khai báo {', '.join(missing)} (GitHub → Settings → Secrets and variables → Actions)."
+    return None
+
+
+def setup_vnstock() -> float:
+    """Số giây nghỉ giữa hai lần gọi (nhịp thận trọng; giới hạn tần suất do từng nguồn quy định)."""
+    return 1.5
 
 
 def fetch_history(symbol: str, source: str, days: int):
-    from vnstock import Quote
+    """Lịch sử nến ngày của một mã theo vnstock 6: Market(nguồn).equity(mã).ohlcv(...). Giá cổ phiếu tính bằng nghìn đồng."""
+    from vnstock import Market
 
     end = today_vn()
     start = end - dt.timedelta(days=days)
-    q = Quote(symbol=symbol, source=source)
-    return q.history(start=start.isoformat(), end=end.isoformat(), interval="1D")
+    df = Market(source).equity(symbol).ohlcv(start=start.isoformat(), end=end.isoformat(), interval="1D")
+    # Nến cuối của phiên chưa đóng cửa (chạy trong giờ giao dịch) không phải giá đóng cửa: bỏ đi
+    if df is not None and len(df) and getattr(df, "attrs", {}).get("last_bar_partial"):
+        df = df.iloc[:-1]
+    return df
 
 
 def tidy(df) -> list[tuple[dt.date, float]]:
@@ -277,12 +297,16 @@ def run(source: str, scale: str, keep: int, dry: bool) -> int:
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--probe", metavar="MÃ,MÃ", help="chỉ thăm dò các mã này, không ghi cơ sở dữ liệu")
-    ap.add_argument("--source", default=os.environ.get("VNSTOCK_SOURCE", "KBS"), help="nguồn vnstock (mặc định KBS)")
-    ap.add_argument("--scale", choices=["auto", "1", "1000"], default=os.environ.get("VNSTOCK_PRICE_SCALE", "auto"),
-                    help="hệ số đổi giá vnstock sang đồng: auto | 1 | 1000")
+    ap.add_argument("--source", default=os.environ.get("VNSTOCK_SOURCE", "").strip().lower(), help="nguồn vnstock 6: ssi | dnse | fhsc | tcbs (bắt buộc)")
+    ap.add_argument("--scale", choices=["auto", "1", "1000"], default=os.environ.get("VNSTOCK_PRICE_SCALE", "1000"),
+                    help="hệ số đổi giá vnstock sang đồng: 1000 (mặc định, vnstock 6 trả nghìn đồng) | 1 | auto")
     ap.add_argument("--keep", type=int, default=2, help="số phiên gần nhất ghi vào bảng (mặc định 2: hôm nay + phiên trước)")
     ap.add_argument("--dry-run", action="store_true", help="lấy giá và in ra nhưng không ghi cơ sở dữ liệu")
     a = ap.parse_args()
+    problem = check_source(a.source)
+    if problem:
+        print(f"::error::{problem}", flush=True)
+        return 2
     if a.probe:
         syms = [s.strip().upper() for s in a.probe.split(",") if s.strip()]
         bad = [s for s in syms if not SYMBOL_RE.match(s)]
