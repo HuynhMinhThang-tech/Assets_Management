@@ -2,12 +2,12 @@ import { AssetCategory } from '../types/finance';
 
 /** Nhãn + màu CỐ ĐỊNH theo nhóm tài sản (dùng chung cho biểu đồ và chú giải). */
 export const CATEGORY_META: Record<AssetCategory, { label: string; color: string }> = {
-  real_estate: { label: 'Bất động sản', color: '#0284c7' },
-  stock: { label: 'Cổ phiếu niêm yết', color: '#16a34a' },
-  fund: { label: 'Chứng chỉ quỹ', color: '#8b5cf6' },
-  savings: { label: 'Tiền gửi / Trái phiếu', color: '#f59e0b' },
-  gold: { label: 'Vàng & Kim loại quý', color: '#eab308' },
-  other: { label: 'Khác', color: '#64748b' },
+  real_estate: { label: 'Bất động sản', color: '#C96442' },
+  stock: { label: 'Cổ phiếu niêm yết', color: '#3F8F65' },
+  fund: { label: 'Chứng chỉ quỹ', color: '#8B76B5' },
+  savings: { label: 'Tiền gửi / Trái phiếu', color: '#5B8DB8' },
+  gold: { label: 'Vàng & Kim loại quý', color: '#D4A24C' },
+  other: { label: 'Khác', color: '#8E8A82' },
 };
 
 /** Nhóm chiếm dưới ngưỡng này (%) được gộp vào lát "Khác". */

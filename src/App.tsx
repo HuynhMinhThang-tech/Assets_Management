@@ -507,7 +507,7 @@ function FinanceApp({
               <span className="font-sans text-slate-500">Lãi</span>
               <span>{formatVND(item.interestPayable)}</span>
             </div>
-            <div className="flex justify-between px-3 py-1.5 font-bold text-slate-900">
+            <div className="flex justify-between px-3 py-1.5 font-semibold text-slate-900">
               <span className="font-sans">Tổng</span>
               <span>{formatVND(item.totalMonthlyPayment)}</span>
             </div>
@@ -657,7 +657,7 @@ function FinanceApp({
               <div className="flex items-center gap-2 shrink-0">
                 <button
                   onClick={handleClearDemo}
-                  className="px-3 py-1.5 text-xs font-bold text-white bg-slate-900 rounded-lg hover:bg-slate-800"
+                  className="px-3 py-1.5 text-xs font-medium text-on-accent bg-accent rounded-lg hover:bg-accent-hover"
                 >
                   Xóa dữ liệu mẫu & bắt đầu trống
                 </button>
@@ -777,8 +777,8 @@ function FullScreenMessage({
 }) {
   return (
     <div className="flex min-h-screen items-center justify-center bg-slate-50 p-4 font-sans text-slate-900 antialiased">
-      <div className="w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-7 text-center shadow-lg">
-        <h1 className="text-base font-bold text-slate-900">{title}</h1>
+      <div className="w-full max-w-sm rounded-xl border border-slate-200 bg-white p-7 text-center">
+        <h1 className="text-base font-semibold text-slate-900">{title}</h1>
         {detail && <p className="mt-2 text-xs leading-relaxed text-slate-500">{detail}</p>}
         {children && <div className="mt-5 flex items-center justify-center gap-2">{children}</div>}
       </div>
@@ -845,7 +845,7 @@ function PortfolioGate(props: GateProps) {
   if (gate.kind === 'error')
     return (
       <FullScreenMessage title="Không tải được dữ liệu" detail={gate.message}>
-        <button onClick={() => void load()} className="rounded-lg bg-slate-900 px-4 py-2 text-xs font-bold text-white hover:bg-slate-800">
+        <button onClick={() => void load()} className="rounded-lg bg-accent px-4 py-2 text-xs font-medium text-on-accent hover:bg-accent-hover">
           Thử lại
         </button>
         <button onClick={onLogout} className="rounded-lg border border-slate-300 px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50">
@@ -910,7 +910,7 @@ export default function App() {
   if (auth.status === 'error')
     return (
       <FullScreenMessage title="Không kết nối được máy chủ" detail={auth.message}>
-        <button onClick={() => void loadMe()} className="rounded-lg bg-slate-900 px-4 py-2 text-xs font-bold text-white hover:bg-slate-800">
+        <button onClick={() => void loadMe()} className="rounded-lg bg-accent px-4 py-2 text-xs font-medium text-on-accent hover:bg-accent-hover">
           Thử lại
         </button>
       </FullScreenMessage>

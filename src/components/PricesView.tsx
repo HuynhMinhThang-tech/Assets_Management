@@ -300,7 +300,7 @@ export const PricesView: React.FC<PricesViewProps> = ({ state, onApplyPrices }) 
                 <button
                   type="button"
                   onClick={() => void applyOneAuto(r, s)}
-                  className={`mt-1 rounded-md px-2 py-1 text-[11px] font-bold text-white ${s.anomaly ? 'bg-amber-600 hover:bg-amber-700' : 'bg-emerald-600 hover:bg-emerald-700'}`}
+                  className={`mt-1 rounded-md px-2 py-1 text-[11px] font-medium text-on-accent ${s.anomaly ? 'bg-amber-600 hover:bg-amber-700' : 'bg-accent hover:bg-accent-hover'}`}
                 >
                   {s.anomaly ? `Lệch ${formatPercent(s.changePct ?? 0)} – kiểm tra` : 'Áp dụng'}
                 </button>
@@ -341,7 +341,7 @@ export const PricesView: React.FC<PricesViewProps> = ({ state, onApplyPrices }) 
               type="button"
               disabled={!(edit > 0)}
               onClick={() => void saveManual(r)}
-              className="rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-bold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
+              className="rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-on-accent hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-40"
             >
               Lưu
             </button>
@@ -374,7 +374,7 @@ export const PricesView: React.FC<PricesViewProps> = ({ state, onApplyPrices }) 
     <div className="space-y-6 pb-12">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h2 className="text-lg font-bold text-slate-900">Cập nhật giá</h2>
+          <h2 className="text-lg font-semibold text-slate-900">Cập nhật giá</h2>
           <p className="mt-0.5 text-xs text-slate-500">
             {loading ? (
               <span className="inline-flex items-center gap-1"><Loader2 className="h-3 w-3 animate-spin" /> Đang tải giá thị trường…</span>
@@ -405,7 +405,7 @@ export const PricesView: React.FC<PricesViewProps> = ({ state, onApplyPrices }) 
             data-apply-all
             onClick={() => void applyAllAuto()}
             disabled={autoApplicable.length === 0}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3.5 py-1.5 text-xs font-bold text-white shadow-sm hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-40"
+            className="inline-flex items-center gap-1.5 rounded-lg bg-accent px-3.5 py-1.5 text-xs font-medium text-on-accent hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-40"
           >
             <CheckCircle2 className="h-3.5 w-3.5" /> Áp dụng giá tự động ({autoApplicable.length})
           </button>
@@ -437,9 +437,9 @@ export const PricesView: React.FC<PricesViewProps> = ({ state, onApplyPrices }) 
         const list = rows.filter((r) => r.asset.category === g.category);
         if (list.length === 0) return null;
         return (
-          <section key={g.category} data-price-group={g.category} className="rounded-xl border border-slate-200 bg-white shadow-sm">
+          <section key={g.category} data-price-group={g.category} className="rounded-xl border border-slate-200 bg-white">
             <div className="border-b border-slate-200 px-5 py-3">
-              <h3 className="text-xs font-bold uppercase tracking-wider text-slate-900">{g.title}</h3>
+              <h3 className="text-sm font-semibold text-slate-900">{g.title}</h3>
               <p className="text-[11px] text-slate-500">{g.hint}</p>
             </div>
             <div className="overflow-x-auto">
@@ -517,7 +517,7 @@ export const PricesView: React.FC<PricesViewProps> = ({ state, onApplyPrices }) 
               data-import-confirm
               onClick={confirmImport}
               disabled={planApplicable.length === 0}
-              className="rounded-lg bg-slate-900 px-4 py-1.5 text-xs font-bold text-white shadow-sm hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
+              className="rounded-lg bg-accent px-4 py-1.5 text-xs font-medium text-on-accent hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-40"
             >
               Áp dụng {planApplicable.length} dòng
             </button>

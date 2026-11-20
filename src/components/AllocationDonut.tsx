@@ -54,8 +54,8 @@ export const AllocationDonut: React.FC<AllocationDonutProps> = ({ slices, total 
         </g>
       </svg>
       <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center text-center">
-        <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Tổng tài sản</span>
-        <span className="mt-0.5 font-mono text-sm font-extrabold tabular-nums text-slate-900">
+        <span className="text-[10px] font-medium text-slate-500">Tổng tài sản</span>
+        <span className="mt-0.5 font-mono text-sm font-semibold tabular-nums text-slate-900">
           {formatVND(total, { compact: true })}
         </span>
       </div>

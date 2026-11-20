@@ -17,6 +17,8 @@ export function getStoredTheme(): Theme {
 /** Áp giao diện lên trang (thêm/bỏ class "dark" ở <html>). `persist` = true khi người dùng chủ động chọn. */
 export function applyTheme(theme: Theme, persist = false) {
   document.documentElement.classList.toggle('dark', theme === 'dark');
+  // Màu thanh trình duyệt / thanh trạng thái điện thoại theo nền trang (giống trading-journal)
+  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', theme === 'dark' ? '#181715' : '#FAF9F5');
   if (persist) {
     try {
       localStorage.setItem(THEME_KEY, theme);

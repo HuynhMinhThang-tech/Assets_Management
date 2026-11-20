@@ -138,7 +138,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({ state, onNavigateTab
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white p-3.5">
         <div className="flex items-center gap-2">
           <CalendarDays className="h-5 w-5 text-emerald-600" />
-          <h2 className="text-base font-bold text-slate-900">
+          <h2 className="text-base font-semibold text-slate-900">
             Tháng {pad(m)}/{y}
           </h2>
         </div>
@@ -171,9 +171,9 @@ export const CalendarView: React.FC<CalendarViewProps> = ({ state, onNavigateTab
 
       {/* Tổng kết tháng */}
       <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-        <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="rounded-xl border border-slate-200 bg-white p-5">
           <span className="block text-xs font-semibold text-slate-500">Phải trả trong tháng</span>
-          <div className="mt-1 font-mono text-2xl font-extrabold tabular-nums text-rose-600">
+          <div className="mt-1 font-mono text-2xl font-semibold tabular-nums text-rose-600">
             {formatVND(summary.outTotal)}
           </div>
           <div className="mt-2 space-y-0.5 text-[11px] text-slate-600">
@@ -194,9 +194,9 @@ export const CalendarView: React.FC<CalendarViewProps> = ({ state, onNavigateTab
           </div>
         </div>
 
-        <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="rounded-xl border border-slate-200 bg-white p-5">
           <span className="block text-xs font-semibold text-slate-500">Tiền nhận trong tháng</span>
-          <div className="mt-1 font-mono text-2xl font-extrabold tabular-nums text-emerald-600">
+          <div className="mt-1 font-mono text-2xl font-semibold tabular-nums text-emerald-600">
             {formatVND(summary.inTotal)}
           </div>
           <div className="mt-2 space-y-0.5 text-[11px] text-slate-600">
@@ -217,10 +217,10 @@ export const CalendarView: React.FC<CalendarViewProps> = ({ state, onNavigateTab
           </div>
         </div>
 
-        <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="rounded-xl border border-slate-200 bg-white p-5">
           <span className="block text-xs font-semibold text-slate-500">Chênh lệch dòng tiền (nhận − trả)</span>
           <div
-            className={`mt-1 font-mono text-2xl font-extrabold tabular-nums ${
+            className={`mt-1 font-mono text-2xl font-semibold tabular-nums ${
               summary.net >= 0 ? 'text-emerald-600' : 'text-rose-600'
             }`}
           >
@@ -241,7 +241,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({ state, onNavigateTab
 
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
         {/* Lưới lịch */}
-        <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm xl:col-span-2">
+        <div className="rounded-xl border border-slate-200 bg-white p-4 xl:col-span-2">
           <div className="grid grid-cols-7 pb-2 text-center text-[11px] font-semibold text-slate-500">
             {WEEKDAYS_SHORT.map((w) => (
               <div key={w}>{w}</div>
@@ -323,16 +323,16 @@ export const CalendarView: React.FC<CalendarViewProps> = ({ state, onNavigateTab
         </div>
 
         {/* Danh sách chi tiết */}
-        <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm xl:col-span-1">
+        <div className="rounded-xl border border-slate-200 bg-white p-4 xl:col-span-1">
           <div className="mb-3 flex items-center justify-between gap-2 border-b border-slate-100 pb-2">
-            <h3 className="text-sm font-bold text-slate-900">
+            <h3 className="text-sm font-semibold text-slate-900">
               {selected ? `Ngày ${fmtDM(selected)} · ${WEEKDAYS_FULL[weekdayOf(selected)]}` : 'Chi tiết trong tháng'}
             </h3>
             {selected && (
               <button
                 type="button"
                 onClick={() => setSelected(null)}
-                className="text-[11px] font-semibold text-emerald-600 hover:underline"
+                className="text-[11px] font-semibold text-accent-ink hover:underline"
               >
                 Xem cả tháng
               </button>
@@ -350,7 +350,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({ state, onNavigateTab
               {groups.map((g) => (
                 <div key={g.date}>
                   <div className="mb-1.5 flex items-center justify-between text-[11px]">
-                    <span className="font-bold text-slate-700">
+                    <span className="font-semibold text-slate-700">
                       {WEEKDAYS_FULL[weekdayOf(g.date)]}, {fmtDM(g.date)}
                     </span>
                     <span className={`font-medium ${g.date === today ? 'text-emerald-600' : 'text-slate-400'}`}>
@@ -395,11 +395,11 @@ const EventCard: React.FC<{
       <div className="min-w-0 flex-1 space-y-2">
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0">
-            <div className="truncate text-[13px] font-bold text-slate-900">{e.title}</div>
+            <div className="truncate text-[13px] font-semibold text-slate-900">{e.title}</div>
             <div className="text-[11px] text-slate-500">{e.subtitle}</div>
           </div>
           <div className="shrink-0 text-right">
-            <div className={`font-mono text-sm font-bold tabular-nums ${amountColor}`}>
+            <div className={`font-mono text-sm font-semibold tabular-nums ${amountColor}`}>
               {isDebt ? '−' : '+'}
               {formatVND(e.amount)}
             </div>
@@ -433,7 +433,7 @@ const EventCard: React.FC<{
               type="button"
               onClick={onPay}
               disabled={short > 0}
-              className="rounded-lg bg-amber-600 px-3 py-1 text-[11px] font-bold text-white shadow-sm hover:bg-amber-700 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-amber-600"
+              className="rounded-lg bg-amber-600 px-3 py-1 text-[11px] font-semibold text-white hover:bg-amber-700 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-amber-600"
             >
               Trả kỳ này
             </button>
@@ -446,7 +446,7 @@ const EventCard: React.FC<{
               type="button"
               disabled
               title={`Mở thanh toán từ ${e.payLocked.unlockDate}`}
-              className="rounded-lg bg-amber-600 px-3 py-1 text-[11px] font-bold text-white shadow-sm disabled:cursor-not-allowed disabled:opacity-40"
+              className="rounded-lg bg-amber-600 px-3 py-1 text-[11px] font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
             >
               {e.payLocked.paidThisMonth ? 'Đã trả tháng này' : 'Chưa đến kỳ'}
             </button>
@@ -464,7 +464,7 @@ const EventCard: React.FC<{
             <button
               type="button"
               onClick={() => onGo('wallet')}
-              className="text-[11px] font-semibold text-emerald-600 hover:underline"
+              className="text-[11px] font-semibold text-accent-ink hover:underline"
             >
               Ghi nhận ở Ví & Dòng tiền
             </button>

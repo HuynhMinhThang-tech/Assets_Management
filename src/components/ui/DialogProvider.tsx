@@ -71,9 +71,9 @@ export function useDialog(): DialogApi {
 const TONE_STYLE = {
   danger: { icon: <AlertTriangle className="h-5 w-5" />, badge: 'bg-rose-100 text-rose-600', btn: 'bg-rose-600 hover:bg-rose-700' },
   warning: { icon: <AlertTriangle className="h-5 w-5" />, badge: 'bg-amber-100 text-amber-600', btn: 'bg-amber-600 hover:bg-amber-700' },
-  default: { icon: <Info className="h-5 w-5" />, badge: 'bg-sky-100 text-sky-600', btn: 'bg-slate-900 hover:bg-slate-800' },
-  error: { icon: <XCircle className="h-5 w-5" />, badge: 'bg-rose-100 text-rose-600', btn: 'bg-slate-900 hover:bg-slate-800' },
-  info: { icon: <Info className="h-5 w-5" />, badge: 'bg-sky-100 text-sky-600', btn: 'bg-slate-900 hover:bg-slate-800' },
+  default: { icon: <Info className="h-5 w-5" />, badge: 'bg-sky-100 text-sky-600', btn: 'bg-accent hover:bg-accent-hover' },
+  error: { icon: <XCircle className="h-5 w-5" />, badge: 'bg-rose-100 text-rose-600', btn: 'bg-accent hover:bg-accent-hover' },
+  info: { icon: <Info className="h-5 w-5" />, badge: 'bg-sky-100 text-sky-600', btn: 'bg-accent hover:bg-accent-hover' },
 } as const;
 
 export const DialogProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -159,7 +159,7 @@ export const DialogProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       {children}
 
       {current && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/55 p-4">
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4">
           <div
             role={current.kind === 'alert' ? 'alertdialog' : 'dialog'}
             aria-modal="true"
@@ -169,7 +169,7 @@ export const DialogProvider: React.FC<{ children: React.ReactNode }> = ({ childr
             <div className="flex items-start gap-3.5">
               <div className={`grid h-10 w-10 shrink-0 place-items-center rounded-full ${style.badge}`}>{style.icon}</div>
               <div className="min-w-0 flex-1">
-                <h3 className="text-sm font-bold text-slate-900">{current.opts.title}</h3>
+                <h3 className="text-sm font-semibold text-slate-900">{current.opts.title}</h3>
                 {current.opts.message && (
                   <div className="mt-1.5 whitespace-pre-line text-xs leading-relaxed text-slate-600">
                     {current.opts.message}
@@ -185,12 +185,12 @@ export const DialogProvider: React.FC<{ children: React.ReactNode }> = ({ childr
                     key={c.value}
                     type="button"
                     onClick={() => pickChoice(c.value)}
-                    className={`rounded-lg px-4 py-2 text-xs font-bold shadow-sm transition-colors ${
+                    className={`rounded-lg px-4 py-2 text-xs font-semibold  transition-colors ${
                       c.tone === 'danger'
                         ? 'bg-rose-600 text-white hover:bg-rose-700'
                         : c.tone === 'neutral'
                           ? 'border border-slate-300 bg-white text-slate-800 hover:bg-slate-50'
-                          : 'bg-slate-900 text-white hover:bg-slate-800'
+                          : 'bg-accent text-on-accent hover:bg-accent-hover'
                     }`}
                   >
                     {c.label}
@@ -221,7 +221,7 @@ export const DialogProvider: React.FC<{ children: React.ReactNode }> = ({ childr
                 ref={primaryRef}
                 type="button"
                 onClick={() => settle(true)}
-                className={`rounded-lg px-4 py-1.5 text-xs font-bold text-white shadow-sm transition-colors ${style.btn}`}
+                className={`rounded-lg px-4 py-1.5 text-xs font-semibold text-white  transition-colors ${style.btn}`}
               >
                 {current.kind === 'confirm' ? current.opts.confirmText ?? 'Xác nhận' : current.opts.okText ?? 'Đã hiểu'}
               </button>

@@ -55,7 +55,7 @@ const Row: React.FC<{ label: string; value: number; indent?: boolean; negativeRe
 );
 
 const SectionTitle: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-  <div className="pt-3 pb-1 text-xs font-bold uppercase tracking-wider text-slate-900">{children}</div>
+  <div className="pt-3 pb-1 text-sm font-semibold text-slate-900">{children}</div>
 );
 
 const SubTotal: React.FC<{ label: string; value: number }> = ({ label, value }) => (
@@ -66,8 +66,8 @@ const SubTotal: React.FC<{ label: string; value: number }> = ({ label, value }) 
 );
 
 const GrandTotal: React.FC<{ label: string; value: number }> = ({ label, value }) => (
-  <div className="flex items-center justify-between gap-4 rounded-lg bg-slate-50 border border-slate-200 mt-3 px-3 py-2.5 text-sm font-bold">
-    <span className="uppercase tracking-wider text-slate-900">{label}</span>
+  <div className="flex items-center justify-between gap-4 rounded-lg bg-slate-50 border border-slate-200 mt-3 px-3 py-2.5 text-sm font-semibold">
+    <span className="text-slate-900">{label}</span>
     <span className="font-mono tabular-nums text-slate-900">{formatVND(value)}</span>
   </div>
 );
@@ -86,11 +86,11 @@ const RatioCard: React.FC<{
   emptyLabel?: string;
   status?: RatioStatus | null;
 }> = ({ label, value, emptyLabel, status }) => (
-  <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-between gap-3">
+  <div className="bg-white p-4 rounded-xl border border-slate-200 flex flex-col justify-between gap-3">
     <div className="text-xs font-semibold text-slate-700">{label}</div>
     <div className="flex items-end justify-between gap-2">
       {value !== null ? (
-        <span className="text-xl font-extrabold text-slate-900 font-mono tabular-nums">{value}</span>
+        <span className="text-xl font-semibold text-slate-900 font-mono tabular-nums">{value}</span>
       ) : (
         <span className="text-sm font-semibold text-slate-500">{emptyLabel ?? '—'}</span>
       )}
@@ -107,7 +107,7 @@ const RatioCard: React.FC<{
 
 const RatioGroup: React.FC<{ title: string; children: React.ReactNode }> = ({ title, children }) => (
   <section className="space-y-3">
-    <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider">{title}</h3>
+    <h3 className="text-sm font-semibold text-slate-900">{title}</h3>
     <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">{children}</div>
   </section>
 );
@@ -134,7 +134,7 @@ export const BalanceSheetView: React.FC<BalanceSheetViewProps> = ({ state, balan
   return (
     <div className="space-y-6 pb-12">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 className="text-lg font-bold text-slate-900">Bảng cân đối</h2>
+        <h2 className="text-lg font-semibold text-slate-900">Bảng cân đối</h2>
         <span className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-700">
           Tại ngày {formatDateVN(bs.asOf)}
         </span>
@@ -142,18 +142,18 @@ export const BalanceSheetView: React.FC<BalanceSheetViewProps> = ({ state, balan
 
       {/* 1. TỔNG HỢP */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
-          <div className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-2">Tổng tài sản</div>
-          <div className="text-2xl font-extrabold text-slate-900 font-mono tabular-nums">{formatVND(bs.totalAssets)}</div>
+        <div className="bg-white p-5 rounded-xl border border-slate-200">
+          <div className="text-xs font-medium text-slate-500 mb-2">Tổng tài sản</div>
+          <div className="text-2xl font-semibold text-slate-900 font-mono tabular-nums">{formatVND(bs.totalAssets)}</div>
         </div>
-        <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
-          <div className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-2">Nợ phải trả</div>
-          <div className="text-2xl font-extrabold text-rose-600 font-mono tabular-nums">{formatVND(bs.totalLiabilities)}</div>
+        <div className="bg-white p-5 rounded-xl border border-slate-200">
+          <div className="text-xs font-medium text-slate-500 mb-2">Nợ phải trả</div>
+          <div className="text-2xl font-semibold text-rose-600 font-mono tabular-nums">{formatVND(bs.totalLiabilities)}</div>
         </div>
-        <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
-          <div className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-2">Vốn chủ sở hữu</div>
+        <div className="bg-white p-5 rounded-xl border border-slate-200">
+          <div className="text-xs font-medium text-slate-500 mb-2">Vốn chủ sở hữu</div>
           <div
-            className={`text-2xl font-extrabold font-mono tabular-nums ${
+            className={`text-2xl font-semibold font-mono tabular-nums ${
               bs.equity.total < 0 ? 'text-rose-600' : 'text-emerald-600'
             }`}
           >
@@ -165,7 +165,7 @@ export const BalanceSheetView: React.FC<BalanceSheetViewProps> = ({ state, balan
       {/* Cảnh báo định giá cũ: nhà thường chiếm phần lớn tài sản ròng nên số trên bảng có thể đã lệch */}
       {bs.staleValuations.length > 0 && (
         <div data-stale-valuation className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-xs text-amber-900">
-          <div className="font-bold">
+          <div className="font-semibold">
             Định giá cũ: {bs.staleValuations.length} tài sản
             {bs.stalePct !== null && ` (${(bs.stalePct * 100).toFixed(0)}% tổng tài sản)`} đã quá hạn định giá lại.
           </div>
@@ -182,9 +182,9 @@ export const BalanceSheetView: React.FC<BalanceSheetViewProps> = ({ state, balan
 
       {/* 2. CƠ CẤU NGUỒN VỐN */}
       {bs.totalAssets > 0 && (
-        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm space-y-2">
+        <div className="bg-white p-4 rounded-xl border border-slate-200 space-y-2">
           <div className="flex items-center justify-between text-xs font-semibold">
-            <span className="uppercase tracking-wider text-slate-900">Cơ cấu nguồn vốn</span>
+            <span className="text-slate-900">Cơ cấu nguồn vốn</span>
             <span className="font-mono text-slate-700">
               Nợ {debtPct.toFixed(1)}% · Vốn chủ {equityPct.toFixed(1)}%
             </span>
@@ -210,9 +210,9 @@ export const BalanceSheetView: React.FC<BalanceSheetViewProps> = ({ state, balan
       )}
 
       {compare && (
-        <section data-compare className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm overflow-x-auto">
+        <section data-compare className="bg-white p-5 rounded-xl border border-slate-200 overflow-x-auto">
           <div className="flex items-center justify-between pb-2 border-b border-slate-200">
-            <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider">Biến động trong kỳ</h3>
+            <h3 className="text-sm font-semibold text-slate-900">Biến động trong kỳ</h3>
             <span className="text-[11px] font-semibold text-slate-500">Đầu kỳ: {compare.startSource}</span>
           </div>
           <div className="overflow-x-auto"><table className="w-full text-sm mt-2">
@@ -232,7 +232,7 @@ export const BalanceSheetView: React.FC<BalanceSheetViewProps> = ({ state, balan
                 const d = b - a;
                 const total = ['assets', 'debts', 'equity'].includes(k as string);
                 return (
-                  <tr key={k as string} data-group={k as string} className={`border-t border-slate-100 text-right ${total ? 'font-bold text-slate-900' : 'text-slate-800'}`}>
+                  <tr key={k as string} data-group={k as string} className={`border-t border-slate-100 text-right ${total ? 'font-semibold text-slate-900' : 'text-slate-800'}`}>
                     <td className="text-left font-sans py-1.5">{label as string}</td>
                     <td className="py-1.5">{formatVND(a)}</td>
                     <td className="py-1.5">{formatVND(b)}</td>
@@ -253,8 +253,8 @@ export const BalanceSheetView: React.FC<BalanceSheetViewProps> = ({ state, balan
           tiêu đề, đầu mục A, đầu mục B và dòng tổng của hai bên luôn ngang hàng, hai panel cao bằng nhau.
           Dòng cộng cuối mỗi mục đẩy xuống đáy mục (mt-auto) để các đường kẻ thẳng hàng. */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-4 gap-y-4 lg:gap-y-0">
-        <section className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm lg:row-span-4 lg:grid lg:grid-rows-subgrid">
-          <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider pb-2 border-b border-slate-200">Tài sản</h3>
+        <section className="bg-white p-5 rounded-xl border border-slate-200 lg:row-span-4 lg:grid lg:grid-rows-subgrid">
+          <h3 className="text-sm font-semibold text-slate-900 pb-2 border-b border-slate-200">Tài sản</h3>
 
           <div className="flex flex-col">
             <SectionTitle>A. Tài sản ngắn hạn</SectionTitle>
@@ -277,8 +277,8 @@ export const BalanceSheetView: React.FC<BalanceSheetViewProps> = ({ state, balan
           </div>
         </section>
 
-        <section className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm lg:row-span-4 lg:grid lg:grid-rows-subgrid">
-          <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider pb-2 border-b border-slate-200">
+        <section className="bg-white p-5 rounded-xl border border-slate-200 lg:row-span-4 lg:grid lg:grid-rows-subgrid">
+          <h3 className="text-sm font-semibold text-slate-900 pb-2 border-b border-slate-200">
             Nợ phải trả và vốn chủ sở hữu
           </h3>
 

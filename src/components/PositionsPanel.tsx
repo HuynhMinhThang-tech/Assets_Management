@@ -13,8 +13,8 @@ export interface PositionHandlers {
   onPositionDividend: (p: { key: string; amount: number; date: string; note?: string }) => Result;
 }
 
-const inputCls = 'w-full px-3 py-1.5 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-slate-900';
-const btnPrimary = 'px-5 py-2 text-xs font-bold text-white bg-slate-900 hover:bg-slate-800 rounded-lg disabled:cursor-not-allowed disabled:opacity-50';
+const inputCls = 'w-full px-3 py-1.5 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-accent';
+const btnPrimary = 'px-5 py-2 text-xs font-medium text-on-accent bg-accent hover:bg-accent-hover rounded-lg disabled:cursor-not-allowed disabled:opacity-50';
 const btnGhost = 'px-4 py-2 text-xs text-slate-600 hover:bg-slate-100 rounded-lg font-medium';
 const vnDate = (d: string) => (/^\d{4}-\d{2}-\d{2}$/.test(d) ? `${d.slice(8, 10)}/${d.slice(5, 7)}/${d.slice(0, 4)}` : d);
 const fmtQty = (n: number) => n.toLocaleString('vi-VN', { maximumFractionDigits: 4 });
@@ -23,7 +23,7 @@ const pct = (n: number | null) => (n === null ? '—' : `${n >= 0 ? '+' : ''}${(
 const Row: React.FC<{ label: string; value: React.ReactNode; strong?: boolean }> = ({ label, value, strong }) => (
   <div className="flex items-baseline justify-between gap-3 text-xs">
     <span className="text-slate-500">{label}</span>
-    <span className={`font-mono ${strong ? 'font-bold text-slate-900' : 'text-slate-800'}`}>{value}</span>
+    <span className={`font-mono ${strong ? 'font-semibold text-slate-900' : 'text-slate-800'}`}>{value}</span>
   </div>
 );
 
@@ -253,7 +253,7 @@ export const PositionsPanel: React.FC<{ state: UserFinancialState; handlers: Pos
   return (
     <section className="rounded-xl border border-slate-200 bg-white" data-testid="positions-panel">
       <div className="border-b border-slate-100 px-4 py-2.5">
-        <h3 className="text-sm font-bold text-slate-900">Vị thế theo mã</h3>
+        <h3 className="text-sm font-semibold text-slate-900">Vị thế theo mã</h3>
         <p className="text-[11px] text-slate-500">Gộp các lô cùng mã: tổng số lượng, giá vốn bình quân, lãi/lỗ. Từng lô vẫn nằm ở danh sách bên dưới.</p>
       </div>
       <div className="overflow-x-auto">
@@ -273,7 +273,7 @@ export const PositionsPanel: React.FC<{ state: UserFinancialState; handlers: Pos
               <React.Fragment key={p.key}>
                 <tr className="border-t border-slate-100" data-position={p.key}>
                   <td className="px-4 py-2">
-                    <button type="button" onClick={() => setOpen(open === p.key ? null : p.key)} className="font-bold text-slate-900 hover:underline" title="Xem từng lô">
+                    <button type="button" onClick={() => setOpen(open === p.key ? null : p.key)} className="font-semibold text-slate-900 hover:underline" title="Xem từng lô">
                       {p.symbol}
                     </button>
                     <span className="ml-1.5 text-[11px] text-slate-400">{p.lots.length} lô</span>

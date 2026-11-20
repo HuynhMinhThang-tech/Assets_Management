@@ -54,12 +54,12 @@ import { canVoidAsset, checkTxDate, previewSell, SellPreview } from '../utils/op
 import { RolloverInput } from '../utils/savingsOps';
 
 const CATEGORY_COLORS: Record<AssetCategory, string> = {
-  real_estate: '#0284c7',
-  stock: '#16a34a',
-  fund: '#8b5cf6',
-  savings: '#f59e0b',
-  gold: '#eab308',
-  other: '#64748b',
+  real_estate: '#C96442',
+  stock: '#3F8F65',
+  fund: '#8B76B5',
+  savings: '#5B8DB8',
+  gold: '#D4A24C',
+  other: '#8E8A82',
 };
 
 import { EditAssetModal } from './EditInfoModals';
@@ -128,7 +128,7 @@ const ReceiveInterestModal: React.FC<{
             value={amount}
             onChange={setAmount}
             invalid={!(amount > 0)}
-            className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-slate-900"
+            className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-accent"
           />
         </div>
         <div>
@@ -152,7 +152,7 @@ const ReceiveInterestModal: React.FC<{
           type="button"
           disabled={!!error}
           onClick={() => onSave({ assetId: asset.id, amount, date })}
-          className="px-5 py-2 text-xs font-bold text-white bg-slate-900 hover:bg-slate-800 rounded-lg disabled:cursor-not-allowed disabled:opacity-50"
+          className="px-5 py-2 text-xs font-medium text-on-accent bg-accent hover:bg-accent-hover rounded-lg disabled:cursor-not-allowed disabled:opacity-50"
         >
           Nhận lãi vào ví
         </button>
@@ -202,7 +202,7 @@ const RolloverModal: React.FC<{
           <CurrencyInput
             value={interest}
             onChange={setInterest}
-            className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-slate-900"
+            className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-accent"
           />
         </div>
         <div>
@@ -243,7 +243,7 @@ const RolloverModal: React.FC<{
         <div data-preview="rollover" className="divide-y divide-slate-100 rounded-lg border border-slate-200 bg-slate-50 text-xs">
           <div className="flex items-center justify-between px-3 py-2">
             <span className="text-slate-500">Gốc kỳ gửi mới</span>
-            <span className="font-mono font-bold text-slate-900">{formatVND(newPrincipal)}</span>
+            <span className="font-mono font-semibold text-slate-900">{formatVND(newPrincipal)}</span>
           </div>
         </div>
         <FieldError>{error}</FieldError>
@@ -256,7 +256,7 @@ const RolloverModal: React.FC<{
           type="button"
           disabled={!!error}
           onClick={() => onSave({ assetId: asset.id, date, interest, capitalize, termMonths: termNum, annualRate: rateNum })}
-          className="px-5 py-2 text-xs font-bold text-white bg-slate-900 hover:bg-slate-800 rounded-lg disabled:cursor-not-allowed disabled:opacity-50"
+          className="px-5 py-2 text-xs font-medium text-on-accent bg-accent hover:bg-accent-hover rounded-lg disabled:cursor-not-allowed disabled:opacity-50"
         >
           Xác nhận tái tục
         </button>
@@ -484,11 +484,11 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
       {/* 1. TOP SUMMARY CARDS (cùng bố cục với tab Khoản nợ) */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {/* Tổng thị giá */}
-        <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
-          <span className="text-xs text-slate-500 font-semibold uppercase tracking-wider block mb-1">
+        <div className="bg-white p-5 rounded-xl border border-slate-200">
+          <span className="text-xs text-slate-500 font-medium block mb-1">
             Tổng Thị giá Tài sản
           </span>
-          <div className="text-2xl font-extrabold text-slate-900 font-mono tabular-nums">
+          <div className="text-2xl font-semibold text-slate-900 font-mono tabular-nums">
             {formatVND(portfolioValue)}
           </div>
           <span className="text-[11px] text-slate-400 block mt-1">
@@ -497,9 +497,9 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
         </div>
 
         {/* Phân bổ theo loại */}
-        <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-between">
+        <div className="bg-white p-5 rounded-xl border border-slate-200 flex flex-col justify-between">
           <div>
-            <span className="text-xs text-slate-500 font-semibold uppercase tracking-wider block mb-2">
+            <span className="text-xs text-slate-500 font-medium block mb-2">
               Phân bổ theo loại tài sản
             </span>
             {categoryTotals.length === 0 ? (
@@ -514,7 +514,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                         {c.label} ({c.count}):
                       </span>
                     </span>
-                    <span className="font-mono font-bold text-slate-900">{formatVND(c.value, { compact: true })}</span>
+                    <span className="font-mono font-semibold text-slate-900">{formatVND(c.value, { compact: true })}</span>
                   </div>
                 ))}
               </div>
@@ -539,12 +539,12 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
         </div>
 
         {/* Lãi / lỗ */}
-        <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
-          <span className="text-xs text-slate-500 font-semibold uppercase tracking-wider block mb-1">
+        <div className="bg-white p-5 rounded-xl border border-slate-200">
+          <span className="text-xs text-slate-500 font-medium block mb-1">
             Lãi / Lỗ sổ sách
           </span>
           <div
-            className={`text-2xl font-extrabold font-mono tabular-nums ${
+            className={`text-2xl font-semibold font-mono tabular-nums ${
               portfolioPnL >= 0 ? 'text-emerald-600' : 'text-rose-600'
             }`}
           >
@@ -577,7 +577,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
             id="asset-category-filter"
             value={selectedCategory}
             onChange={(e) => setSelectedCategory(e.target.value as AssetCategory | 'all')}
-            className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-800 focus:outline-none focus:ring-1 focus:ring-slate-900"
+            className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-800 focus:outline-none focus:ring-1 focus:ring-accent"
           >
             {categories.map((cat) => (
               <option key={cat.id} value={cat.id}>
@@ -595,7 +595,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
             id="asset-status-filter"
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value as 'all' | 'active' | 'sold' | 'voided')}
-            className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-800 focus:outline-none focus:ring-1 focus:ring-slate-900"
+            className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-800 focus:outline-none focus:ring-1 focus:ring-accent"
           >
             <option value="active">Đang nắm giữ ({countByStatus('active')})</option>
             <option value="sold">Đã thanh lý ({countByStatus('sold')})</option>
@@ -616,7 +616,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
               placeholder="Tên tài sản, mã cổ phiếu, dự án…"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full rounded-lg border border-slate-300 bg-white py-2 pl-9 pr-3 text-xs text-slate-800 focus:outline-none focus:ring-1 focus:ring-slate-900"
+              className="w-full rounded-lg border border-slate-300 bg-white py-2 pl-9 pr-3 text-xs text-slate-800 focus:outline-none focus:ring-1 focus:ring-accent"
             />
           </div>
         </div>
@@ -633,7 +633,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                 setStatusFilter('active');
                 setSearchQuery('');
               }}
-              className="text-[11px] font-semibold text-emerald-600 hover:text-emerald-700 hover:underline"
+              className="text-[11px] font-semibold text-accent-ink hover:text-accent-hover hover:underline"
             >
               Xóa lọc
             </button>
@@ -642,7 +642,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
       </div>
 
       {/* Assets Table / List */}
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+      <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
         {filteredAssets.length === 0 ? (
           <div className="py-16 text-center text-slate-400 text-xs">
             <Layers className="w-10 h-10 text-slate-300 mx-auto mb-2" />
@@ -674,7 +674,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                     <tr key={asset.id} className="hover:bg-slate-50/60 transition-colors">
                       {/* Name & Polymorphic Specifics */}
                       <td className="py-3 px-4 max-w-xs">
-                        <div className="font-bold text-slate-900 text-sm flex items-center gap-2">
+                        <div className="font-semibold text-slate-900 text-sm flex items-center gap-2">
                           <span>{asset.name}</span>
                           {isSold && (
                             <span className="text-[10px] text-slate-500 bg-slate-100 border border-slate-200 px-1.5 py-0.2 rounded">
@@ -778,12 +778,12 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                             return (
                               <div className="mt-1.5 flex items-center gap-1.5 px-2.5 py-1 bg-slate-50 border border-slate-200 rounded-md text-[11px] font-medium w-fit">
                                 {linked.securityType === 'unsecured' ? (
-                                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200">
+                                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-50 text-amber-800 border border-amber-200">
                                     <CreditCard className="w-3 h-3 text-amber-600 shrink-0" />
                                     Vay tín chấp
                                   </span>
                                 ) : (
-                                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-sky-50 text-sky-800 border border-sky-200">
+                                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-sky-50 text-sky-800 border border-sky-200">
                                     <ShieldCheck className="w-3 h-3 text-sky-600 shrink-0" />
                                     Thế chấp
                                   </span>
@@ -817,7 +817,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                       </td>
 
                       {/* Market Value */}
-                      <td className="py-3 px-4 text-right font-mono font-bold text-slate-900 tabular-nums">
+                      <td className="py-3 px-4 text-right font-mono font-semibold text-slate-900 tabular-nums">
                         {isSold ? '0 ₫' : formatVND(asset.currentValue)}
                         <div className="text-[10px] text-slate-400 font-normal">
                           {asset.lastValuationDate}
@@ -831,7 +831,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                         ) : (
                           <>
                             <div
-                              className={`font-mono font-bold ${
+                              className={`font-mono font-semibold ${
                                 pnl >= 0 ? 'text-emerald-600' : 'text-rose-600'
                               }`}
                             >
@@ -850,7 +850,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                       </td>
 
                       {/* Realized PnL */}
-                      <td className="py-3 px-3 text-right font-mono font-bold text-slate-800 tabular-nums">
+                      <td className="py-3 px-3 text-right font-mono font-semibold text-slate-800 tabular-nums">
                         {asset.realizedPnL > 0 ? (
                           <span className="text-emerald-700">
                             +{formatVND(asset.realizedPnL)}
@@ -966,7 +966,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                     value={sellQty}
                     invalid={sellQty > sellTotalUnits}
                     onChange={setSellQty}
-                    className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-slate-900"
+                    className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-accent"
                   />
                   {sellQty > sellTotalUnits && (
                     <FieldError>{`Chỉ có ${sellTotalUnits.toLocaleString('vi-VN')} ${sellUnit.label} để bán.`}</FieldError>
@@ -981,7 +981,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                     value={sellUnitPrice}
                     invalid={sellUnitPrice <= 0}
                     onChange={setSellUnitPrice}
-                    className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-slate-900"
+                    className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-accent"
                   />
                   {sellUnitPrice <= 0 && <FieldError>{`Nhập giá bán mỗi ${sellUnit.label}.`}</FieldError>}
                 </div>
@@ -996,7 +996,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                   value={sellRecognizedInput}
                   invalid={sellRecognizedInput <= 0}
                   onChange={setSellRecognizedInput}
-                  className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-slate-900"
+                  className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-accent"
                 />
                 {sellRecognizedInput <= 0 && <FieldError>Nhập giá bán lớn hơn 0.</FieldError>}
               </div>
@@ -1014,7 +1014,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                     setSellReceived(v);
                     setSellReceivedTouched(true);
                   }}
-                  className="flex-1 px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-slate-900"
+                  className="flex-1 px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-accent"
                 />
                 {(sellAssetTarget.category === 'stock' || sellAssetTarget.category === 'fund') && (
                   <button
@@ -1089,7 +1089,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                 </div>
                 <div className="flex items-center justify-between px-3 py-2">
                   <span className="text-slate-500">Lãi chốt thực tế</span>
-                  <span className={`font-mono font-bold ${sellPreview.realizedPnL >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                  <span className={`font-mono font-semibold ${sellPreview.realizedPnL >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
                     {sellPreview.realizedPnL >= 0 ? '+' : ''}
                     {formatVND(sellPreview.realizedPnL)}
                   </span>
@@ -1107,7 +1107,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                 type="text"
                 value={sellNote}
                 onChange={(e) => setSellNote(e.target.value)}
-                className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-slate-900"
+                className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-accent"
               />
             </div>
           </ModalBody>
@@ -1123,7 +1123,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
               type="button"
               onClick={handleConfirmSell}
               disabled={!canSell}
-              className="px-4 py-1.5 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg shadow-sm transition-colors disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-emerald-600"
+              className="px-4 py-1.5 text-xs font-medium text-on-accent bg-accent hover:bg-accent-hover rounded-lg transition-colors disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-accent"
             >
               Xác nhận Bán & Nhập Ví
             </button>
@@ -1183,7 +1183,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
               <CurrencyInput
                 value={incomeEditAmount}
                 onChange={setIncomeEditAmount}
-                className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-slate-900"
+                className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-accent"
               />
             </div>
             <div>
@@ -1213,7 +1213,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
               type="button"
               onClick={saveIncomeEdit}
               disabled={!!incomeEditDayError}
-              className="px-4 py-1.5 text-xs font-bold text-white bg-slate-900 hover:bg-slate-800 rounded-lg shadow-sm transition-colors disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-slate-900"
+              className="px-4 py-1.5 text-xs font-medium text-on-accent bg-accent hover:bg-accent-hover rounded-lg transition-colors disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-accent"
             >
               Lưu
             </button>
@@ -1578,9 +1578,9 @@ const AddAssetModal: React.FC<AddAssetModalProps> = ({ availableCash, onClose, o
             <button
               type="button"
               onClick={() => setFundingMode('cash')}
-              className={`py-2.5 px-3 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-2 ${
+              className={`py-2.5 px-3 rounded-lg text-xs font-semibold transition-all flex items-center justify-center gap-2 ${
                 fundingMode === 'cash'
-                  ? 'bg-white text-slate-900 shadow-sm border border-slate-200'
+                  ? 'bg-white text-slate-900  border border-slate-200'
                   : 'text-slate-600 hover:text-slate-900'
               }`}
             >
@@ -1591,9 +1591,9 @@ const AddAssetModal: React.FC<AddAssetModalProps> = ({ availableCash, onClose, o
             <button
               type="button"
               onClick={() => setFundingMode('loan')}
-              className={`py-2.5 px-3 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-2 ${
+              className={`py-2.5 px-3 rounded-lg text-xs font-semibold transition-all flex items-center justify-center gap-2 ${
                 fundingMode === 'loan'
-                  ? 'bg-white text-sky-950 shadow-sm border border-sky-300'
+                  ? 'bg-white text-sky-950  border border-sky-300'
                   : 'text-slate-600 hover:text-slate-900'
               }`}
             >
@@ -1647,7 +1647,7 @@ const AddAssetModal: React.FC<AddAssetModalProps> = ({ availableCash, onClose, o
                 required
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                className="w-full px-3 py-1.5 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-slate-900"
+                className="w-full px-3 py-1.5 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-accent"
               />
             </div>
             <div>
@@ -1657,14 +1657,14 @@ const AddAssetModal: React.FC<AddAssetModalProps> = ({ availableCash, onClose, o
                 required
                 value={purchaseDate}
                 onChange={(e) => setPurchaseDate(e.target.value)}
-                className="w-full px-3 py-1.5 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-slate-900"
+                className="w-full px-3 py-1.5 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-accent"
               />
             </div>
           </div>
 
           {/* DYNAMIC POLYMORPHIC ATTRIBUTES */}
           <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200 space-y-3">
-            <span className="text-[11px] font-bold text-slate-700 uppercase tracking-wider block">
+            <span className="text-[11px] font-semibold text-slate-700 block">
               Thông số chi tiết {category === 'real_estate' ? 'Bất động sản' : category === 'stock' ? 'Cổ phiếu' : category === 'fund' ? 'Chứng chỉ quỹ' : category === 'savings' ? 'Tiết kiệm' : category === 'gold' ? 'Vàng' : 'Tài sản'}
             </span>
 
@@ -1677,7 +1677,7 @@ const AddAssetModal: React.FC<AddAssetModalProps> = ({ availableCash, onClose, o
                     type="text"
                     value={stockSymbol}
                     onChange={(e) => setStockSymbol(e.target.value)}
-                    className="w-full px-2.5 py-1.5 text-xs bg-white border border-slate-300 rounded uppercase font-bold"
+                    className="w-full px-2.5 py-1.5 text-xs bg-white border border-slate-300 rounded uppercase font-semibold"
                   />
                 </div>
                 <div>
@@ -1787,7 +1787,7 @@ const AddAssetModal: React.FC<AddAssetModalProps> = ({ availableCash, onClose, o
                     type="text"
                     value={fundCode}
                     onChange={(e) => setFundCode(e.target.value)}
-                    className="w-full px-2.5 py-1.5 text-xs bg-white border border-slate-300 rounded uppercase font-bold"
+                    className="w-full px-2.5 py-1.5 text-xs bg-white border border-slate-300 rounded uppercase font-semibold"
                   />
                 </div>
                 <div>
@@ -1943,14 +1943,14 @@ const AddAssetModal: React.FC<AddAssetModalProps> = ({ availableCash, onClose, o
                   value={cashCost}
                   onChange={setCashCost}
                   invalid={!!cashWalletError}
-                  className="w-full px-3 py-1.5 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-slate-900"
+                  className="w-full px-3 py-1.5 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-accent"
                 />
               </div>
 
               {/* Deduct from wallet checkbox */}
               <div className="p-3 bg-emerald-50/60 border border-emerald-200 rounded-lg flex items-center justify-between text-xs">
                 <div>
-                  <span className="font-bold text-emerald-950 block">Trích tiền thanh toán từ Ví Đầu Tư?</span>
+                  <span className="font-semibold text-emerald-950 block">Trích tiền thanh toán từ Ví Đầu Tư?</span>
                   <span className="text-emerald-700 text-[11px]">
                     Số dư ví khả dụng hiện tại: <strong>{formatVND(availableCash)}</strong>
                   </span>
@@ -1959,7 +1959,7 @@ const AddAssetModal: React.FC<AddAssetModalProps> = ({ availableCash, onClose, o
                   type="checkbox"
                   checked={deductFromWallet}
                   onChange={(e) => setDeductFromWallet(e.target.checked)}
-                  className="w-4 h-4 text-emerald-600 rounded border-emerald-300 focus:ring-emerald-500"
+                  className="w-4 h-4 text-emerald-600 rounded border-emerald-300 focus:ring-accent"
                 />
               </div>
               <FieldError>{cashWalletError}</FieldError>
@@ -1972,10 +1972,10 @@ const AddAssetModal: React.FC<AddAssetModalProps> = ({ availableCash, onClose, o
               {/* Asset Valuation & Down Payment Breakdown */}
               <div className="p-4 bg-sky-50/60 rounded-xl border border-sky-200 space-y-3">
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-sky-950 uppercase tracking-wider">
+                  <span className="text-sm font-semibold text-sky-950">
                     Cơ cấu nguồn vốn (Vốn tự có & Nợ vay)
                   </span>
-                  <span className="text-xs font-mono font-bold text-sky-800 bg-sky-100 px-2 py-0.5 rounded">
+                  <span className="text-xs font-mono font-semibold text-sky-800 bg-sky-100 px-2 py-0.5 rounded">
                     LTV: {ltvPercent.toFixed(1)}% · Vốn tự có: {equityPercent.toFixed(1)}%
                   </span>
                 </div>
@@ -1989,7 +1989,7 @@ const AddAssetModal: React.FC<AddAssetModalProps> = ({ availableCash, onClose, o
                       required
                       value={totalAssetPrice}
                       onChange={handleTotalPriceChange}
-                      className="w-full px-3 py-1.5 text-xs bg-white border border-sky-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-sky-600"
+                      className="w-full px-3 py-1.5 text-xs bg-white border border-sky-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-accent"
                     />
                   </div>
 
@@ -2002,7 +2002,7 @@ const AddAssetModal: React.FC<AddAssetModalProps> = ({ availableCash, onClose, o
                       value={downPayment}
                       onChange={handleDownPaymentChange}
                       invalid={downInvalid}
-                      className="w-full px-3 py-1.5 text-xs bg-white border border-sky-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-sky-600"
+                      className="w-full px-3 py-1.5 text-xs bg-white border border-sky-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-accent"
                     />
                   </div>
 
@@ -2015,7 +2015,7 @@ const AddAssetModal: React.FC<AddAssetModalProps> = ({ availableCash, onClose, o
                       value={loanPrincipal}
                       onChange={setLoanPrincipal}
                       invalid={loanInvalid}
-                      className="w-full px-3 py-1.5 text-xs bg-white border border-sky-300 rounded-lg font-bold text-rose-600 focus:outline-none focus:ring-1 focus:ring-sky-600"
+                      className="w-full px-3 py-1.5 text-xs bg-white border border-sky-300 rounded-lg font-semibold text-rose-600 focus:outline-none focus:ring-1 focus:ring-accent"
                     />
                   </div>
                 </div>
@@ -2044,7 +2044,7 @@ const AddAssetModal: React.FC<AddAssetModalProps> = ({ availableCash, onClose, o
 
               {/* Loan Attributes Inputs */}
               <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-3">
-                <span className="text-xs font-bold text-slate-800 uppercase tracking-wider block">
+                <span className="text-sm font-semibold text-slate-800 block">
                   Thuộc tính Khoản Vay Ngân Hàng (Tự động liên kết)
                 </span>
 
@@ -2059,13 +2059,13 @@ const AddAssetModal: React.FC<AddAssetModalProps> = ({ availableCash, onClose, o
                       onClick={() => setLoanSecurityType('secured')}
                       className={`p-2.5 rounded-lg border text-left flex items-start gap-2.5 transition-all ${
                         loanSecurityType === 'secured'
-                          ? 'bg-sky-50 border-sky-300 text-sky-950 ring-1 ring-sky-300 shadow-xs'
+                          ? 'bg-sky-50 border-sky-300 text-sky-950 ring-1 ring-sky-300 '
                           : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
                       }`}
                     >
                       <ShieldCheck className={`w-4 h-4 mt-0.5 shrink-0 ${loanSecurityType === 'secured' ? 'text-sky-600' : 'text-slate-400'}`} />
                       <div>
-                        <div className="font-bold text-xs">Vay thế chấp</div>
+                        <div className="font-semibold text-xs">Vay thế chấp</div>
                       </div>
                     </button>
 
@@ -2074,13 +2074,13 @@ const AddAssetModal: React.FC<AddAssetModalProps> = ({ availableCash, onClose, o
                       onClick={() => setLoanSecurityType('unsecured')}
                       className={`p-2.5 rounded-lg border text-left flex items-start gap-2.5 transition-all ${
                         loanSecurityType === 'unsecured'
-                          ? 'bg-amber-50 border-amber-300 text-amber-950 ring-1 ring-amber-300 shadow-xs'
+                          ? 'bg-amber-50 border-amber-300 text-amber-950 ring-1 ring-amber-300 '
                           : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
                       }`}
                     >
                       <CreditCard className={`w-4 h-4 mt-0.5 shrink-0 ${loanSecurityType === 'unsecured' ? 'text-amber-600' : 'text-slate-400'}`} />
                       <div>
-                        <div className="font-bold text-xs">Vay tín chấp</div>
+                        <div className="font-semibold text-xs">Vay tín chấp</div>
                       </div>
                     </button>
                   </div>
@@ -2120,7 +2120,7 @@ const AddAssetModal: React.FC<AddAssetModalProps> = ({ availableCash, onClose, o
                     value={loanRateInput}
                     onChange={(e) => setLoanRateInput(e.target.value)}
                     aria-invalid={loanRateMissing || undefined}
-                    className="w-full px-2.5 py-1 text-xs bg-white border border-slate-300 rounded font-mono font-bold"
+                    className="w-full px-2.5 py-1 text-xs bg-white border border-slate-300 rounded font-mono font-semibold"
                   />
                   <span className="mt-1 block text-[11px] text-slate-500">
                     Chỉ nhập mức lãi đang áp dụng. Khi ngân hàng đổi lãi (hết ưu đãi…), vào khoản vay và bấm <strong>Đổi lãi suất</strong>: lịch trả tự tính lại.
@@ -2171,7 +2171,7 @@ const AddAssetModal: React.FC<AddAssetModalProps> = ({ availableCash, onClose, o
                       Gốc: <strong>{formatVND(firstMonthPrincipal)}</strong> · Lãi: <strong>{formatVND(firstMonthInterest)}</strong>
                     </span>
                   </div>
-                  <span className="text-base font-extrabold text-slate-900 font-mono tabular-nums">
+                  <span className="text-base font-semibold text-slate-900 font-mono tabular-nums">
                     {formatVND(firstMonthTotal)}
                   </span>
                 </div>
@@ -2179,7 +2179,7 @@ const AddAssetModal: React.FC<AddAssetModalProps> = ({ availableCash, onClose, o
                 {/* Deduct Down payment from wallet checkbox */}
                 <div className="p-3 bg-emerald-50/60 border border-emerald-200 rounded-lg flex items-center justify-between text-xs">
                   <div>
-                    <span className="font-bold text-emerald-950 block">Trích số tiền vốn tự có ({formatVND(downPayment, { compact: true })}) từ Ví Đầu Tư?</span>
+                    <span className="font-semibold text-emerald-950 block">Trích số tiền vốn tự có ({formatVND(downPayment, { compact: true })}) từ Ví Đầu Tư?</span>
                     <span className="text-emerald-700 text-[11px]">
                       Khả dụng trong ví: <strong>{formatVND(availableCash)}</strong>
                     </span>
@@ -2188,7 +2188,7 @@ const AddAssetModal: React.FC<AddAssetModalProps> = ({ availableCash, onClose, o
                     type="checkbox"
                     checked={deductFromWallet}
                     onChange={(e) => setDeductFromWallet(e.target.checked)}
-                    className="w-4 h-4 text-emerald-600 rounded border-emerald-300 focus:ring-emerald-500"
+                    className="w-4 h-4 text-emerald-600 rounded border-emerald-300 focus:ring-accent"
                   />
                 </div>
                 <FieldError>{loanWalletError}</FieldError>
@@ -2203,7 +2203,7 @@ const AddAssetModal: React.FC<AddAssetModalProps> = ({ availableCash, onClose, o
               rows={2}
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
-              className="w-full px-3 py-1.5 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-slate-900"
+              className="w-full px-3 py-1.5 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-accent"
             />
           </div>
 
@@ -2223,7 +2223,7 @@ const AddAssetModal: React.FC<AddAssetModalProps> = ({ availableCash, onClose, o
           <button
             type="submit"
             disabled={hasProblems}
-            className="px-5 py-2 text-xs font-bold text-white bg-slate-900 hover:bg-slate-800 rounded-lg shadow-sm transition-colors disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-slate-900"
+            className="px-5 py-2 text-xs font-medium text-on-accent bg-accent hover:bg-accent-hover rounded-lg transition-colors disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-accent"
           >
             {fundingMode === 'cash' ? 'Lưu tài sản' : 'Lưu tài sản & Khoản vay liên kết'}
           </button>

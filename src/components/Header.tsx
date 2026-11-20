@@ -18,7 +18,20 @@ interface HeaderProps {
   onOpenNav?: () => void;
 }
 
+/** Tiêu đề hiện ở đầu trang theo tab đang mở (giống trading-journal: tên trang ở góc trái). */
+const TAB_TITLES: Record<NavTab, string> = {
+  dashboard: 'Tổng quan',
+  assets: 'Danh mục Tài sản',
+  prices: 'Cập nhật giá',
+  debts: 'Khoản nợ & Lịch trả',
+  wallet: 'Ví & Dòng tiền',
+  calendar: 'Lịch thu chi',
+  balance: 'Báo cáo',
+  admin: 'Quản trị',
+};
+
 export const Header: React.FC<HeaderProps> = ({
+  currentTab,
   availableCash,
   onOpenAddAsset,
   onOpenAddDebt,
@@ -28,21 +41,21 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenNav,
 }) => {
   return (
-    <header className="h-16 bg-white border-b border-slate-200 px-3 sm:px-6 flex items-center justify-between gap-3 sm:gap-8 sticky top-0 z-20">
-      {/* Zone 1: nút mở điều hướng (điện thoại) + tiêu đề */}
-      <div className="flex items-center gap-2 text-sm text-slate-500 whitespace-nowrap shrink-0">
+    <header className="h-14 bg-slate-50/95 backdrop-blur-sm border-b border-slate-200 px-3 sm:px-6 lg:px-8 flex items-center justify-between gap-3 sm:gap-8 sticky top-0 z-20">
+      {/* Zone 1: nút mở điều hướng (điện thoại) + tiêu đề trang */}
+      <div className="flex min-w-0 items-center gap-2 text-sm text-slate-500 whitespace-nowrap">
         {onOpenNav && (
           <button
             type="button"
             data-open-nav
             onClick={onOpenNav}
             aria-label="Mở menu điều hướng"
-            className="grid h-9 w-9 place-items-center rounded-lg border border-slate-200 text-slate-700 hover:bg-slate-50 lg:hidden"
+            className="grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-100 lg:hidden"
           >
             <Menu className="h-5 w-5" />
           </button>
         )}
-        <span className="hidden font-semibold text-slate-900 sm:inline">Danh mục cá nhân</span>
+        <h1 className="hidden min-w-0 truncate text-base font-semibold text-slate-900 sm:block sm:text-lg">{TAB_TITLES[currentTab]}</h1>
       </div>
 
       {/* Zone 2 & 3: Cash display & Quick Action CTAs */}
@@ -73,10 +86,10 @@ export const Header: React.FC<HeaderProps> = ({
           </span>
         )}
 
-        <div className="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-50 border border-slate-200 text-xs">
+        <div className="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white border border-slate-200 text-xs">
           <Wallet className="w-3.5 h-3.5 text-slate-500" />
           <span className="text-slate-500">Tiền khả dụng:</span>
-          <span className="font-bold text-slate-900 font-mono tabular-nums">
+          <span className="font-semibold text-slate-900 font-mono tabular-nums">
             {formatVND(availableCash)}
           </span>
         </div>
@@ -85,9 +98,9 @@ export const Header: React.FC<HeaderProps> = ({
           onClick={onOpenDeposit}
           aria-label="Nạp hoặc rút ví"
           title="Nạp/Rút ví"
-          className="px-3 py-1.5 text-xs font-semibold text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors flex items-center gap-1.5 whitespace-nowrap shrink-0 shadow-sm"
+          className="px-3 py-1.5 text-xs font-medium text-slate-900 bg-white border border-slate-200 rounded-lg hover:bg-slate-100 transition-colors flex items-center gap-1.5 whitespace-nowrap shrink-0"
         >
-          <ArrowDownRight className="w-3.5 h-3.5 text-emerald-600" />
+          <ArrowDownRight className="w-3.5 h-3.5 text-accent-ink" />
           <span className="hidden sm:inline">Nạp/Rút ví</span>
         </button>
 
@@ -95,9 +108,9 @@ export const Header: React.FC<HeaderProps> = ({
           onClick={onOpenAddAsset}
           aria-label="Thêm tài sản"
           title="Thêm tài sản"
-          className="px-3.5 py-1.5 text-xs font-semibold text-white bg-slate-900 rounded-lg hover:bg-slate-800 transition-colors flex items-center gap-1.5 whitespace-nowrap shrink-0 shadow-sm"
+          className="px-3.5 py-1.5 text-xs font-medium text-on-accent bg-accent rounded-lg hover:bg-accent-hover transition-colors flex items-center gap-1.5 whitespace-nowrap shrink-0"
         >
-          <PlusCircle className="w-3.5 h-3.5 text-emerald-400" />
+          <PlusCircle className="w-3.5 h-3.5" />
           <span className="hidden sm:inline">Thêm tài sản</span>
         </button>
 
@@ -105,7 +118,7 @@ export const Header: React.FC<HeaderProps> = ({
           onClick={onOpenAddDebt}
           aria-label="Thêm khoản nợ"
           title="Thêm khoản nợ"
-          className="px-3.5 py-1.5 text-xs font-semibold text-rose-700 bg-rose-50 border border-rose-200 rounded-lg hover:bg-rose-100 transition-colors flex items-center gap-1.5 whitespace-nowrap shrink-0"
+          className="px-3.5 py-1.5 text-xs font-medium text-rose-700 bg-rose-50 border border-rose-200 rounded-lg hover:bg-rose-100 transition-colors flex items-center gap-1.5 whitespace-nowrap shrink-0"
         >
           <PlusCircle className="w-3.5 h-3.5 text-rose-600" />
           <span className="hidden sm:inline">Thêm khoản nợ</span>

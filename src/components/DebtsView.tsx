@@ -141,11 +141,11 @@ export const DebtsView: React.FC<DebtsViewProps> = ({
       {/* 1. TOP SUMMARY BANNER */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {/* Total Debt */}
-        <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
-          <span className="text-xs text-slate-500 font-semibold uppercase tracking-wider block mb-1">
+        <div className="bg-white p-5 rounded-xl border border-slate-200">
+          <span className="text-xs text-slate-500 font-medium block mb-1">
             Tổng Dư nợ Hiện tại
           </span>
-          <div className="text-2xl font-extrabold text-rose-600 font-mono tabular-nums">
+          <div className="text-2xl font-semibold text-rose-600 font-mono tabular-nums">
             {formatVND(totalRemainingDebt)}
           </div>
           <span className="text-[11px] text-slate-400 block mt-1">
@@ -154,9 +154,9 @@ export const DebtsView: React.FC<DebtsViewProps> = ({
         </div>
 
         {/* Secured vs Unsecured Breakdown */}
-        <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-between">
+        <div className="bg-white p-5 rounded-xl border border-slate-200 flex flex-col justify-between">
           <div>
-            <span className="text-xs text-slate-500 font-semibold uppercase tracking-wider block mb-2">
+            <span className="text-xs text-slate-500 font-medium block mb-2">
               Phân loại Thế chấp / Tín chấp
             </span>
             <div className="space-y-1 text-xs">
@@ -165,7 +165,7 @@ export const DebtsView: React.FC<DebtsViewProps> = ({
                   <ShieldCheck className="w-3.5 h-3.5 text-sky-600 shrink-0" />
                   <span>Nợ thế chấp ({securedDebts.length}):</span>
                 </span>
-                <span className="font-mono font-bold text-slate-900">
+                <span className="font-mono font-semibold text-slate-900">
                   {formatVND(totalSecuredDebt, { compact: true })}
                 </span>
               </div>
@@ -174,7 +174,7 @@ export const DebtsView: React.FC<DebtsViewProps> = ({
                   <CreditCard className="w-3.5 h-3.5 text-amber-600 shrink-0" />
                   <span>Nợ tín chấp ({unsecuredDebts.length}):</span>
                 </span>
-                <span className="font-mono font-bold text-slate-900">
+                <span className="font-mono font-semibold text-slate-900">
                   {formatVND(totalUnsecuredDebt, { compact: true })}
                 </span>
               </div>
@@ -207,11 +207,11 @@ export const DebtsView: React.FC<DebtsViewProps> = ({
         </div>
 
         {/* Repayment Progress */}
-        <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
-          <span className="text-xs text-slate-500 font-semibold uppercase tracking-wider block mb-1">
+        <div className="bg-white p-5 rounded-xl border border-slate-200">
+          <span className="text-xs text-slate-500 font-medium block mb-1">
             Đã thanh toán gốc
           </span>
-          <div className="text-2xl font-extrabold text-emerald-600 font-mono tabular-nums">
+          <div className="text-2xl font-semibold text-emerald-600 font-mono tabular-nums">
             {formatVND(totalPaidDebt)}
           </div>
           <span className="text-[11px] text-slate-400 block mt-1">
@@ -235,7 +235,7 @@ export const DebtsView: React.FC<DebtsViewProps> = ({
             id="debt-security-filter"
             value={securityFilter}
             onChange={(e) => setSecurityFilter(e.target.value as 'all' | 'secured' | 'unsecured')}
-            className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-800 focus:outline-none focus:ring-1 focus:ring-slate-900"
+            className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-800 focus:outline-none focus:ring-1 focus:ring-accent"
           >
             <option value="all">Tất cả hình thức ({state.debts.length})</option>
             <option value="secured">Vay thế chấp ({state.debts.filter(isSecuredDebt).length})</option>
@@ -251,7 +251,7 @@ export const DebtsView: React.FC<DebtsViewProps> = ({
             id="debt-category-filter"
             value={categoryFilter}
             onChange={(e) => setCategoryFilter(e.target.value)}
-            className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-800 focus:outline-none focus:ring-1 focus:ring-slate-900"
+            className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-800 focus:outline-none focus:ring-1 focus:ring-accent"
           >
             <option value="all">Tất cả mục đích ({state.debts.length})</option>
             {DEBT_CATEGORY_OPTIONS.map((opt) => (
@@ -279,7 +279,7 @@ export const DebtsView: React.FC<DebtsViewProps> = ({
                 setSecurityFilter('all');
                 setCategoryFilter('all');
               }}
-              className="text-[11px] font-semibold text-emerald-600 hover:text-emerald-700 hover:underline"
+              className="text-[11px] font-semibold text-accent-ink hover:text-accent-hover hover:underline"
             >
               Xóa lọc
             </button>
@@ -312,13 +312,13 @@ export const DebtsView: React.FC<DebtsViewProps> = ({
             return (
               <div
                 key={debt.id}
-                className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm space-y-4 hover:border-slate-300 transition-colors"
+                className="bg-white rounded-xl border border-slate-200 p-5 space-y-4 hover:border-slate-300 transition-colors"
               >
                 {/* Header */}
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <div className="flex items-center gap-2">
-                      <h3 className="font-bold text-slate-900 text-base">{debt.name}</h3>
+                      <h3 className="font-semibold text-slate-900 text-base">{debt.name}</h3>
                       {debt.status === 'paid_off' && (
                         <span className="text-[10px] text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded font-semibold">
                           Đã tất toán
@@ -381,7 +381,7 @@ export const DebtsView: React.FC<DebtsViewProps> = ({
                 <div className="space-y-1">
                   <div className="flex items-center justify-between text-xs">
                     <span className="text-slate-500">Tiến độ trả nợ gốc:</span>
-                    <span className="font-mono font-bold text-slate-800">
+                    <span className="font-mono font-semibold text-slate-800">
                       {paidProgress.toFixed(1)}% (Còn {formatVND(debt.remainingPrincipal, { compact: true })})
                     </span>
                   </div>
@@ -397,7 +397,7 @@ export const DebtsView: React.FC<DebtsViewProps> = ({
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 p-3 rounded-lg bg-slate-50 text-xs">
                   <div>
                     <span className="text-slate-400 text-[11px] block">Lãi suất hiện tại</span>
-                    <span className="font-bold text-slate-900 font-mono">
+                    <span className="font-semibold text-slate-900 font-mono">
                       {debt.annualInterestRate}%/năm
                     </span>
                     {debt.status === 'active' && (
@@ -407,7 +407,7 @@ export const DebtsView: React.FC<DebtsViewProps> = ({
 
                   <div>
                     <span className="text-slate-400 text-[11px] block">Phương thức tính</span>
-                    <span className="font-bold text-slate-900">
+                    <span className="font-semibold text-slate-900">
                       {debt.method === 'declining_balance' ? 'Dư nợ giảm dần' : 'Trả đều hàng tháng'}
                     </span>
                     <span className="text-[10px] text-slate-500 block">
@@ -417,7 +417,7 @@ export const DebtsView: React.FC<DebtsViewProps> = ({
 
                   <div>
                     <span className="text-slate-400 text-[11px] block">Ngày đóng tiền</span>
-                    <span className="font-bold text-slate-900 font-mono">
+                    <span className="font-semibold text-slate-900 font-mono">
                       Ngày {debt.paymentDayOfMonth} hàng tháng
                     </span>
                     <span className="text-[10px] text-slate-500 block">
@@ -434,7 +434,7 @@ export const DebtsView: React.FC<DebtsViewProps> = ({
                         <LinkIcon className="w-3.5 h-3.5 text-sky-600" />
                         <span>Thế chấp: {collateralAsset.name}</span>
                       </div>
-                      <span className="font-mono font-bold text-sky-800 bg-sky-100 px-1.5 py-0.5 rounded text-[11px]">
+                      <span className="font-mono font-semibold text-sky-800 bg-sky-100 px-1.5 py-0.5 rounded text-[11px]">
                         LTV: {collateralMetrics.ltvPercent.toFixed(1)}%
                       </span>
                     </div>
@@ -474,7 +474,7 @@ export const DebtsView: React.FC<DebtsViewProps> = ({
                               : `Còn ${nextPay.daysRemaining} ngày`}
                           </strong>
                         </span>
-                        <span className="font-bold text-slate-900 font-mono tabular-nums text-sm">
+                        <span className="font-semibold text-slate-900 font-mono tabular-nums text-sm">
                           {formatVND(nextPay.total)}
                         </span>
                         {!payLocked && state.wallet.availableCash < nextPay.total && (
@@ -510,7 +510,7 @@ export const DebtsView: React.FC<DebtsViewProps> = ({
                             ? `Ví thiếu ${formatVND(nextPay.total - state.wallet.availableCash)} – hãy nạp thêm tiền vào ví`
                             : undefined
                         }
-                        className="px-3 py-1.5 text-xs font-bold text-white bg-amber-600 hover:bg-amber-700 rounded-lg shadow-sm transition-colors flex items-center gap-1 whitespace-nowrap disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-amber-600"
+                        className="px-3 py-1.5 text-xs font-semibold text-white bg-amber-600 hover:bg-amber-700 rounded-lg transition-colors flex items-center gap-1 whitespace-nowrap disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-amber-600"
                       >
                         <CheckCircle2 className="w-3.5 h-3.5" />
                         <span>{payLocked && payCheck ? payLockLabel(payCheck) : 'Trả kỳ này'}</span>
@@ -631,7 +631,7 @@ const FundUseModal: React.FC<FundUseModalProps> = ({ debt, assets, onClose, onSa
           type="button"
           disabled={!!missing}
           onClick={() => onSave({ kind: kind as FundUseKind, assetId: kind === 'asset' ? assetId : undefined })}
-          className="px-5 py-2 text-xs font-bold text-white bg-slate-900 hover:bg-slate-800 rounded-lg disabled:cursor-not-allowed disabled:opacity-50"
+          className="px-5 py-2 text-xs font-medium text-on-accent bg-accent hover:bg-accent-hover rounded-lg disabled:cursor-not-allowed disabled:opacity-50"
         >
           Lưu
         </button>
@@ -818,7 +818,7 @@ const AddDebtModal: React.FC<AddDebtModalProps> = ({ assets, fundAssets, onClose
                   setMode(k);
                   setDisburse(false);
                 }}
-                className={`flex-1 rounded-md px-3 py-1.5 font-semibold transition-colors ${mode === k ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-500 hover:text-slate-900'}`}
+                className={`flex-1 rounded-md px-3 py-1.5 font-semibold transition-colors ${mode === k ? 'bg-white text-slate-900 ' : 'text-slate-500 hover:text-slate-900'}`}
               >
                 {label}
               </button>
@@ -864,7 +864,7 @@ const AddDebtModal: React.FC<AddDebtModalProps> = ({ assets, fundAssets, onClose
                 required
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                className="w-full px-3 py-1.5 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-slate-900"
+                className="w-full px-3 py-1.5 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-accent"
               />
             </div>
             <div>
@@ -876,7 +876,7 @@ const AddDebtModal: React.FC<AddDebtModalProps> = ({ assets, fundAssets, onClose
                 required
                 value={lender}
                 onChange={(e) => setLender(e.target.value)}
-                className="w-full px-3 py-1.5 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-slate-900"
+                className="w-full px-3 py-1.5 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-accent"
               />
             </div>
           </div>
@@ -892,7 +892,7 @@ const AddDebtModal: React.FC<AddDebtModalProps> = ({ assets, fundAssets, onClose
                 required
                 value={principalAmount}
                 onChange={setPrincipalAmount}
-                className="w-full px-3 py-1.5 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-slate-900"
+                className="w-full px-3 py-1.5 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-accent"
               />
               <span className="text-[11px] text-slate-500 font-mono block mt-0.5">
                 {principalAmount > 0 ? formatVND(principalAmount) : ''}
@@ -907,7 +907,7 @@ const AddDebtModal: React.FC<AddDebtModalProps> = ({ assets, fundAssets, onClose
                 value={remainingPrincipal}
                 onChange={setRemainingPrincipal}
                 invalid={!!remainingError}
-                className="w-full px-3 py-1.5 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-slate-900"
+                className="w-full px-3 py-1.5 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-accent"
               />
               <span className="text-[11px] text-slate-500 font-mono block mt-0.5">
                 {remainingPrincipal > 0 ? formatVND(remainingPrincipal) : ''}
@@ -928,7 +928,7 @@ const AddDebtModal: React.FC<AddDebtModalProps> = ({ assets, fundAssets, onClose
                   <CurrencyInput
                     value={originalPrincipal}
                     onChange={setOriginalPrincipal}
-                    className="w-full px-3 py-1.5 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-slate-900"
+                    className="w-full px-3 py-1.5 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-accent"
                   />
                 </div>
                 <div>
@@ -1108,7 +1108,7 @@ const AddDebtModal: React.FC<AddDebtModalProps> = ({ assets, fundAssets, onClose
                   <CurrencyInput
                     value={newAssetValue}
                     onChange={setNewAssetValue}
-                    className="w-full px-3 py-1.5 text-xs border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-1 focus:ring-slate-900"
+                    className="w-full px-3 py-1.5 text-xs border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-1 focus:ring-accent"
                   />
                   <span className="text-[11px] text-slate-500 font-mono block mt-0.5">{newAssetValue > 0 ? formatVND(newAssetValue) : ''}</span>
                 </div>
@@ -1193,7 +1193,7 @@ const AddDebtModal: React.FC<AddDebtModalProps> = ({ assets, fundAssets, onClose
           <button
             type="submit"
             disabled={hasProblems}
-            className="px-5 py-2 text-xs font-bold text-white bg-slate-900 hover:bg-slate-800 rounded-lg shadow-sm transition-colors disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-slate-900"
+            className="px-5 py-2 text-xs font-medium text-on-accent bg-accent hover:bg-accent-hover rounded-lg transition-colors disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-accent"
           >
             Lưu khoản nợ
           </button>

@@ -23,7 +23,7 @@ const fmtTime = (iso?: string) => {
 
 const btn = {
   primary:
-    'rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-bold text-white shadow-sm hover:bg-emerald-700',
+    'rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-on-accent  hover:bg-accent-hover',
   neutral:
     'rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50',
   danger:
@@ -198,7 +198,7 @@ export const AdminView: React.FC<AdminViewProps> = ({ currentUser, accounts, onC
     <div className="space-y-5 pb-12">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h2 className="flex items-center gap-2 text-xl font-bold text-slate-900">
+          <h2 className="flex items-center gap-2 text-xl font-semibold text-slate-900">
             <ShieldCheck className="h-5 w-5 text-emerald-600" />
             Quản trị tài khoản
           </h2>
@@ -237,7 +237,7 @@ export const AdminView: React.FC<AdminViewProps> = ({ currentUser, accounts, onC
         })}
       </div>
 
-      <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+      <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
         {current.list.length === 0 ? (
           <p className="py-12 text-center text-sm text-slate-400">{accounts === null ? 'Đang tải danh sách…' : emptyText[tab]}</p>
         ) : (
@@ -245,12 +245,12 @@ export const AdminView: React.FC<AdminViewProps> = ({ currentUser, accounts, onC
             {current.list.map((a) => (
               <li key={a.id} className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex min-w-0 items-center gap-3">
-                  <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-emerald-100 text-sm font-bold text-emerald-700">
+                  <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-emerald-100 text-sm font-semibold text-emerald-700">
                     {(Array.from(a.displayName.trim())[0] || '?').toUpperCase()}
                   </span>
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
-                      <span className="truncate text-sm font-bold text-slate-900">{a.displayName}</span>
+                      <span className="truncate text-sm font-semibold text-slate-900">{a.displayName}</span>
                       {a.role === 'admin' && (
                         <span className="rounded border border-emerald-200 bg-emerald-50 px-1.5 py-px text-[10px] font-semibold text-emerald-700">
                           Quản trị viên

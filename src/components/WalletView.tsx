@@ -209,21 +209,21 @@ export const WalletView: React.FC<WalletViewProps> = ({
       {/* 1. WALLET BALANCE CARD */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
         {/* Available Cash (Hero) */}
-        <div className="theme-fixed-dark bg-slate-900 text-white p-6 rounded-xl border border-slate-800 shadow-md flex flex-col justify-between">
+        <div className="bg-white p-6 rounded-xl border border-slate-200 flex flex-col justify-between">
           <div>
-            <div className="flex items-center justify-between text-slate-400 text-xs mb-2">
-              <span className="font-semibold uppercase tracking-wider">Tiền Khả Dụng Ví Đầu Tư</span>
-              <Wallet className="w-4 h-4 text-emerald-400" />
+            <div className="flex items-center justify-between text-slate-500 text-xs mb-2">
+              <span className="font-medium">Tiền Khả Dụng Ví Đầu Tư</span>
+              <Wallet className="w-4 h-4 text-slate-500" />
             </div>
-            <div className="text-3xl font-extrabold font-mono tabular-nums text-emerald-400">
+            <div className="text-3xl font-semibold font-mono tabular-nums text-slate-900">
               {formatVND(state.wallet.availableCash)}
             </div>
           </div>
 
-          <div className="flex items-center gap-2 mt-6 pt-4 border-t border-slate-800">
+          <div className="flex items-center gap-2 mt-6 pt-4 border-t border-slate-200">
             <button
               onClick={() => setIsDepositModalOpen(true)}
-              className="flex-1 py-2 px-3 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-lg shadow-sm transition-colors flex items-center justify-center gap-1.5"
+              className="flex-1 py-2 px-3 bg-accent hover:bg-accent-hover text-on-accent text-xs font-medium rounded-lg transition-colors flex items-center justify-center gap-1.5"
             >
               <ArrowDownRight className="w-3.5 h-3.5" />
               <span>Nạp tiền</span>
@@ -232,7 +232,7 @@ export const WalletView: React.FC<WalletViewProps> = ({
               onClick={() => setIsWithdrawModalOpen(true)}
               disabled={available <= 0}
               title={available <= 0 ? 'Ví không còn tiền khả dụng' : undefined}
-              className="flex-1 py-2 px-3 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-lg border border-slate-700 transition-colors flex items-center justify-center gap-1.5 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-slate-800"
+              className="flex-1 py-2 px-3 bg-white hover:bg-slate-100 text-slate-900 text-xs font-medium rounded-lg border border-slate-200 transition-colors flex items-center justify-center gap-1.5 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-white"
             >
               <ArrowUpRight className="w-3.5 h-3.5" />
               <span>Rút vốn</span>
@@ -241,24 +241,24 @@ export const WalletView: React.FC<WalletViewProps> = ({
         </div>
 
         {/* Total Deposited */}
-        <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-between">
+        <div className="bg-white p-6 rounded-xl border border-slate-200 flex flex-col justify-between">
           <div>
-            <span className="text-xs text-slate-500 font-semibold uppercase tracking-wider block mb-1">
+            <span className="text-xs text-slate-500 font-medium block mb-1">
               Tổng Vốn Đã Nạp
             </span>
-            <div className="text-2xl font-extrabold text-slate-900 font-mono tabular-nums">
+            <div className="text-2xl font-semibold text-slate-900 font-mono tabular-nums">
               {formatVND(state.wallet.totalDeposited)}
             </div>
           </div>
         </div>
 
         {/* Total Withdrawn */}
-        <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-between">
+        <div className="bg-white p-6 rounded-xl border border-slate-200 flex flex-col justify-between">
           <div>
-            <span className="text-xs text-slate-500 font-semibold uppercase tracking-wider block mb-1">
+            <span className="text-xs text-slate-500 font-medium block mb-1">
               Tổng Vốn Đã Rút
             </span>
-            <div className="text-2xl font-extrabold text-slate-700 font-mono tabular-nums">
+            <div className="text-2xl font-semibold text-slate-700 font-mono tabular-nums">
               {formatVND(state.wallet.totalWithdrawn)}
             </div>
           </div>
@@ -266,18 +266,18 @@ export const WalletView: React.FC<WalletViewProps> = ({
       </div>
 
       {/* 2. TRANSACTIONS LEDGER */}
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+      <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
         {/* Toolbar */}
         <div className="p-4 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
-            <h3 className="text-sm font-bold text-slate-900">
+            <h3 className="text-sm font-semibold text-slate-900">
               Nhật Ký Dòng Tiền Đầu Tư Thực Tế
             </h3>
           </div>
 
           <button
             onClick={() => setIsIncomeOpen(true)}
-            className="px-3 py-1.5 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg shadow-sm whitespace-nowrap"
+            className="px-3 py-1.5 text-xs font-medium text-on-accent bg-accent hover:bg-accent-hover rounded-lg whitespace-nowrap"
           >
             Ghi nhận thu nhập (cổ tức / tiền thuê / lãi)
           </button>
@@ -297,7 +297,7 @@ export const WalletView: React.FC<WalletViewProps> = ({
                 onClick={() => setFilterType(f.id)}
                 className={`px-2.5 py-1 rounded text-xs font-medium transition-colors ${
                   filterType === f.id
-                    ? 'bg-white text-slate-900 font-semibold shadow-xs'
+                    ? 'bg-white text-slate-900 font-semibold '
                     : 'text-slate-500 hover:text-slate-900'
                 }`}
               >
@@ -318,7 +318,7 @@ export const WalletView: React.FC<WalletViewProps> = ({
                 onClick={() => pickPreset(p.id)}
                 className={`px-2.5 py-1 rounded text-xs font-medium transition-colors ${
                   rangePreset === p.id
-                    ? 'bg-white text-slate-900 font-semibold shadow-xs'
+                    ? 'bg-white text-slate-900 font-semibold '
                     : 'text-slate-500 hover:text-slate-900'
                 }`}
               >
@@ -374,16 +374,16 @@ export const WalletView: React.FC<WalletViewProps> = ({
           >
             <div className="bg-white px-4 py-2.5">
               <span className="block text-[11px] text-slate-500">Tổng vào</span>
-              <span className="font-mono font-bold tabular-nums text-emerald-600">+{formatVND(ledgerSummary.inflow)}</span>
+              <span className="font-mono font-semibold tabular-nums text-emerald-600">+{formatVND(ledgerSummary.inflow)}</span>
             </div>
             <div className="bg-white px-4 py-2.5">
               <span className="block text-[11px] text-slate-500">Tổng ra</span>
-              <span className="font-mono font-bold tabular-nums text-slate-900">-{formatVND(ledgerSummary.outflow)}</span>
+              <span className="font-mono font-semibold tabular-nums text-slate-900">-{formatVND(ledgerSummary.outflow)}</span>
             </div>
             <div className="bg-white px-4 py-2.5">
               <span className="block text-[11px] text-slate-500">Chênh lệch</span>
               <span
-                className={`font-mono font-bold tabular-nums ${
+                className={`font-mono font-semibold tabular-nums ${
                   ledgerSummary.net >= 0 ? 'text-emerald-600' : 'text-rose-600'
                 }`}
               >
@@ -395,13 +395,13 @@ export const WalletView: React.FC<WalletViewProps> = ({
               <>
                 <div className="bg-white px-4 py-2.5">
                   <span className="block text-[11px] text-slate-500">Số dư đầu kỳ</span>
-                  <span className="font-mono font-bold tabular-nums text-slate-900">
+                  <span className="font-mono font-semibold tabular-nums text-slate-900">
                     {formatVND(ledgerSummary.openingBalance)}
                   </span>
                 </div>
                 <div className="bg-white px-4 py-2.5">
                   <span className="block text-[11px] text-slate-500">Số dư cuối kỳ</span>
-                  <span className="font-mono font-bold tabular-nums text-slate-900">
+                  <span className="font-mono font-semibold tabular-nums text-slate-900">
                     {formatVND(ledgerSummary.closingBalance)}
                   </span>
                 </div>
@@ -467,7 +467,7 @@ export const WalletView: React.FC<WalletViewProps> = ({
                       <td className={`py-3 px-4 font-medium ${isVoided || isReversal ? 'text-slate-400' : 'text-slate-900'} ${isVoided ? 'line-through' : ''}`}>
                         {tx.title}
                       </td>
-                      <td className="py-3 px-4 text-right font-mono font-bold whitespace-nowrap tabular-nums">
+                      <td className="py-3 px-4 text-right font-mono font-semibold whitespace-nowrap tabular-nums">
                         <span
                           className={
                             isVoided || isReversal ? 'text-slate-400' : effect > 0 ? 'text-emerald-600' : 'text-slate-900'
@@ -477,7 +477,7 @@ export const WalletView: React.FC<WalletViewProps> = ({
                           {formatVND(tx.amount)}
                         </span>
                       </td>
-                      <td className="py-3 px-4 text-right font-mono font-bold text-slate-900 whitespace-nowrap tabular-nums">
+                      <td className="py-3 px-4 text-right font-mono font-semibold text-slate-900 whitespace-nowrap tabular-nums">
                         {formatVND(tx.balanceAfter)}
                       </td>
                       <td className="py-3 px-3 text-right whitespace-nowrap">
@@ -549,7 +549,7 @@ export const WalletView: React.FC<WalletViewProps> = ({
             </ModalBody>
             <ModalFooter>
               <button type="button" onClick={closeIncome} className="px-3.5 py-1.5 text-xs text-slate-600 hover:bg-slate-100 rounded-lg font-medium">Hủy</button>
-              <button type="submit" disabled={!canSubmitIncome} className="px-4 py-1.5 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg shadow-sm disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-emerald-600">Xác nhận ghi nhận</button>
+              <button type="submit" disabled={!canSubmitIncome} className="px-4 py-1.5 text-xs font-medium text-on-accent bg-accent hover:bg-accent-hover rounded-lg disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-accent">Xác nhận ghi nhận</button>
             </ModalFooter>
           </form>
         </Modal>
@@ -570,7 +570,7 @@ export const WalletView: React.FC<WalletViewProps> = ({
                 <CurrencyInput
                   value={depositAmount}
                   onChange={setDepositAmount}
-                  className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-slate-900"
+                  className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-accent"
                 />
                 <span className="text-[11px] text-slate-500 font-mono block mt-1">
                   {depositAmount > 0 ? formatVND(depositAmount) : ''}
@@ -599,7 +599,7 @@ export const WalletView: React.FC<WalletViewProps> = ({
                   type="text"
                   value={depositNote}
                   onChange={(e) => setDepositNote(e.target.value)}
-                  className="w-full px-3 py-1.5 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-slate-900"
+                  className="w-full px-3 py-1.5 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-accent"
                 />
               </div>
             </ModalBody>
@@ -614,7 +614,7 @@ export const WalletView: React.FC<WalletViewProps> = ({
               <button
                 type="submit"
                 disabled={!canDeposit}
-                className="px-4 py-1.5 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg shadow-sm transition-colors disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-emerald-600"
+                className="px-4 py-1.5 text-xs font-medium text-on-accent bg-accent hover:bg-accent-hover rounded-lg transition-colors disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-accent"
               >
                 Xác nhận Nạp Tiền
               </button>
@@ -639,7 +639,7 @@ export const WalletView: React.FC<WalletViewProps> = ({
                   value={withdrawAmount}
                   onChange={setWithdrawAmount}
                   invalid={!!withdrawError}
-                  className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-slate-900"
+                  className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-accent"
                 />
                 <div className="flex items-center justify-between gap-2 text-[11px] mt-1.5 font-mono">
                   <span className="text-slate-600">
@@ -679,7 +679,7 @@ export const WalletView: React.FC<WalletViewProps> = ({
                   type="text"
                   value={withdrawNote}
                   onChange={(e) => setWithdrawNote(e.target.value)}
-                  className="w-full px-3 py-1.5 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-slate-900"
+                  className="w-full px-3 py-1.5 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-accent"
                 />
               </div>
             </ModalBody>
@@ -694,7 +694,7 @@ export const WalletView: React.FC<WalletViewProps> = ({
               <button
                 type="submit"
                 disabled={!canWithdraw}
-                className="px-4 py-1.5 text-xs font-bold text-white bg-slate-900 hover:bg-slate-800 rounded-lg shadow-sm transition-colors disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-slate-900"
+                className="px-4 py-1.5 text-xs font-medium text-on-accent bg-accent hover:bg-accent-hover rounded-lg transition-colors disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-accent"
               >
                 Xác nhận Rút Vốn
               </button>

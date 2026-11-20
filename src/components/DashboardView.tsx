@@ -96,7 +96,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     <div className="space-y-6 pb-12">
       {userName && (
         <div>
-          <h2 className="text-lg font-bold text-slate-900">
+          <h2 className="text-lg font-semibold text-slate-900">
             {greetingForNow()}, {userName}
           </h2>
         </div>
@@ -105,19 +105,19 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       {/* 1. TOP STATS ROW: Tiền khả dụng + Tài sản đầu tư − Dư nợ = Tài sản ròng; Lãi/Lỗ */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-4">
         {/* Available cash */}
-        <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm lg:col-span-2">
+        <div className="bg-white p-5 rounded-xl border border-slate-200 lg:col-span-2">
           <div className="flex items-center justify-between text-xs text-slate-500 mb-2">
-            <span className="font-semibold uppercase tracking-wider">Tiền khả dụng</span>
+            <span className="font-medium">Tiền khả dụng</span>
           </div>
-          <div className="text-2xl font-extrabold text-slate-900 font-mono tabular-nums">
+          <div className="text-2xl font-semibold text-slate-900 font-mono tabular-nums">
             {formatVND(summary.availableCash)}
           </div>
         </div>
 
         {/* Total Assets & Book PnL */}
-        <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm lg:col-span-2">
+        <div className="bg-white p-5 rounded-xl border border-slate-200 lg:col-span-2">
           <div className="flex items-center justify-between text-xs text-slate-500 mb-2">
-            <span className="font-semibold uppercase tracking-wider">Tổng Tài sản Đầu tư</span>
+            <span className="font-medium">Tổng Tài sản Đầu tư</span>
             <span
               className={`font-semibold font-mono text-xs ${
                 summary.bookPnL >= 0 ? 'text-emerald-600' : 'text-rose-600'
@@ -126,7 +126,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               {formatPercent(summary.bookPnLPercent)}
             </span>
           </div>
-          <div className="text-2xl font-extrabold text-slate-900 font-mono tabular-nums">
+          <div className="text-2xl font-semibold text-slate-900 font-mono tabular-nums">
             {formatVND(summary.totalAssetValue)}
           </div>
           <div className="mt-2 text-xs text-slate-600 flex items-center justify-between">
@@ -136,14 +136,14 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         </div>
 
         {/* Total Active Debts */}
-        <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm lg:col-span-2">
+        <div className="bg-white p-5 rounded-xl border border-slate-200 lg:col-span-2">
           <div className="flex items-center justify-between text-xs text-slate-500 mb-2">
-            <span className="font-semibold uppercase tracking-wider">Tổng Dư nợ Đang vay</span>
+            <span className="font-medium">Tổng Dư nợ Đang vay</span>
             <span className="text-rose-700 font-semibold bg-rose-50 px-2 py-0.5 rounded text-[11px]">
               {state.debts.filter((d) => d.status === 'active').length} khoản nợ
             </span>
           </div>
-          <div className="text-2xl font-extrabold text-rose-600 font-mono tabular-nums">
+          <div className="text-2xl font-semibold text-rose-600 font-mono tabular-nums">
             {formatVND(summary.totalDebtBalance)}
           </div>
           <div className="mt-2 text-xs text-slate-600 flex items-center justify-between">
@@ -157,12 +157,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         </div>
 
         {/* Net Worth */}
-        <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm relative overflow-hidden lg:col-span-3">
+        <div className="bg-white p-5 rounded-xl border border-slate-200 relative overflow-hidden lg:col-span-3">
           <div className="flex items-center justify-between text-xs text-slate-500 mb-2">
-            <span className="font-semibold uppercase tracking-wider">Tài sản ròng (Net Worth)</span>
+            <span className="font-medium">Tài sản ròng (Net Worth)</span>
           </div>
           <div
-            className={`text-3xl font-extrabold font-mono tabular-nums ${
+            className={`text-3xl font-semibold font-mono tabular-nums ${
               summary.netWorth < 0 ? 'text-rose-600' : 'text-slate-900'
             }`}
           >
@@ -171,15 +171,15 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         </div>
 
         {/* Lãi Lỗ Sổ Sách vs Thực Tế */}
-        <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm sm:col-span-2 lg:col-span-3">
+        <div className="bg-white p-5 rounded-xl border border-slate-200 sm:col-span-2 lg:col-span-3">
           <div className="flex items-center justify-between text-xs text-slate-500 mb-2">
-            <span className="font-semibold uppercase tracking-wider">Hiệu quả Lãi / Lỗ</span>
+            <span className="font-medium">Hiệu quả Lãi / Lỗ</span>
           </div>
           <div className="space-y-1.5">
             <div className="flex items-center justify-between">
               <span className="text-xs text-slate-500">Lãi sổ sách:</span>
               <span
-                className={`text-sm font-bold font-mono tabular-nums ${
+                className={`text-sm font-semibold font-mono tabular-nums ${
                   summary.bookPnL >= 0 ? 'text-emerald-600' : 'text-rose-600'
                 }`}
               >
@@ -190,7 +190,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             <div className="flex items-center justify-between pt-1 border-t border-slate-100">
               <span className="text-xs text-slate-500">Lãi chốt thực tế:</span>
               <span
-                className={`text-sm font-bold font-mono tabular-nums ${
+                className={`text-sm font-semibold font-mono tabular-nums ${
                   summary.totalRealizedPnL >= 0 ? 'text-emerald-700' : 'text-rose-700'
                 }`}
               >
@@ -204,14 +204,14 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
       {/* 2. CRITICAL DEBT CASHFLOW ALERT BANNER */}
       {nextPayment && (
-        <div className="bg-gradient-to-r from-amber-500/10 via-amber-500/5 to-transparent border border-amber-300 rounded-xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div className="flex items-start gap-3.5">
-            <div className="w-10 h-10 rounded-lg bg-amber-500 text-white flex items-center justify-center shrink-0 shadow-sm mt-0.5">
+            <div className="w-10 h-10 rounded-lg bg-amber-500 text-white flex items-center justify-center shrink-0 mt-0.5">
               <AlertTriangle className="w-5 h-5" />
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <span className="text-xs font-bold text-amber-800 uppercase tracking-wider">
+                <span className="text-sm font-semibold text-amber-800">
                   Khoản nợ đến hạn thanh toán gần nhất
                 </span>
                 <span className="text-slate-400">·</span>
@@ -223,7 +223,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                     : `Đã quá hạn ${Math.abs(nextPayment.daysRemaining)} ngày!`}
                 </span>
               </div>
-              <div className="text-base font-bold text-slate-900 mt-0.5">
+              <div className="text-base font-semibold text-slate-900 mt-0.5">
                 {nextPayment.debt.name} ({nextPayment.debt.lender})
               </div>
               <div className="text-xs text-slate-600 mt-1 flex flex-wrap items-center gap-x-4 gap-y-1">
@@ -246,7 +246,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           <div className="flex items-center gap-3 shrink-0 self-end md:self-center">
             <div className="text-right">
               <span className="text-[11px] text-slate-500 block">Tổng tiền phải trả kỳ này</span>
-              <span className="text-lg font-extrabold text-amber-700 font-mono tabular-nums">
+              <span className="text-lg font-semibold text-amber-700 font-mono tabular-nums">
                 {formatVND(nextPayment.total)}
               </span>
               {!payLocked && cashShort && (
@@ -265,7 +265,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   ? 'Ví không đủ tiền – hãy nạp thêm vào ví'
                   : undefined
               }
-              className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold rounded-lg shadow-sm transition-colors flex items-center gap-1.5 whitespace-nowrap disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-amber-600"
+              className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold rounded-lg transition-colors flex items-center gap-1.5 whitespace-nowrap disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-amber-600"
             >
               <CheckCircle2 className="w-4 h-4" />
               <span>{payLocked && payCheck ? payLockLabel(payCheck) : 'Xác nhận trả kỳ này'}</span>
@@ -277,7 +277,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       {/* 2b. SAVINGS MATURITY ALERTS */}
       {maturities.length > 0 && (
         <div className="bg-white border border-sky-200 rounded-xl p-4">
-          <h3 className="text-xs font-bold text-sky-900 uppercase tracking-wider mb-2">
+          <h3 className="text-sm font-semibold text-sky-900 mb-2">
             Sổ tiết kiệm sắp đáo hạn
           </h3>
           <div className="divide-y divide-slate-100">
@@ -304,13 +304,13 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       {trend && (
         <div className="bg-white border border-slate-200 rounded-xl p-4">
           <div className="flex items-center justify-between mb-2">
-            <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider">Diễn biến tài sản ròng</h3>
+            <h3 className="text-sm font-semibold text-slate-900">Diễn biến tài sản ròng</h3>
             <span className={`text-xs font-mono font-semibold ${trend.change >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
               {trend.change >= 0 ? '+' : ''}{formatVND(trend.change, { compact: true })} · {trend.from} → {trend.to}
             </span>
           </div>
           <svg viewBox={`0 0 ${trend.W} ${trend.H}`} className="w-full h-28" role="img" aria-label="Biểu đồ tài sản ròng theo ngày">
-            <polyline points={trend.points} fill="none" stroke="#059669" strokeWidth="2" />
+            <polyline points={trend.points} fill="none" stroke="#C96442" strokeWidth="2" />
           </svg>
         </div>
       )}
@@ -318,14 +318,14 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       {/* 3. TWO-COLUMN SPLIT: PORTFOLIO ALLOCATION & COLLATERAL LEVERAGE */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Left: Asset Category Allocation */}
-        <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
+        <div className="bg-white rounded-xl border border-slate-200 p-5">
           <div className="flex items-center justify-between mb-4 pb-3 border-b border-slate-100">
             <div>
-              <h2 className="text-sm font-bold text-slate-900">Phân bổ Danh mục Tài sản</h2>
+              <h2 className="text-sm font-semibold text-slate-900">Phân bổ Danh mục Tài sản</h2>
             </div>
             <button
               onClick={() => onNavigateTab('assets')}
-              className="text-xs font-semibold text-emerald-600 hover:text-emerald-700 flex items-center gap-1"
+              className="text-xs font-semibold text-accent-ink hover:text-accent-hover flex items-center gap-1"
             >
               <span>Xem chi tiết</span>
               <ArrowRight className="w-3.5 h-3.5" />
@@ -363,7 +363,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
                       <div className="flex items-center gap-4 text-right shrink-0">
                         <div>
-                          <div className="font-bold text-slate-900 font-mono tabular-nums">
+                          <div className="font-semibold text-slate-900 font-mono tabular-nums">
                             {formatVND(slice.value, { compact: true })}
                           </div>
                           <div
@@ -373,7 +373,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                             {formatVND(pnl, { compact: true })})
                           </div>
                         </div>
-                        <div className="w-14 text-right font-mono font-bold text-slate-600">
+                        <div className="w-14 text-right font-mono font-semibold text-slate-600">
                           {slice.pct.toFixed(1)}%
                         </div>
                       </div>
@@ -386,14 +386,14 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         </div>
 
         {/* Right: Collateral Linkage & Net Equity vs Loan */}
-        <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
+        <div className="bg-white rounded-xl border border-slate-200 p-5">
           <div className="flex items-center justify-between mb-4 pb-3 border-b border-slate-100">
             <div>
-              <h2 className="text-sm font-bold text-slate-900">Liên kết Nợ & Tài sản Thế chấp</h2>
+              <h2 className="text-sm font-semibold text-slate-900">Liên kết Nợ & Tài sản Thế chấp</h2>
             </div>
             <button
               onClick={() => onNavigateTab('debts')}
-              className="text-xs font-semibold text-emerald-600 hover:text-emerald-700 flex items-center gap-1"
+              className="text-xs font-semibold text-accent-ink hover:text-accent-hover flex items-center gap-1"
             >
               <span>Xem khoản nợ</span>
               <ArrowRight className="w-3.5 h-3.5" />
@@ -414,10 +414,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 >
                   <div className="flex items-center justify-between">
                     <div>
-                      <span className="font-bold text-slate-900 text-sm">{asset.name}</span>
+                      <span className="font-semibold text-slate-900 text-sm">{asset.name}</span>
                       <span className="text-slate-400 ml-2">← {debt.name}</span>
                     </div>
-                    <span className="font-mono font-bold text-slate-700 bg-white border border-slate-200 px-2 py-0.5 rounded text-[11px]">
+                    <span className="font-mono font-semibold text-slate-700 bg-white border border-slate-200 px-2 py-0.5 rounded text-[11px]">
                       LTV: {metrics.ltvPercent.toFixed(1)}%
                     </span>
                   </div>
@@ -469,28 +469,28 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       {/* 4. BOTTOM ROW: MONTHLY DEBT OBLIGATION & TOP ASSETS */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Month Cash Outflow for Debt */}
-        <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
+        <div className="bg-white rounded-xl border border-slate-200 p-5">
           <div className="flex items-center justify-between mb-3 pb-2 border-b border-slate-100">
-            <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider">
+            <h3 className="text-sm font-semibold text-slate-900">
               Dòng tiền trả nợ tháng này
             </h3>
             <Calendar className="w-4 h-4 text-slate-400" />
           </div>
 
-          <div className="text-xl font-bold text-slate-900 font-mono tabular-nums mb-3">
+          <div className="text-xl font-semibold text-slate-900 font-mono tabular-nums mb-3">
             {formatVND(summary.monthlyDebtPaymentTotal)}
           </div>
 
           <div className="space-y-2 text-xs">
             <div className="flex items-center justify-between text-slate-600">
               <span>Tiền gốc trả nợ:</span>
-              <span className="font-bold text-slate-800 font-mono tabular-nums">
+              <span className="font-semibold text-slate-800 font-mono tabular-nums">
                 {formatVND(summary.monthlyPrincipalTotal)}
               </span>
             </div>
             <div className="flex items-center justify-between text-slate-600">
               <span>Tiền lãi vay phát sinh:</span>
-              <span className="font-bold text-rose-600 font-mono tabular-nums">
+              <span className="font-semibold text-rose-600 font-mono tabular-nums">
                 {formatVND(summary.monthlyInterestTotal)}
               </span>
             </div>
@@ -504,9 +504,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         </div>
 
         {/* Top Performing Assets */}
-        <div className="lg:col-span-2 bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
+        <div className="lg:col-span-2 bg-white rounded-xl border border-slate-200 p-5">
           <div className="flex items-center justify-between mb-3 pb-2 border-b border-slate-100">
-            <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider">
+            <h3 className="text-sm font-semibold text-slate-900">
               Tài sản Hiệu quả Lãi/Lỗ Cao Nhất
             </h3>
           </div>
@@ -527,7 +527,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   className="flex items-center justify-between text-xs py-1.5 px-2 rounded hover:bg-slate-50 transition-colors"
                 >
                   <div className="truncate pr-4">
-                    <span className="font-bold text-slate-900 block truncate">{asset.name}</span>
+                    <span className="font-semibold text-slate-900 block truncate">{asset.name}</span>
                     <span className="text-[11px] text-slate-400">
                       Mua: {asset.purchaseDate} · Vốn:{' '}
                       <span className="font-mono">{formatVND(asset.initialCost, { compact: true })}</span>
@@ -535,11 +535,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   </div>
 
                   <div className="text-right shrink-0">
-                    <div className="font-bold text-slate-900 font-mono tabular-nums">
+                    <div className="font-semibold text-slate-900 font-mono tabular-nums">
                       {formatVND(asset.currentValue, { compact: true })}
                     </div>
                     <div
-                      className={`text-[11px] font-mono font-bold ${
+                      className={`text-[11px] font-mono font-semibold ${
                         pnl >= 0 ? 'text-emerald-600' : 'text-rose-600'
                       }`}
                     >

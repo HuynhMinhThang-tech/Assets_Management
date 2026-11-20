@@ -13,7 +13,7 @@ interface AuthScreenProps {
 }
 
 const inputClass =
-  'w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-1 focus:ring-slate-900';
+  'w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-1 focus:ring-accent';
 
 const Field: React.FC<{
   id: string;
@@ -118,21 +118,21 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ isDark, onToggleTheme, o
         onClick={onToggleTheme}
         aria-label={isDark ? 'Chuyển sang giao diện sáng' : 'Chuyển sang giao diện tối'}
         title={isDark ? 'Giao diện tối' : 'Giao diện sáng'}
-        className="fixed right-4 top-4 grid h-9 w-9 place-items-center rounded-lg border border-slate-200 bg-white text-slate-600 shadow-sm hover:bg-slate-50"
+        className="fixed right-4 top-4 grid h-9 w-9 place-items-center rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-100"
       >
         {isDark ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />}
       </button>
 
-      <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-7 shadow-lg">
+      <div className="w-full max-w-md rounded-xl border border-slate-200 bg-white p-7">
         <div className="mb-5 flex flex-col items-center gap-3 text-center">
-          <div className="grid h-12 w-12 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-emerald-400 to-emerald-600 shadow-lg shadow-emerald-950/30 ring-1 ring-white/10">
-            <svg viewBox="0 0 24 24" className="h-6 w-6 text-white" fill="currentColor" aria-hidden="true">
-              <rect x="4" y="13" width="4" height="7" rx="1" />
-              <rect x="10" y="9" width="4" height="11" rx="1" />
-              <rect x="16" y="4" width="4" height="16" rx="1" />
-            </svg>
-          </div>
-          <div className="text-base font-bold leading-tight text-slate-900">Quản lý tài sản và nợ</div>
+          <svg viewBox="0 0 64 64" className="h-12 w-12 shrink-0" aria-hidden="true">
+            <rect width="64" height="64" rx="15" fill="#181715" />
+            <rect x="2" y="2" width="60" height="60" rx="13" fill="none" stroke="#32302B" strokeWidth="1" />
+            <rect x="12" y="35" width="10" height="17" rx="2.5" fill="#FAF9F5" />
+            <rect x="27" y="25" width="10" height="27" rx="2.5" fill="#FAF9F5" />
+            <rect x="42" y="12" width="10" height="40" rx="2.5" fill="#C96442" />
+          </svg>
+          <div className="text-base font-semibold leading-tight text-slate-900">Quản lý tài sản và nợ</div>
         </div>
 
         {done ? (
@@ -156,14 +156,14 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ isDark, onToggleTheme, o
             <button
               type="button"
               onClick={() => switchMode('login')}
-              className="w-full rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-bold text-white hover:bg-slate-800"
+              className="w-full rounded-lg bg-accent px-4 py-2.5 text-sm font-medium text-on-accent hover:bg-accent-hover"
             >
               Về trang đăng nhập
             </button>
           </div>
         ) : (
           <form onSubmit={handleSubmit} noValidate className="space-y-4">
-            <h1 className="text-center text-lg font-bold text-slate-900">{title}</h1>
+            <h1 className="text-center text-lg font-semibold text-slate-900">{title}</h1>
 
             {formError && (
               <div role="alert" className="flex items-start gap-2 rounded-lg border border-rose-200 bg-rose-50 p-3 text-xs font-medium text-rose-800">
@@ -241,7 +241,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ isDark, onToggleTheme, o
                   <input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} />
                   Ghi nhớ đăng nhập
                 </label>
-                <button type="button" onClick={() => switchMode('forgot')} className="font-semibold text-emerald-600 hover:underline">
+                <button type="button" onClick={() => switchMode('forgot')} className="font-semibold text-accent-ink hover:underline">
                   Quên mật khẩu?
                 </button>
               </div>
@@ -250,7 +250,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ isDark, onToggleTheme, o
             <button
               type="submit"
               disabled={busy}
-              className="w-full rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-bold text-white shadow-sm transition-colors hover:bg-slate-800 disabled:cursor-wait disabled:opacity-60"
+              className="w-full rounded-lg bg-accent px-4 py-2.5 text-sm font-medium text-on-accent transition-colors hover:bg-accent-hover disabled:cursor-wait disabled:opacity-60"
             >
               {busy
                 ? 'Đang xử lý…'
@@ -266,14 +266,14 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ isDark, onToggleTheme, o
                 {effectiveMode === 'login' ? (
                   <>
                     Chưa có tài khoản?{' '}
-                    <button type="button" onClick={() => switchMode('register')} className="font-semibold text-emerald-600 hover:underline">
+                    <button type="button" onClick={() => switchMode('register')} className="font-semibold text-accent-ink hover:underline">
                       Đăng ký
                     </button>
                   </>
                 ) : (
                   <>
                     Đã có tài khoản?{' '}
-                    <button type="button" onClick={() => switchMode('login')} className="font-semibold text-emerald-600 hover:underline">
+                    <button type="button" onClick={() => switchMode('login')} className="font-semibold text-accent-ink hover:underline">
                       Đăng nhập
                     </button>
                   </>

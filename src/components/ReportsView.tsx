@@ -37,7 +37,7 @@ const Total: React.FC<{ label: string; value: number; testId?: string; strong?: 
 );
 const Section: React.FC<{ title: string; children: React.ReactNode }> = ({ title, children }) => (
   <div className="pt-3 pb-1">
-    <div className="text-xs font-bold uppercase tracking-wider text-slate-900 pb-1">{title}</div>
+    <div className="text-sm font-semibold text-slate-900 pb-1">{title}</div>
     {children}
   </div>
 );
@@ -74,7 +74,7 @@ export const ReportsView: React.FC<{ state: UserFinancialState }> = ({ state }) 
   return (
     <div className="space-y-6 pb-12">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h2 className="text-lg font-bold text-slate-900">Báo cáo</h2>
+        <h2 className="text-lg font-semibold text-slate-900">Báo cáo</h2>
         <span data-period-label className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-700">
           {period.valid ? `${period.label} · ${vnDate(period.from)} – ${vnDate(period.to)}` : period.label}
         </span>
@@ -89,7 +89,7 @@ export const ReportsView: React.FC<{ state: UserFinancialState }> = ({ state }) 
               type="button"
               data-period-kind={k}
               onClick={() => set({ kind: k })}
-              className={`rounded-md px-3 py-1.5 font-semibold transition-colors ${spec.kind === k ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-500 hover:text-slate-900'}`}
+              className={`rounded-md px-3 py-1.5 font-semibold transition-colors ${spec.kind === k ? 'bg-white text-slate-900 ' : 'text-slate-500 hover:text-slate-900'}`}
             >
               {label}
             </button>
@@ -160,8 +160,8 @@ export const ReportsView: React.FC<{ state: UserFinancialState }> = ({ state }) 
           )}
 
           {tab === 'cashflow' && (
-            <div data-report="cashflow" className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-              <h3 className="pb-2 border-b border-slate-200 text-xs font-bold uppercase tracking-wider text-slate-900">Báo cáo lưu chuyển tiền tệ</h3>
+            <div data-report="cashflow" className="rounded-xl border border-slate-200 bg-white p-5">
+              <h3 className="pb-2 border-b border-slate-200 text-sm font-semibold text-slate-900">Báo cáo lưu chuyển tiền tệ</h3>
               <Section title="I. Thu nhập đầu tư">
                 <Line label="Cổ tức" value={data.cf.operating.dividend} testId="dividend" />
                 <Line label="Lãi tiền gửi / trái phiếu" value={data.cf.operating.interest} testId="interest" />
@@ -185,7 +185,7 @@ export const ReportsView: React.FC<{ state: UserFinancialState }> = ({ state }) 
               <div className="mt-3 space-y-0.5 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm">
                 <div className="flex justify-between py-1"><span className="text-slate-700">Tiền đầu kỳ</span><span data-cf="opening" className="font-mono tabular-nums">{formatVND(data.cf.opening)}</span></div>
                 <div className="flex justify-between py-1"><span className="text-slate-700">Tăng/giảm tiền thuần trong kỳ</span><span data-cf="net" className={`font-mono tabular-nums ${tone(data.cf.net)}`}>{signed(data.cf.net)}</span></div>
-                <div className="flex justify-between border-t border-slate-200 py-1.5 font-bold"><span className="text-slate-900">Tiền cuối kỳ</span><span data-cf="closing" className="font-mono tabular-nums">{formatVND(data.cf.closing)}</span></div>
+                <div className="flex justify-between border-t border-slate-200 py-1.5 font-semibold"><span className="text-slate-900">Tiền cuối kỳ</span><span data-cf="closing" className="font-mono tabular-nums">{formatVND(data.cf.closing)}</span></div>
               </div>
               {(data.cf.nonCash.assets.count > 0 || data.cf.nonCash.loans.count > 0 || data.cf.nonCash.externalPayments.count > 0 || data.cf.nonCash.unrecordedPayments.count > 0) && (
                 <Section title="Giao dịch không qua ví (phi tiền mặt)">
@@ -199,8 +199,8 @@ export const ReportsView: React.FC<{ state: UserFinancialState }> = ({ state }) 
           )}
 
           {tab === 'profit' && (
-            <div data-report="profit" className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-              <h3 className="pb-2 border-b border-slate-200 text-xs font-bold uppercase tracking-wider text-slate-900">Báo cáo hoạt động kinh doanh</h3>
+            <div data-report="profit" className="rounded-xl border border-slate-200 bg-white p-5">
+              <h3 className="pb-2 border-b border-slate-200 text-sm font-semibold text-slate-900">Báo cáo hoạt động kinh doanh</h3>
               <Section title="I. Kết quả đã thực hiện">
                 <Line label="Cổ tức" value={data.pr.income.dividend} testId="dividend" />
                 <Line label="Lãi tiền gửi / trái phiếu" value={data.pr.income.interest} testId="interest" />
@@ -224,7 +224,7 @@ export const ReportsView: React.FC<{ state: UserFinancialState }> = ({ state }) 
                 ].map(([label, value, id]) => (
                   <div key={id as string} data-ratio={id as string} className="rounded-xl border border-slate-200 bg-white p-4">
                     <div className="text-xs font-semibold text-slate-700">{label}</div>
-                    <div className="mt-2 text-xl font-extrabold font-mono tabular-nums text-slate-900">{value ?? '—'}</div>
+                    <div className="mt-2 text-xl font-semibold font-mono tabular-nums text-slate-900">{value ?? '—'}</div>
                   </div>
                 ))}
               </div>
@@ -232,9 +232,9 @@ export const ReportsView: React.FC<{ state: UserFinancialState }> = ({ state }) 
           )}
 
           {/* Đối soát giữa ba báo cáo */}
-          <section data-reconcile className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+          <section data-reconcile className="rounded-xl border border-slate-200 bg-white p-5">
             <div className="flex items-center justify-between pb-2 border-b border-slate-200">
-              <h3 className="text-xs font-bold uppercase tracking-wider text-slate-900">Đối soát giữa ba báo cáo</h3>
+              <h3 className="text-sm font-semibold text-slate-900">Đối soát giữa ba báo cáo</h3>
               <button type="button" data-toggle-detail onClick={() => setDetail((v) => !v)} className="text-xs font-semibold text-slate-600 hover:text-slate-900">
                 {detail ? 'Ẩn chi tiết' : 'Xem chi tiết'}
               </button>
@@ -255,7 +255,7 @@ const CheckRow: React.FC<{ c: ReconcileCheck; detail: boolean }> = ({ c, detail 
   <div data-check={c.id} data-ok={c.ok ? 'true' : 'false'} className="py-3">
     <div className="flex items-start justify-between gap-3">
       <span className="text-sm font-medium text-slate-800">{c.title}</span>
-      <span className={`shrink-0 rounded-full border px-2.5 py-0.5 text-xs font-bold ${c.ok ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-rose-200 bg-rose-50 text-rose-700'}`}>
+      <span className={`shrink-0 rounded-full border px-2.5 py-0.5 text-xs font-semibold ${c.ok ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-rose-200 bg-rose-50 text-rose-700'}`}>
         {c.ok ? 'Khớp' : 'Chưa khớp'}
       </span>
     </div>
@@ -263,7 +263,7 @@ const CheckRow: React.FC<{ c: ReconcileCheck; detail: boolean }> = ({ c, detail 
       <div className="mt-2 space-y-1 text-xs">
         <div className="flex justify-between font-mono"><span className="font-sans text-slate-600">{c.left.label}</span><span>{formatVND(c.left.value)}</span></div>
         <div className="flex justify-between font-mono"><span className="font-sans text-slate-600">{c.right.label}</span><span>{formatVND(c.right.value)}</span></div>
-        {!c.ok && <div className="flex justify-between font-mono font-bold text-rose-600"><span className="font-sans">Chênh lệch</span><span>{signed(c.diff)}</span></div>}
+        {!c.ok && <div className="flex justify-between font-mono font-semibold text-rose-600"><span className="font-sans">Chênh lệch</span><span>{signed(c.diff)}</span></div>}
         {detail && c.parts && (
           <div className="mt-1 rounded-lg border border-slate-200 bg-slate-50 p-2 font-mono">
             {c.parts.filter((p) => p.value !== 0).map((p) => (

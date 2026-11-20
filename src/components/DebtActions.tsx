@@ -25,14 +25,14 @@ export interface DebtActionHandlers {
   onEditDebt?: (debtId: string, patch: DebtEditInput) => Result;
 }
 
-const inputCls = 'w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-slate-900';
+const inputCls = 'w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-accent';
 const dateCls = 'w-full px-3 py-1.5 text-xs border border-slate-300 rounded-lg';
-const btnPrimary = 'px-5 py-2 text-xs font-bold text-white bg-slate-900 hover:bg-slate-800 rounded-lg disabled:cursor-not-allowed disabled:opacity-50';
+const btnPrimary = 'px-5 py-2 text-xs font-medium text-on-accent bg-accent hover:bg-accent-hover rounded-lg disabled:cursor-not-allowed disabled:opacity-50';
 const btnGhost = 'px-4 py-2 text-xs text-slate-600 hover:bg-slate-100 rounded-lg font-medium';
 const Row: React.FC<{ label: string; value: React.ReactNode; strong?: boolean }> = ({ label, value, strong }) => (
   <div className="flex items-center justify-between px-3 py-2">
     <span className="text-slate-500">{label}</span>
-    <span className={`font-mono ${strong ? 'font-bold text-slate-900' : 'font-semibold text-slate-800'}`}>{value}</span>
+    <span className={`font-mono ${strong ? 'font-semibold text-slate-900' : 'font-semibold text-slate-800'}`}>{value}</span>
   </div>
 );
 const Box: React.FC<{ children: React.ReactNode; testId?: string }> = ({ children, testId }) => (
@@ -370,19 +370,19 @@ export const DebtDetailModal: React.FC<{
         <div className="grid shrink-0 grid-cols-4 border-b border-slate-200 bg-slate-50 p-4 text-xs">
           <div>
             <span className="text-slate-400 block">{debt.trackingStartDate ? 'Dư nợ lúc bắt đầu theo dõi' : 'Gốc vay ban đầu'}</span>
-            <span className="font-bold text-slate-900 font-mono text-sm">{formatVND(debt.principalAmount)}</span>
+            <span className="font-semibold text-slate-900 font-mono text-sm">{formatVND(debt.principalAmount)}</span>
           </div>
           <div>
             <span className="text-slate-400 block">Tiền lãi các kỳ còn lại</span>
-            <span className="font-bold text-rose-600 font-mono text-sm">{formatVND(remainingInterest)}</span>
+            <span className="font-semibold text-rose-600 font-mono text-sm">{formatVND(remainingInterest)}</span>
           </div>
           <div>
             <span className="text-slate-400 block">Dư nợ gốc còn lại</span>
-            <span className="font-bold text-slate-900 font-mono text-sm">{formatVND(debt.remainingPrincipal)}</span>
+            <span className="font-semibold text-slate-900 font-mono text-sm">{formatVND(debt.remainingPrincipal)}</span>
           </div>
           <div>
             <span className="text-slate-400 block">Số kỳ còn lại</span>
-            <span className="font-bold text-slate-900 font-mono text-sm">{openItems.length}</span>
+            <span className="font-semibold text-slate-900 font-mono text-sm">{openItems.length}</span>
           </div>
         </div>
 
@@ -432,7 +432,7 @@ export const DebtDetailModal: React.FC<{
                 </label>
               )}
               <div className="overflow-x-auto"><table className="w-full text-left text-xs border-collapse" data-table="schedule">
-                <thead className="sticky top-0 bg-white shadow-xs">
+                <thead className="sticky top-0 bg-white">
                   <tr className="border-b border-slate-200 text-slate-500 font-semibold">
                     <th className="py-2.5 px-3">Kỳ</th>
                     <th className="py-2.5 px-3">Ngày đến hạn</th>
@@ -462,7 +462,7 @@ export const DebtDetailModal: React.FC<{
                           {formatVND(item.interestPayable)}
                           {item.segments && <span className="ml-1 font-sans text-[10px] text-slate-400" data-odd-period>kỳ lẻ</span>}
                         </td>
-                        <td className="py-2.5 px-3 text-right font-bold text-slate-900">{formatVND(item.totalMonthlyPayment)}</td>
+                        <td className="py-2.5 px-3 text-right font-semibold text-slate-900">{formatVND(item.totalMonthlyPayment)}</td>
                         <td className="py-2.5 px-3 text-right">{formatVND(item.remainingBalance)}</td>
                         <td className="py-2.5 px-3 text-center font-sans no-underline">
                           {item.isPaid ? (
@@ -478,7 +478,7 @@ export const DebtDetailModal: React.FC<{
                                 onClick={() => handlers.onPayPeriod(idx, true)}
                                 disabled={locked || short > 0}
                                 title={locked && lock ? `Mở thanh toán từ ${lock.unlockDate}` : undefined}
-                                className="px-2.5 py-1 text-[11px] font-bold text-white bg-amber-600 hover:bg-amber-700 rounded shadow-xs disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-amber-600"
+                                className="px-2.5 py-1 text-[11px] font-semibold text-white bg-amber-600 hover:bg-amber-700 rounded disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-amber-600"
                               >
                                 {locked && lock ? payLockLabel(lock) : 'Thanh toán'}
                               </button>
@@ -501,7 +501,7 @@ export const DebtDetailModal: React.FC<{
               <div className="py-10 text-center text-xs text-slate-400">Chưa có khoản trả nào được ghi nhận kể từ lúc theo dõi.</div>
             ) : (
               <div className="overflow-x-auto"><table className="w-full text-left text-xs border-collapse" data-table="history">
-                <thead className="sticky top-0 bg-white shadow-xs">
+                <thead className="sticky top-0 bg-white">
                   <tr className="border-b border-slate-200 text-slate-500 font-semibold">
                     <th className="py-2.5 px-3">Kỳ</th>
                     <th className="py-2.5 px-3">Hạn</th>
@@ -523,7 +523,7 @@ export const DebtDetailModal: React.FC<{
                         <td className="py-2.5 px-3 text-right">{formatVND(t.principalPortion || 0)}</td>
                         <td className="py-2.5 px-3 text-right text-rose-600">{formatVND(t.interestPortion || 0)}</td>
                         <td className="py-2.5 px-3 text-right">{formatVND(t.feePortion || 0)}</td>
-                        <td className="py-2.5 px-3 text-right font-bold text-slate-900">{formatVND(t.amount)}</td>
+                        <td className="py-2.5 px-3 text-right font-semibold text-slate-900">{formatVND(t.amount)}</td>
                       </tr>
                     );
                   })}
@@ -534,7 +534,7 @@ export const DebtDetailModal: React.FC<{
 
           {tab === 'rates' && (
             <div className="overflow-x-auto"><table className="w-full text-left text-xs border-collapse" data-table="rates">
-              <thead className="sticky top-0 bg-white shadow-xs">
+              <thead className="sticky top-0 bg-white">
                 <tr className="border-b border-slate-200 text-slate-500 font-semibold">
                   <th className="py-2.5 px-3">Hiệu lực từ</th>
                   <th className="py-2.5 px-3">Lãi suất</th>
@@ -570,7 +570,7 @@ export const DebtDetailModal: React.FC<{
 
           {tab === 'adjust' && (
             <div className="overflow-x-auto"><table className="w-full text-left text-xs border-collapse" data-table="adjust">
-              <thead className="sticky top-0 bg-white shadow-xs">
+              <thead className="sticky top-0 bg-white">
                 <tr className="border-b border-slate-200 text-slate-500 font-semibold">
                   <th className="py-2.5 px-3">Ngày</th>
                   <th className="py-2.5 px-3 text-right">Dư nợ trước</th>

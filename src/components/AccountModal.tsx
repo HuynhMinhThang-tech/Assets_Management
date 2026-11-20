@@ -14,7 +14,7 @@ interface AccountModalProps {
 }
 
 const inputClass =
-  'w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-slate-900';
+  'w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-accent';
 
 export const AccountModal: React.FC<AccountModalProps> = ({ user, onClose, onUserChanged, onDownloadBackup }) => {
   const { toast } = useDialog();
@@ -90,7 +90,7 @@ export const AccountModal: React.FC<AccountModalProps> = ({ user, onClose, onUse
             <button
               type="submit"
               disabled={!nameChanged || !!nameValidation}
-              className="rounded-lg bg-slate-900 px-3.5 py-2 text-xs font-bold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+              className="rounded-lg bg-accent px-3.5 py-2 text-xs font-medium text-on-accent hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
             >
               Lưu
             </button>
@@ -99,7 +99,7 @@ export const AccountModal: React.FC<AccountModalProps> = ({ user, onClose, onUse
 
         {onDownloadBackup && (
           <div className="space-y-3 border-t border-slate-100 pt-5">
-            <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700">Sao lưu dữ liệu</h4>
+            <h4 className="text-sm font-semibold text-slate-700">Sao lưu dữ liệu</h4>
             <button
               type="button"
               onClick={onDownloadBackup}
@@ -111,7 +111,7 @@ export const AccountModal: React.FC<AccountModalProps> = ({ user, onClose, onUse
         )}
 
         <form onSubmit={savePassword} noValidate className="space-y-3 border-t border-slate-100 pt-5">
-          <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700">Đổi mật khẩu</h4>
+          <h4 className="text-sm font-semibold text-slate-700">Đổi mật khẩu</h4>
           <div>
             <label htmlFor="acc-cur" className="mb-1 block text-xs font-semibold text-slate-700">
               Mật khẩu hiện tại
@@ -136,7 +136,7 @@ export const AccountModal: React.FC<AccountModalProps> = ({ user, onClose, onUse
           <button
             type="submit"
             disabled={!canChangePw}
-            className="rounded-lg bg-emerald-600 px-4 py-2 text-xs font-bold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+            className="rounded-lg bg-accent px-4 py-2 text-xs font-medium text-on-accent hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
           >
             {busy ? 'Đang xử lý…' : 'Đổi mật khẩu'}
           </button>
