@@ -14,7 +14,6 @@ import {
   ShieldCheck,
   LogOut,
 } from 'lucide-react';
-import { InstallAppButton } from './InstallAppButton';
 
 export type NavTab = 'dashboard' | 'assets' | 'prices' | 'debts' | 'wallet' | 'calendar' | 'balance' | 'admin';
 
@@ -200,7 +199,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </button>
 
         {/* Cài như ứng dụng (PWA); tự ẩn khi đã mở ở chế độ ứng dụng */}
-        <InstallAppButton iconOnly={isCollapsed} />
 
         <div className="my-2 border-t border-slate-200" />
 
