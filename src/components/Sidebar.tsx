@@ -14,6 +14,7 @@ import {
   ShieldCheck,
   LogOut,
 } from 'lucide-react';
+import { InstallAppButton } from './InstallAppButton';
 
 export type NavTab = 'dashboard' | 'assets' | 'prices' | 'debts' | 'wallet' | 'calendar' | 'balance' | 'admin';
 
@@ -197,6 +198,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
           {!isCollapsed && <span className="whitespace-nowrap">{isDark ? 'Giao diện Tối' : 'Giao diện Sáng'}</span>}
           {isDark ? <Moon className="w-4 h-4 text-accent-ink shrink-0" /> : <Sun className="w-4 h-4 text-accent-ink shrink-0" />}
         </button>
+
+        {/* Cài như ứng dụng (PWA); tự ẩn khi đã mở ở chế độ ứng dụng */}
+        <InstallAppButton iconOnly={isCollapsed} />
 
         <div className="my-2 border-t border-slate-200" />
 

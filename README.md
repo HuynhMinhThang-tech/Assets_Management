@@ -42,6 +42,16 @@ Cần Node 20 trở lên.
 
 Chi tiết về Neon và Vercel: `docs/DEPLOY.md`.
 
+## Cài như ứng dụng (PWA)
+
+Ứng dụng cài được lên màn hình chính điện thoại / máy tính, cùng cách làm với Nhật Ký Giao Dịch:
+
+- **Android, Chrome/Edge máy tính:** bấm nút **Cài đặt ứng dụng (PWA)** ở cuối thanh bên (hoặc nút cài trên thanh địa chỉ).
+- **iPhone/iPad:** mở bằng Safari → Chia sẻ → **Thêm vào MH chính**. Nút **Hướng dẫn cài iPhone PWA** ở thanh bên mở sẵn các bước này.
+
+Các file liên quan: `public/manifest.webmanifest`, `public/sw.js` (service worker), biểu tượng `public/pwa-*.png` và `public/apple-touch-icon.png`, đăng ký trong `src/utils/pwa.ts`, nút cài trong `src/components/InstallAppButton.tsx`.
+Service worker **không bao giờ lưu `/api/*`** (số liệu tài chính luôn lấy từ máy chủ); chỉ lưu khung trang, JS/CSS và biểu tượng để mở nhanh và mở được khi mất mạng (dữ liệu thì cần mạng). Chỉ đăng ký ở bản build (`npm run build`), không đăng ký khi `npm run dev`. Sửa `public/sw.js` thì đổi `VERSION` ở đầu file để máy người dùng bỏ cache cũ. Kiểm thử: `node tests/pwa.cjs`.
+
 ## Xuống dòng (line endings)
 
 Repo dùng LF cho mọi file (`.gitattributes`: `* text=auto eol=lf`), kể cả trên Windows. Nếu `git apply` báo lỗi vì CRLF, chạy một lần `git add --renormalize .` rồi commit (xem hướng dẫn kèm patch giai đoạn 0).
