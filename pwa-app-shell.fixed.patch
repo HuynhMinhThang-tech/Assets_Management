@@ -1,0 +1,1268 @@
+diff --git a/public/manifest.webmanifest b/public/manifest.webmanifest
+index e46ba00..a33312e 100644
+--- a/public/manifest.webmanifest
++++ b/public/manifest.webmanifest
+@@ -8,2 +8,3 @@
+   "display": "standalone",
++  "display_override": ["standalone", "minimal-ui"],
+   "orientation": "any",
+diff --git a/public/sw.js b/public/sw.js
+index 7b7ac8a..3a3fe81 100644
+--- a/public/sw.js
++++ b/public/sw.js
+@@ -10,3 +10,3 @@
+  */
+-const VERSION = 'v1';
++const VERSION = 'v2';
+ const SHELL_CACHE = `fintrack-shell-${VERSION}`;
+diff --git a/src/App.tsx b/src/App.tsx
+index da5bd1d..40b32a4 100644
+--- a/src/App.tsx
++++ b/src/App.tsx
+@@ -13,2 +13,4 @@ import { AdminView } from './components/AdminView';
+ import { AccountModal } from './components/AccountModal';
++import { PwaAppShell } from './components/pwa/PwaAppShell';
++import { useIsPwaApp } from './utils/usePwaMode';
+ import { AlertTriangle, Info, X } from 'lucide-react';
+@@ -98,2 +100,3 @@ function FinanceApp({
+   const [currentTab, setCurrentTab] = useState<NavTab>('dashboard');
++  const isPwaApp = useIsPwaApp();
+   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+@@ -611,2 +614,67 @@ function FinanceApp({
+ 
++  if (isPwaApp) {
++    return (
++      <>
++        <PwaAppShell
++          user={user}
++          state={state}
++          currentTab={currentTab}
++          onSelectTab={setCurrentTab}
++          pendingAction={pendingAction}
++          onAutoOpenConsumed={() => setPendingAction(null)}
++          onOpenAction={openAction}
++          isDark={isDark}
++          onToggleTheme={onToggleTheme}
++          onLogout={onLogout}
++          onOpenAccount={() => setAccountOpen(true)}
++          syncStatus={syncStatus}
++          onResolveConflict={() => syncer.resolveConflict()}
++          upcomingPaymentCount={summary.upcomingPayments.length}
++          priceAlertCount={priceAlertCount}
++          adminPendingCount={isAdmin && adminAccounts ? countPendingWork(adminAccounts) : 0}
++          adminAccounts={adminAccounts}
++          onRefreshAccounts={refreshAccounts}
++          onClearDemo={handleClearDemo}
++          onKeepDemo={() => setState((p) => ({ ...p, isDemo: false }))}
++          onPayDebtPeriod={handlePayDebtPeriod}
++          onAddAsset={handleAddAsset}
++          onUpdateAsset={handleUpdateAsset}
++          onEditAsset={handleEditAsset}
++          onBuyMore={handleBuyMore}
++          onSellPosition={handleSellPosition}
++          onPositionDividend={handlePositionDividend}
++          onImprovement={handleImprovement}
++          onVoidAsset={handleVoidAsset}
++          onSellAsset={handleSellAsset}
++          onReceiveInterest={handleReceiveInterest}
++          onRolloverSavings={handleRollover}
++          onApplyPrices={handleApplyPrices}
++          onAddDebt={handleAddDebt}
++          onUpdateDebt={handleUpdateDebt}
++          onEditDebt={handleEditDebt}
++          onVoidDebt={handleVoidDebt}
++          onSetFundUse={handleSetFundUse}
++          onAddRateChange={handleAddRateChange}
++          onRemoveRateChange={handleRemoveRateChange}
++          onSettleDebt={handleSettleDebt}
++          onPrepayDebt={handlePrepayDebt}
++          onReconcileDebt={handleReconcileDebt}
++          onUndoReconcile={handleUndoReconcile}
++          onDeposit={handleDeposit}
++          onWithdraw={handleWithdraw}
++          onRecordIncome={handleRecordIncome}
++          onVoidTx={handleVoidTx}
++        />
++        {accountOpen && (
++          <AccountModal
++            user={user}
++            onClose={() => setAccountOpen(false)}
++            onUserChanged={onUserChanged}
++            onDownloadBackup={() => exportStateToJson(state)}
++          />
++        )}
++      </>
++    );
++  }
++
+   return (
+diff --git a/src/components/pwa/PwaAppShell.tsx b/src/components/pwa/PwaAppShell.tsx
+new file mode 100644
+index 0000000..773241d
+--- /dev/null
++++ b/src/components/pwa/PwaAppShell.tsx
+@@ -0,0 +1,497 @@
++import React, { useState } from 'react';
++import {
++  LayoutGrid,
++  PieChart,
++  CreditCard,
++  Wallet as WalletIcon,
++  MoreHorizontal,
++  Sun,
++  Moon,
++  LogOut,
++  ChevronLeft,
++  Info,
++  WifiOff,
++} from 'lucide-react';
++import { Asset, Debt, FundUse, UserFinancialState } from '../../types/finance';
++import { PublicUser, AdminAccount } from '../../utils/auth';
++import { formatVND } from '../../utils/calculations';
++import { ApplyResult, PriceUpdate } from '../../utils/priceSync';
++import { AddDebtOptions, IncomeInput, SellInput } from '../../utils/ops';
++import { AssetEditInput, DebtEditInput } from '../../utils/editOps';
++import { BuyMoreInput, ImprovementInput, PositionSellInput } from '../../utils/positions';
++import { PrepayInput, RateChangeInput, ReconcileInput, SettleInput } from '../../utils/debtOps';
++import { RolloverInput } from '../../utils/savingsOps';
++import { SyncStatus } from '../../utils/syncer';
++import { useOnlineStatus } from '../../utils/usePwaMode';
++import { NavTab } from '../Sidebar';
++import { AssetsView } from '../AssetsView';
++import { PricesView } from '../PricesView';
++import { DebtsView } from '../DebtsView';
++import { WalletView } from '../WalletView';
++import { CalendarView } from '../CalendarView';
++import { ReportsView } from '../ReportsView';
++import { AdminView } from '../AdminView';
++import { PwaOverview } from './PwaOverview';
++import { PwaMoreView, PwaSecondaryTab } from './PwaMoreView';
++
++type PendingAction = 'add_asset' | 'add_debt' | 'deposit' | null;
++
++interface PwaAppShellProps {
++  user: PublicUser;
++  state: UserFinancialState;
++  currentTab: NavTab;
++  onSelectTab: (tab: NavTab) => void;
++  pendingAction: PendingAction;
++  onAutoOpenConsumed: () => void;
++  onOpenAction: (tab: NavTab, action: PendingAction) => void;
++  isDark: boolean;
++  onToggleTheme: () => void;
++  onLogout: () => void;
++  onOpenAccount: () => void;
++  syncStatus: SyncStatus;
++  onResolveConflict: () => void;
++  upcomingPaymentCount: number;
++  priceAlertCount: number;
++  adminPendingCount: number;
++  adminAccounts: AdminAccount[] | null;
++  onRefreshAccounts: () => void;
++  onClearDemo: () => void;
++  onKeepDemo: () => void;
++  onPayDebtPeriod: (debtId: string, periodIndex: number, deductFromWallet: boolean) => Promise<boolean>;
++  onAddAsset: (
++    newAsset: Asset,
++    deductFromWallet: boolean,
++    linkedDebt?: Debt,
++    downPaymentAmount?: number
++  ) => boolean;
++  onUpdateAsset: (asset: Asset) => void;
++  onEditAsset: (assetId: string, patch: AssetEditInput) => boolean;
++  onBuyMore: (p: BuyMoreInput) => boolean;
++  onSellPosition: (p: PositionSellInput) => boolean;
++  onPositionDividend: (p: { key: string; amount: number; date: string; note?: string }) => boolean;
++  onImprovement: (p: ImprovementInput) => boolean;
++  onVoidAsset: (assetId: string) => Promise<void>;
++  onSellAsset: (params: SellInput, settleLinkedDebt?: boolean) => boolean;
++  onReceiveInterest: (p: { assetId: string; amount: number; date: string; note?: string }) => boolean;
++  onRolloverSavings: (p: RolloverInput) => boolean;
++  onApplyPrices: (updates: PriceUpdate[]) => ApplyResult;
++  onAddDebt: (newDebt: Debt, disburseToWallet?: boolean, extra?: Omit<AddDebtOptions, 'disburseToWallet'>) => boolean;
++  onUpdateDebt: (debt: Debt) => void;
++  onEditDebt: (debtId: string, patch: DebtEditInput) => boolean;
++  onVoidDebt: (debtId: string) => Promise<void>;
++  onSetFundUse: (debtId: string, fundUse: FundUse) => boolean;
++  onAddRateChange: (input: RateChangeInput) => boolean;
++  onRemoveRateChange: (debtId: string, changeId: string) => boolean;
++  onSettleDebt: (input: SettleInput) => boolean;
++  onPrepayDebt: (input: PrepayInput) => boolean;
++  onReconcileDebt: (input: ReconcileInput) => boolean;
++  onUndoReconcile: (debtId: string) => boolean;
++  onDeposit: (amount: number, note?: string, date?: string) => boolean;
++  onWithdraw: (amount: number, note?: string, date?: string) => boolean;
++  onRecordIncome: (params: IncomeInput) => boolean;
++  onVoidTx: (txId: string) => Promise<void>;
++}
++
++const TAB_TITLES: Record<NavTab, string> = {
++  dashboard: 'Tổng quan',
++  assets: 'Tài sản',
++  debts: 'Khoản nợ',
++  wallet: 'Ví',
++  prices: 'Cập nhật giá',
++  calendar: 'Lịch thu chi',
++  balance: 'Báo cáo',
++  admin: 'Quản trị',
++};
++
++const SECONDARY_TABS: ReadonlySet<NavTab> = new Set(['prices', 'calendar', 'balance', 'admin']);
++
++function greetingForNow(): string {
++  const h = new Date().getHours();
++  if (h >= 5 && h < 11) return 'Chào buổi sáng';
++  if (h >= 11 && h < 13) return 'Chào buổi trưa';
++  if (h >= 13 && h < 18) return 'Chào buổi chiều';
++  return 'Chào buổi tối';
++}
++
++export const PwaAppShell: React.FC<PwaAppShellProps> = ({
++  user,
++  state,
++  currentTab,
++  onSelectTab,
++  pendingAction,
++  onAutoOpenConsumed,
++  onOpenAction,
++  isDark,
++  onToggleTheme,
++  onLogout,
++  onOpenAccount,
++  syncStatus,
++  onResolveConflict,
++  upcomingPaymentCount,
++  priceAlertCount,
++  adminPendingCount,
++  adminAccounts,
++  onRefreshAccounts,
++  onClearDemo,
++  onKeepDemo,
++  onPayDebtPeriod,
++  onAddAsset,
++  onUpdateAsset,
++  onEditAsset,
++  onBuyMore,
++  onSellPosition,
++  onPositionDividend,
++  onImprovement,
++  onVoidAsset,
++  onSellAsset,
++  onReceiveInterest,
++  onRolloverSavings,
++  onApplyPrices,
++  onAddDebt,
++  onUpdateDebt,
++  onEditDebt,
++  onVoidDebt,
++  onSetFundUse,
++  onAddRateChange,
++  onRemoveRateChange,
++  onSettleDebt,
++  onPrepayDebt,
++  onReconcileDebt,
++  onUndoReconcile,
++  onDeposit,
++  onWithdraw,
++  onRecordIncome,
++  onVoidTx,
++}) => {
++  const isOnline = useOnlineStatus();
++  const [moreOpen, setMoreOpen] = useState(false);
++
++  const isSecondaryView = !moreOpen && SECONDARY_TABS.has(currentTab);
++  const activeBottom: 'dashboard' | 'assets' | 'debts' | 'wallet' | 'more' =
++    moreOpen || isSecondaryView ? 'more' : (currentTab as 'dashboard' | 'assets' | 'debts' | 'wallet');
++
++  const goPrimaryTab = (tab: 'dashboard' | 'assets' | 'debts' | 'wallet') => {
++    setMoreOpen(false);
++    onSelectTab(tab);
++  };
++
++  const goSecondaryTab = (tab: PwaSecondaryTab) => {
++    setMoreOpen(false);
++    onSelectTab(tab);
++  };
++
++  const triggerAction = (tab: NavTab, action: PendingAction) => {
++    setMoreOpen(false);
++    onOpenAction(tab, action);
++  };
++
++  const headerTitle = moreOpen ? 'Khác' : TAB_TITLES[currentTab];
++  const isDashboardRoot = !moreOpen && currentTab === 'dashboard';
++  const moreAlerts = priceAlertCount + adminPendingCount;
++  const containerWidth = isDashboardRoot || moreOpen ? 'max-w-lg' : 'max-w-3xl';
++
++  return (
++    <div
++      data-pwa-shell
++      className="min-h-screen bg-slate-50 font-sans antialiased text-slate-900 pt-[env(safe-area-inset-top)] pb-[calc(5.25rem+env(safe-area-inset-bottom))]"
++    >
++      <div className={`mx-auto w-full ${containerWidth} px-4`}>
++        {/* Thanh đầu app tối giản kiểu native mobile app */}
++        <header data-pwa-header className="flex items-start justify-between gap-3 pt-4 pb-4">
++          <div className="min-w-0 flex-1">
++            {isSecondaryView && (
++              <button
++                type="button"
++                onClick={() => setMoreOpen(true)}
++                className="mb-1 -ml-1 inline-flex min-h-[36px] items-center gap-0.5 rounded-lg px-1 text-xs font-semibold text-accent-ink hover:bg-slate-100"
++              >
++                <ChevronLeft className="h-4 w-4" />
++                <span>Khác</span>
++              </button>
++            )}
++            <h1 className="truncate text-2xl font-bold tracking-tight text-slate-900">
++              {headerTitle}
++            </h1>
++            {isDashboardRoot ? (
++              <p className="mt-1 flex items-center gap-1.5 text-sm text-slate-500">
++                <Sun className="h-4 w-4 shrink-0 text-accent-ink" />
++                <span className="truncate">
++                  {greetingForNow()},{' '}
++                  <span className="font-semibold text-slate-900">{user.displayName}</span>
++                </span>
++              </p>
++            ) : (
++              <p className="mt-1 truncate text-xs text-slate-500 font-mono tabular-nums">
++                Tiền khả dụng:{' '}
++                <span className="font-semibold text-slate-900">
++                  {formatVND(state.wallet.availableCash)}
++                </span>
++              </p>
++            )}
++          </div>
++
++          <div className="flex shrink-0 items-center gap-2 pt-0.5">
++            <button
++              type="button"
++              onClick={onToggleTheme}
++              aria-label={isDark ? 'Chuyển giao diện sáng' : 'Chuyển giao diện tối'}
++              title={isDark ? 'Giao diện sáng' : 'Giao diện tối'}
++              className="grid h-11 w-11 place-items-center rounded-xl border border-slate-200 bg-slate-100/80 text-slate-700 transition-colors hover:bg-slate-200/70"
++            >
++              {isDark ? <Sun className="h-5 w-5 text-accent-ink" /> : <Moon className="h-5 w-5" />}
++            </button>
++            <button
++              type="button"
++              onClick={onLogout}
++              aria-label="Đăng xuất"
++              title="Đăng xuất"
++              className="grid h-11 w-11 place-items-center rounded-xl border border-slate-200 bg-white text-rose-600 transition-colors hover:bg-rose-50"
++            >
++              <LogOut className="h-5 w-5" />
++            </button>
++          </div>
++        </header>
++
++        {/* Thông báo ngoại tuyến hoặc xung đột đồng bộ */}
++        {!isOnline && (
++          <div
++            role="status"
++            className="mb-3 flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-xs text-slate-600"
++          >
++            <WifiOff className="h-4 w-4 shrink-0 text-amber-600" />
++            <span>Đang ngoại tuyến — thay đổi sẽ đồng bộ khi có kết nối lại.</span>
++          </div>
++        )}
++
++        {syncStatus === 'conflict' && (
++          <button
++            type="button"
++            onClick={onResolveConflict}
++            className="mb-3 flex w-full items-center justify-between gap-2 rounded-xl border border-amber-300 bg-amber-50 px-3.5 py-2.5 text-left text-xs font-semibold text-amber-800 hover:bg-amber-100"
++          >
++            <span>Dữ liệu chưa đồng bộ do thay đổi từ thiết bị khác</span>
++            <span className="shrink-0 underline">Xử lý</span>
++          </button>
++        )}
++
++        {state.isDemo && !moreOpen && (
++          <div
++            role="status"
++            className="mb-4 rounded-2xl border border-sky-200 bg-sky-50 p-3.5 text-xs text-sky-900"
++          >
++            <div className="flex items-start gap-2.5">
++              <Info className="mt-0.5 h-4 w-4 shrink-0" />
++              <div className="flex-1">
++                <strong>Bạn đang xem DỮ LIỆU MẪU.</strong> Số liệu dưới đây là giả định để minh họa.
++              </div>
++            </div>
++            <div className="mt-2.5 flex flex-wrap items-center gap-2 pl-6">
++              <button
++                type="button"
++                onClick={onClearDemo}
++                className="min-h-[34px] rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-on-accent hover:bg-accent-hover"
++              >
++                Xóa dữ liệu mẫu
++              </button>
++              <button
++                type="button"
++                onClick={onKeepDemo}
++                className="min-h-[34px] rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
++              >
++                Giữ lại
++              </button>
++            </div>
++          </div>
++        )}
++
++        {/* Nội dung chính */}
++        <main>
++          {moreOpen ? (
++            <PwaMoreView
++              user={{ displayName: user.displayName, email: user.email, role: user.role }}
++              priceAlertCount={priceAlertCount}
++              adminPendingCount={adminPendingCount}
++              onSelectSubTab={goSecondaryTab}
++              onOpenAddAsset={() => triggerAction('assets', 'add_asset')}
++              onOpenAddDebt={() => triggerAction('debts', 'add_debt')}
++              onOpenDeposit={() => triggerAction('wallet', 'deposit')}
++              onOpenAccount={onOpenAccount}
++            />
++          ) : (
++            <>
++              {currentTab === 'dashboard' && (
++                <PwaOverview
++                  state={state}
++                  onNavigateTab={(tab) => {
++                    if (SECONDARY_TABS.has(tab)) goSecondaryTab(tab as PwaSecondaryTab);
++                    else goPrimaryTab(tab as 'dashboard' | 'assets' | 'debts' | 'wallet');
++                  }}
++                />
++              )}
++
++              {currentTab === 'assets' && (
++                <AssetsView
++                  state={state}
++                  autoOpenAdd={pendingAction === 'add_asset'}
++                  onAutoOpenConsumed={onAutoOpenConsumed}
++                  onAddAsset={onAddAsset}
++                  onUpdateAsset={onUpdateAsset}
++                  onEditAsset={onEditAsset}
++                  onBuyMore={onBuyMore}
++                  onSellPosition={onSellPosition}
++                  onPositionDividend={onPositionDividend}
++                  onImprovement={onImprovement}
++                  onVoidAsset={onVoidAsset}
++                  onSellAsset={onSellAsset}
++                  onReceiveInterest={onReceiveInterest}
++                  onRolloverSavings={onRolloverSavings}
++                />
++              )}
++
++              {currentTab === 'prices' && <PricesView state={state} onApplyPrices={onApplyPrices} />}
++
++              {currentTab === 'debts' && (
++                <DebtsView
++                  state={state}
++                  autoOpenAdd={pendingAction === 'add_debt'}
++                  onAutoOpenConsumed={onAutoOpenConsumed}
++                  onAddDebt={onAddDebt}
++                  onUpdateDebt={onUpdateDebt}
++                  onEditDebt={onEditDebt}
++                  onVoidDebt={onVoidDebt}
++                  onSetFundUse={onSetFundUse}
++                  onPayDebtPeriod={onPayDebtPeriod}
++                  onAddRateChange={onAddRateChange}
++                  onRemoveRateChange={onRemoveRateChange}
++                  onSettleDebt={onSettleDebt}
++                  onPrepayDebt={onPrepayDebt}
++                  onReconcileDebt={onReconcileDebt}
++                  onUndoReconcile={onUndoReconcile}
++                />
++              )}
++
++              {currentTab === 'wallet' && (
++                <WalletView
++                  state={state}
++                  autoOpenDeposit={pendingAction === 'deposit'}
++                  onAutoOpenConsumed={onAutoOpenConsumed}
++                  onDeposit={onDeposit}
++                  onWithdraw={onWithdraw}
++                  onRecordIncome={onRecordIncome}
++                  onVoidTx={onVoidTx}
++                />
++              )}
++
++              {currentTab === 'calendar' && (
++                <CalendarView
++                  state={state}
++                  onNavigateTab={(tab) => {
++                    if (SECONDARY_TABS.has(tab)) goSecondaryTab(tab as PwaSecondaryTab);
++                    else goPrimaryTab(tab as 'dashboard' | 'assets' | 'debts' | 'wallet');
++                  }}
++                  onPayDebtPeriod={onPayDebtPeriod}
++                />
++              )}
++
++              {currentTab === 'balance' && <ReportsView state={state} />}
++
++              {currentTab === 'admin' && user.role === 'admin' && (
++                <AdminView
++                  currentUser={user}
++                  accounts={adminAccounts}
++                  onChanged={onRefreshAccounts}
++                  onBack={() => setMoreOpen(true)}
++                />
++              )}
++            </>
++          )}
++        </main>
++      </div>
++
++      {/* Thanh điều hướng đáy cố định (5 mục: Tổng quan · Tài sản · Khoản nợ · Ví · Khác) */}
++      <nav
++        data-pwa-tabbar
++        aria-label="Điều hướng ứng dụng"
++        className="fixed inset-x-0 bottom-0 z-30 border-t border-slate-200 bg-white/95 backdrop-blur-md pb-[env(safe-area-inset-bottom)]"
++      >
++        <div className="mx-auto grid max-w-lg grid-cols-5">
++          <BottomTabButton
++            active={activeBottom === 'dashboard'}
++            label="Tổng quan"
++            icon={<LayoutGrid className="h-5 w-5" />}
++            onClick={() => goPrimaryTab('dashboard')}
++          />
++          <BottomTabButton
++            active={activeBottom === 'assets'}
++            label="Tài sản"
++            icon={<PieChart className="h-5 w-5" />}
++            onClick={() => goPrimaryTab('assets')}
++          />
++          <BottomTabButton
++            active={activeBottom === 'debts'}
++            label="Khoản nợ"
++            icon={<CreditCard className="h-5 w-5" />}
++            badge={upcomingPaymentCount > 0 ? upcomingPaymentCount : undefined}
++            onClick={() => goPrimaryTab('debts')}
++          />
++          <BottomTabButton
++            active={activeBottom === 'wallet'}
++            label="Ví"
++            icon={<WalletIcon className="h-5 w-5" />}
++            onClick={() => goPrimaryTab('wallet')}
++          />
++          <BottomTabButton
++            active={activeBottom === 'more'}
++            label="Khác"
++            icon={<MoreHorizontal className="h-5 w-5" />}
++            dot={moreAlerts > 0}
++            onClick={() => setMoreOpen(true)}
++          />
++        </div>
++      </nav>
++    </div>
++  );
++};
++
++function BottomTabButton({
++  active,
++  label,
++  icon,
++  badge,
++  dot,
++  onClick,
++}: {
++  active: boolean;
++  label: string;
++  icon: React.ReactNode;
++  badge?: number;
++  dot?: boolean;
++  onClick: () => void;
++}) {
++  return (
++    <button
++      type="button"
++      onClick={onClick}
++      aria-current={active ? 'page' : undefined}
++      className={`relative flex min-h-[56px] flex-col items-center justify-center gap-1 px-1 py-1.5 transition-colors ${
++        active ? 'text-accent-ink' : 'text-slate-500 hover:text-slate-900'
++      }`}
++    >
++      <span className="relative inline-flex items-center justify-center">
++        {icon}
++        {badge !== undefined && badge > 0 && (
++          <span className="absolute -top-1.5 -right-2.5 min-w-[16px] rounded-full bg-accent px-1 text-center font-mono text-[10px] font-semibold leading-4 text-on-accent">
++            {badge > 9 ? '9+' : badge}
++          </span>
++        )}
++        {dot && badge === undefined && (
++          <span
++            className="absolute -top-0.5 -right-1 h-2 w-2 rounded-full bg-amber-500"
++            aria-hidden="true"
++          />
++        )}
++      </span>
++      <span className="max-w-full truncate text-[11px] font-medium leading-none">{label}</span>
++    </button>
++  );
++}
+diff --git a/src/components/pwa/PwaMoreView.tsx b/src/components/pwa/PwaMoreView.tsx
+new file mode 100644
+index 0000000..2040c4d
+--- /dev/null
++++ b/src/components/pwa/PwaMoreView.tsx
+@@ -0,0 +1,178 @@
++import React from 'react';
++import {
++  TrendingUp,
++  CalendarDays,
++  Scale,
++  ShieldCheck,
++  PlusCircle,
++  ArrowDownRight,
++  ChevronRight,
++} from 'lucide-react';
++
++export type PwaSecondaryTab = 'prices' | 'calendar' | 'balance' | 'admin';
++
++interface PwaMoreViewProps {
++  user: { displayName: string; email: string; role: 'admin' | 'user' };
++  priceAlertCount: number;
++  adminPendingCount: number;
++  onSelectSubTab: (tab: PwaSecondaryTab) => void;
++  onOpenAddAsset: () => void;
++  onOpenAddDebt: () => void;
++  onOpenDeposit: () => void;
++  onOpenAccount: () => void;
++}
++
++const ROW_BTN =
++  'w-full min-h-[52px] flex items-center justify-between gap-3 px-4 py-3 text-left transition-colors hover:bg-slate-50 active:bg-slate-100';
++
++export const PwaMoreView: React.FC<PwaMoreViewProps> = ({
++  user,
++  priceAlertCount,
++  adminPendingCount,
++  onSelectSubTab,
++  onOpenAddAsset,
++  onOpenAddDebt,
++  onOpenDeposit,
++  onOpenAccount,
++}) => {
++  const initial = (Array.from(user.displayName.trim())[0] || '?').toUpperCase();
++
++  return (
++    <div className="space-y-5 animate-tab-in" data-pwa-more>
++      {/* Nhóm 1: Các tính năng mở rộng được đưa từ thanh điều hướng chính vào mục Khác */}
++      <section>
++        <h2 className="mb-2 px-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
++          Chức năng mở rộng
++        </h2>
++        <div className="divide-y divide-slate-100 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_1px_2px_rgba(28,27,24,0.04)]">
++          <button type="button" onClick={() => onSelectSubTab('prices')} className={ROW_BTN}>
++            <div className="flex min-w-0 items-center gap-3">
++              <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-accent-soft text-accent-ink">
++                <TrendingUp className="h-4 w-4" />
++              </span>
++              <div className="min-w-0">
++                <div className="text-sm font-semibold text-slate-900">Cập nhật giá</div>
++                <div className="truncate text-xs text-slate-500">Định giá cổ phiếu, quỹ, vàng & bất động sản</div>
++              </div>
++            </div>
++            <div className="flex shrink-0 items-center gap-2">
++              {priceAlertCount > 0 && (
++                <span className="rounded-md border border-amber-200 bg-amber-50 px-2 py-0.5 font-mono text-xs font-semibold text-amber-700">
++                  {priceAlertCount}
++                </span>
++              )}
++              <ChevronRight className="h-4 w-4 text-slate-400" />
++            </div>
++          </button>
++
++          <button type="button" onClick={() => onSelectSubTab('calendar')} className={ROW_BTN}>
++            <div className="flex min-w-0 items-center gap-3">
++              <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-slate-100 text-slate-700">
++                <CalendarDays className="h-4 w-4" />
++              </span>
++              <div className="min-w-0">
++                <div className="text-sm font-semibold text-slate-900">Lịch thu chi</div>
++                <div className="truncate text-xs text-slate-500">Theo dõi kỳ trả nợ & đáo hạn sắp tới</div>
++              </div>
++            </div>
++            <ChevronRight className="h-4 w-4 shrink-0 text-slate-400" />
++          </button>
++
++          <button type="button" onClick={() => onSelectSubTab('balance')} className={ROW_BTN}>
++            <div className="flex min-w-0 items-center gap-3">
++              <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-slate-100 text-slate-700">
++                <Scale className="h-4 w-4" />
++              </span>
++              <div className="min-w-0">
++                <div className="text-sm font-semibold text-slate-900">Báo cáo</div>
++                <div className="truncate text-xs text-slate-500">Bảng cân đối tài sản, nợ & dòng tiền</div>
++              </div>
++            </div>
++            <ChevronRight className="h-4 w-4 shrink-0 text-slate-400" />
++          </button>
++
++          {user.role === 'admin' && (
++            <button type="button" onClick={() => onSelectSubTab('admin')} className={ROW_BTN}>
++              <div className="flex min-w-0 items-center gap-3">
++                <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-amber-50 text-amber-700">
++                  <ShieldCheck className="h-4 w-4" />
++                </span>
++                <div className="min-w-0">
++                  <div className="text-sm font-semibold text-slate-900">Quản trị</div>
++                  <div className="truncate text-xs text-slate-500">Duyệt tài khoản & hỗ trợ người dùng</div>
++                </div>
++              </div>
++              <div className="flex shrink-0 items-center gap-2">
++                {adminPendingCount > 0 && (
++                  <span className="rounded-md border border-amber-200 bg-amber-50 px-2 py-0.5 font-mono text-xs font-semibold text-amber-700">
++                    {adminPendingCount}
++                  </span>
++                )}
++                <ChevronRight className="h-4 w-4 text-slate-400" />
++              </div>
++            </button>
++          )}
++        </div>
++      </section>
++
++      {/* Nhóm 2: Thao tác nhanh */}
++      <section>
++        <h2 className="mb-2 px-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
++          Thao tác nhanh
++        </h2>
++        <div className="divide-y divide-slate-100 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_1px_2px_rgba(28,27,24,0.04)]">
++          <button type="button" onClick={onOpenAddAsset} className={ROW_BTN}>
++            <div className="flex min-w-0 items-center gap-3">
++              <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-accent-soft text-accent-ink">
++                <PlusCircle className="h-4 w-4" />
++              </span>
++              <span className="text-sm font-semibold text-slate-900">Thêm tài sản</span>
++            </div>
++            <ChevronRight className="h-4 w-4 shrink-0 text-slate-400" />
++          </button>
++
++          <button type="button" onClick={onOpenAddDebt} className={ROW_BTN}>
++            <div className="flex min-w-0 items-center gap-3">
++              <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-rose-50 text-rose-600">
++                <PlusCircle className="h-4 w-4" />
++              </span>
++              <span className="text-sm font-semibold text-slate-900">Thêm khoản nợ</span>
++            </div>
++            <ChevronRight className="h-4 w-4 shrink-0 text-slate-400" />
++          </button>
++
++          <button type="button" onClick={onOpenDeposit} className={ROW_BTN}>
++            <div className="flex min-w-0 items-center gap-3">
++              <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-emerald-50 text-emerald-600">
++                <ArrowDownRight className="h-4 w-4" />
++              </span>
++              <span className="text-sm font-semibold text-slate-900">Nạp / Rút ví</span>
++            </div>
++            <ChevronRight className="h-4 w-4 shrink-0 text-slate-400" />
++          </button>
++        </div>
++      </section>
++
++      {/* Nhóm 3: Tài khoản cá nhân & sao lưu */}
++      <section>
++        <h2 className="mb-2 px-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
++          Tài khoản
++        </h2>
++        <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_1px_2px_rgba(28,27,24,0.04)]">
++          <button type="button" onClick={onOpenAccount} className={ROW_BTN}>
++            <div className="flex min-w-0 items-center gap-3">
++              <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full border border-accent/30 bg-accent-soft text-sm font-semibold text-accent-ink">
++                {initial}
++              </span>
++              <div className="min-w-0">
++                <div className="truncate text-sm font-semibold text-slate-900">{user.displayName}</div>
++                <div className="truncate text-xs text-slate-500">{user.email}</div>
++              </div>
++            </div>
++            <ChevronRight className="h-4 w-4 shrink-0 text-slate-400" />
++          </button>
++        </div>
++      </section>
++    </div>
++  );
++};
+diff --git a/src/components/pwa/PwaOverview.tsx b/src/components/pwa/PwaOverview.tsx
+new file mode 100644
+index 0000000..0ee1d99
+--- /dev/null
++++ b/src/components/pwa/PwaOverview.tsx
+@@ -0,0 +1,266 @@
++import React from 'react';
++import { ChevronRight } from 'lucide-react';
++import { UserFinancialState } from '../../types/finance';
++import { NavTab } from '../Sidebar';
++import { buildAllocation, CATEGORY_META } from '../../utils/allocation';
++import { calculateFinancialSummary, formatPercent, formatVND } from '../../utils/calculations';
++
++interface PwaOverviewProps {
++  state: UserFinancialState;
++  onNavigateTab: (tab: NavTab) => void;
++}
++
++const DONUT_SIZE = 120;
++const DONUT_R = 44;
++const DONUT_STROKE = 20;
++const DONUT_C = 2 * Math.PI * DONUT_R;
++const DONUT_GAP = 1.4;
++
++interface StatCard {
++  id: string;
++  label: string;
++  value: string;
++  fullTitle?: string;
++  sub?: string;
++  dotClass: string;
++  valueClass?: string;
++  onClick?: () => void;
++}
++
++export const PwaOverview: React.FC<PwaOverviewProps> = ({ state, onNavigateTab }) => {
++  const summary = calculateFinancialSummary(state);
++  const nextPayment = summary.upcomingPayments[0];
++  const allocation = buildAllocation(summary.categoryBreakdown);
++
++  const cards: StatCard[] = [
++    {
++      id: 'net-worth',
++      label: 'Tài sản ròng',
++      value: formatVND(summary.netWorth, { compact: true }),
++      fullTitle: formatVND(summary.netWorth),
++      dotClass: summary.netWorth < 0 ? 'bg-loss' : 'bg-slate-900',
++      valueClass: summary.netWorth < 0 ? 'text-loss' : 'text-slate-900',
++    },
++    {
++      id: 'cash',
++      label: 'Tiền khả dụng',
++      value: formatVND(summary.availableCash, { compact: true }),
++      fullTitle: formatVND(summary.availableCash),
++      dotClass: 'bg-emerald-500',
++      onClick: () => onNavigateTab('wallet'),
++    },
++    {
++      id: 'assets',
++      label: 'Tổng tài sản',
++      value: formatVND(summary.totalAssetValue, { compact: true }),
++      fullTitle: formatVND(summary.totalAssetValue),
++      dotClass: 'bg-accent',
++      onClick: () => onNavigateTab('assets'),
++    },
++    {
++      id: 'debt',
++      label: 'Tổng dư nợ',
++      value: formatVND(summary.totalDebtBalance, { compact: true }),
++      fullTitle: formatVND(summary.totalDebtBalance),
++      dotClass: 'bg-rose-600',
++      valueClass: summary.totalDebtBalance > 0 ? 'text-rose-600' : 'text-slate-900',
++      onClick: () => onNavigateTab('debts'),
++    },
++    {
++      id: 'book-pnl',
++      label: 'Lãi sổ sách',
++      value: `${summary.bookPnL >= 0 ? '+' : ''}${formatVND(summary.bookPnL, { compact: true })}`,
++      fullTitle: formatVND(summary.bookPnL),
++      sub: `${formatPercent(summary.bookPnLPercent)} so với vốn`,
++      dotClass: summary.bookPnL >= 0 ? 'bg-win' : 'bg-loss',
++      valueClass: summary.bookPnL >= 0 ? 'text-win' : 'text-loss',
++    },
++    {
++      id: 'realized-pnl',
++      label: 'Lãi chốt thực tế',
++      value: `${summary.totalRealizedPnL >= 0 ? '+' : ''}${formatVND(summary.totalRealizedPnL, { compact: true })}`,
++      fullTitle: formatVND(summary.totalRealizedPnL),
++      sub: 'Từ bán & thu nhập',
++      dotClass: summary.totalRealizedPnL >= 0 ? 'bg-win' : 'bg-loss',
++      valueClass: summary.totalRealizedPnL >= 0 ? 'text-win' : 'text-loss',
++    },
++    {
++      id: 'monthly-debt',
++      label: 'Trả nợ tháng này',
++      value: formatVND(summary.monthlyDebtPaymentTotal, { compact: true }),
++      fullTitle: formatVND(summary.monthlyDebtPaymentTotal),
++      sub:
++        summary.monthlyDebtPaymentTotal > 0
++          ? `Gốc ${formatVND(summary.monthlyPrincipalTotal, { compact: true })}`
++          : 'Đã hoàn thành tháng này',
++      dotClass: summary.monthlyDebtPaymentTotal > 0 ? 'bg-amber-500' : 'bg-slate-400',
++      onClick: () => onNavigateTab('debts'),
++    },
++    {
++      id: 'next-due',
++      label: 'Kỳ đến hạn tới',
++      value: nextPayment ? formatVND(nextPayment.total, { compact: true }) : '0 ₫',
++      fullTitle: nextPayment ? formatVND(nextPayment.total) : undefined,
++      sub: nextPayment
++        ? nextPayment.daysRemaining === 0
++          ? `Hôm nay · ${nextPayment.debt.name}`
++          : nextPayment.daysRemaining > 0
++          ? `Còn ${nextPayment.daysRemaining} ngày · ${nextPayment.debt.name}`
++          : `Quá hạn ${Math.abs(nextPayment.daysRemaining)} ngày`
++        : 'Không có kỳ nợ',
++      dotClass: !nextPayment ? 'bg-emerald-500' : nextPayment.isOverdue ? 'bg-loss' : 'bg-amber-500',
++      valueClass: nextPayment?.isOverdue ? 'text-loss' : 'text-slate-900',
++      onClick: () => onNavigateTab('debts'),
++    },
++  ];
++
++  let offset = 0;
++  const arcs = allocation.slices.map((s) => {
++    const len = (s.pct / 100) * DONUT_C;
++    const visible = allocation.slices.length > 1 ? Math.max(0, len - DONUT_GAP) : len;
++    const arc = {
++      slice: s,
++      dash: `${visible.toFixed(3)} ${(DONUT_C - visible).toFixed(3)}`,
++      offset: -offset,
++    };
++    offset += len;
++    return arc;
++  });
++
++  return (
++    <div className="space-y-4 animate-tab-in" data-pwa-overview>
++      {/* Lưới thẻ 2 cột tinh gọn theo bố cục ứng dụng */}
++      <div className="grid grid-cols-2 gap-3">
++        {cards.map((c) => {
++          const inner = (
++            <>
++              <div className="flex items-center justify-between gap-2">
++                <span className="truncate text-xs font-medium text-slate-500">{c.label}</span>
++                <span className={`h-2 w-2 shrink-0 rounded-full ${c.dotClass}`} aria-hidden="true" />
++              </div>
++              <div
++                title={c.fullTitle}
++                className={`mt-2.5 font-mono text-[17px] sm:text-lg font-bold tracking-tight tabular-nums whitespace-nowrap leading-tight ${
++                  c.valueClass || 'text-slate-900'
++                }`}
++              >
++                {c.value}
++              </div>
++              {c.sub && (
++                <div className="mt-1 truncate text-[11px] font-medium text-slate-500 tabular-nums">
++                  {c.sub}
++                </div>
++              )}
++            </>
++          );
++
++          if (c.onClick) {
++            return (
++              <button
++                key={c.id}
++                type="button"
++                onClick={c.onClick}
++                className="rounded-2xl border border-slate-200 bg-white p-3.5 sm:p-4 text-left shadow-[0_1px_2px_rgba(28,27,24,0.04)] transition-colors hover:border-slate-300 active:bg-slate-50"
++              >
++                {inner}
++              </button>
++            );
++          }
++
++          return (
++            <div
++              key={c.id}
++              className="rounded-2xl border border-slate-200 bg-white p-3.5 sm:p-4 shadow-[0_1px_2px_rgba(28,27,24,0.04)]"
++            >
++              {inner}
++            </div>
++          );
++        })}
++      </div>
++
++      {/* Thẻ biểu đồ phân bổ tài sản: Donut trái + chú giải phải */}
++      <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-[0_1px_2px_rgba(28,27,24,0.04)]">
++        <div className="mb-3 flex items-center justify-between">
++          <h2 className="text-sm font-semibold text-slate-900">Phân bổ tài sản</h2>
++          <button
++            type="button"
++            onClick={() => onNavigateTab('assets')}
++            className="inline-flex min-h-[32px] items-center gap-0.5 text-xs font-semibold text-accent-ink hover:text-accent-hover"
++          >
++            <span>Chi tiết</span>
++            <ChevronRight className="h-3.5 w-3.5" />
++          </button>
++        </div>
++
++        {allocation.slices.length === 0 ? (
++          <p className="py-6 text-center text-xs text-slate-400">Chưa có tài sản đang nắm giữ.</p>
++        ) : (
++          <div className="flex items-center gap-4">
++            <div className="relative h-28 w-28 sm:h-32 sm:w-32 shrink-0">
++              <svg
++                viewBox={`0 0 ${DONUT_SIZE} ${DONUT_SIZE}`}
++                className="h-full w-full"
++                role="img"
++                aria-label="Biểu đồ tròn phân bổ tài sản"
++              >
++                <circle
++                  cx={DONUT_SIZE / 2}
++                  cy={DONUT_SIZE / 2}
++                  r={DONUT_R}
++                  fill="none"
++                  stroke="currentColor"
++                  strokeWidth={DONUT_STROKE}
++                  className="text-slate-100"
++                />
++                <g transform={`rotate(-90 ${DONUT_SIZE / 2} ${DONUT_SIZE / 2})`}>
++                  {arcs.map(({ slice, dash, offset: off }) => (
++                    <circle
++                      key={slice.key}
++                      cx={DONUT_SIZE / 2}
++                      cy={DONUT_SIZE / 2}
++                      r={DONUT_R}
++                      fill="none"
++                      stroke={slice.color}
++                      strokeWidth={DONUT_STROKE}
++                      strokeDasharray={dash}
++                      strokeDashoffset={off}
++                    />
++                  ))}
++                </g>
++              </svg>
++            </div>
++
++            <div className="min-w-0 flex-1 space-y-2">
++              {allocation.slices.map((slice) => (
++                <div
++                  key={slice.key}
++                  title={
++                    slice.members.length > 1
++                      ? `Gồm: ${slice.members.map((k) => CATEGORY_META[k].label).join(', ')}`
++                      : undefined
++                  }
++                  className="flex items-center justify-between gap-2 text-xs"
++                >
++                  <div className="flex min-w-0 items-center gap-2">
++                    <span
++                      className="h-2.5 w-2.5 shrink-0 rounded-full"
++                      style={{ backgroundColor: slice.color }}
++                      aria-hidden="true"
++                    />
++                    <span className="truncate font-medium text-slate-600">{slice.label}</span>
++                  </div>
++                  <div className="shrink-0 font-mono font-semibold tabular-nums text-slate-900">
++                    {slice.pct.toFixed(0)}%
++                    <span className="ml-1.5 text-[11px] font-normal text-slate-500">
++                      {formatVND(slice.value, { compact: true, hideSymbol: true })}
++                    </span>
++                  </div>
++                </div>
++              ))}
++            </div>
++          </div>
++        )}
++      </section>
++    </div>
++  );
++};
+diff --git a/src/utils/usePwaMode.ts b/src/utils/usePwaMode.ts
+new file mode 100644
+index 0000000..6ecb2e8
+--- /dev/null
++++ b/src/utils/usePwaMode.ts
+@@ -0,0 +1,57 @@
++import { useEffect, useState } from 'react';
++
++/**
++ * Xác định ứng dụng đang mở ở chế độ PWA độc lập (đã cài ra màn hình chính, không còn thanh URL trình duyệt)
++ * hoặc đang bật chế độ xem trước PWA qua tham số `?pwa=1`.
++ */
++export function isPwaStandalone(): boolean {
++  if (typeof window === 'undefined') return false;
++  try {
++    if (window.matchMedia?.('(display-mode: standalone)').matches) return true;
++    if ((window.navigator as Navigator & { standalone?: boolean }).standalone === true) return true;
++    if (new URLSearchParams(window.location.search).get('pwa') === '1') return true;
++  } catch {
++    return false;
++  }
++  return false;
++}
++
++/** Hook theo dõi trạng thái PWA standalone theo thời gian thực. */
++export function useIsPwaApp(): boolean {
++  const [isPwa, setIsPwa] = useState<boolean>(() => isPwaStandalone());
++
++  useEffect(() => {
++    if (typeof window === 'undefined' || !window.matchMedia) return;
++    const mq = window.matchMedia('(display-mode: standalone)');
++    const sync = () => setIsPwa(isPwaStandalone());
++    sync();
++    if (mq.addEventListener) {
++      mq.addEventListener('change', sync);
++      return () => mq.removeEventListener('change', sync);
++    }
++    mq.addListener?.(sync);
++    return () => mq.removeListener?.(sync);
++  }, []);
++
++  return isPwa;
++}
++
++/** Hook theo dõi trạng thái kết nối mạng để thông báo tinh tế khi ngoại tuyến. */
++export function useOnlineStatus(): boolean {
++  const [online, setOnline] = useState<boolean>(() =>
++    typeof navigator === 'undefined' ? true : navigator.onLine
++  );
++
++  useEffect(() => {
++    const onOnline = () => setOnline(true);
++    const onOffline = () => setOnline(false);
++    window.addEventListener('online', onOnline);
++    window.addEventListener('offline', onOffline);
++    return () => {
++      window.removeEventListener('online', onOnline);
++      window.removeEventListener('offline', onOffline);
++    };
++  }, []);
++
++  return online;
++}
+diff --git a/tests/pwa-app.cjs b/tests/pwa-app.cjs
+new file mode 100644
+index 0000000..9c1755d
+--- /dev/null
++++ b/tests/pwa-app.cjs
+@@ -0,0 +1,142 @@
++/**
++ * Kiểm thử PWA trong Chromium (thay cho tests/pwa.cjs cũ, vốn kiểm tra nút cài ở thanh bên đã bỏ) (máy chủ tĩnh giả lập Vercel trên localhost, API giả qua page.route).
++ * Chạy: node tests/pwa.cjs   (cần playwright + esbuild + stub lucide-react: bash tests/gen-stubs.sh)
++ *
++ * Dựng đúng như bản triển khai: index.html thật + public/ (manifest, sw.js, biểu tượng) + bundle của src/main.tsx
++ * (định nghĩa import.meta.env.PROD = true để main.tsx đăng ký service worker như khi chạy npm run build).
++ */
++const { chromium } = require('playwright');
++const { execFileSync } = require('child_process');
++const http = require('http'), fs = require('fs'), path = require('path');
++const root = path.resolve(__dirname, '..');
++const G = process.env.NODE_PATH || execFileSync('npm', ['root', '-g']).toString().trim();
++const esbuild = process.env.ESBUILD || path.join(G, 'tsx/node_modules/esbuild/bin/esbuild');
++const site = path.join(root, 'tests/dist/pwa-site');
++fs.rmSync(site, { recursive: true, force: true });
++fs.mkdirSync(path.join(site, 'assets'), { recursive: true });
++
++// ---- dựng "bản triển khai" ----
++execFileSync(esbuild, ['src/main.tsx', '--bundle', `--outfile=${site}/assets/index-test1234.js`, '--format=iife', '--jsx=automatic', '--platform=browser',
++  '--loader:.css=empty', '--define:process.env.NODE_ENV="production"', '--define:import.meta.env.PROD=true', '--log-level=warning'], { cwd: root, stdio: 'inherit' });
++execFileSync('node', [path.join(__dirname, 'build-css.cjs')], { cwd: root, stdio: 'inherit', env: { ...process.env, NODE_PATH: G } });
++fs.copyFileSync(path.join(root, 'tests/dist/app.css'), path.join(site, 'assets/index-test5678.css'));
++for (const f of fs.readdirSync(path.join(root, 'public'))) if (!f.includes('.old.')) fs.copyFileSync(path.join(root, 'public', f), path.join(site, f));
++let html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
++html = html.replace(/<script type="module"[^>]*><\/script>/, '<script defer src="/assets/index-test1234.js"></script>')
++  .replace('</head>', '<link rel="stylesheet" href="/assets/index-test5678.css"></head>');
++fs.writeFileSync(path.join(site, 'index.html'), html);
++
++const mime = { '.js': 'text/javascript', '.css': 'text/css', '.html': 'text/html; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.webmanifest': 'application/manifest+json' };
++const server = http.createServer((req, res) => {
++  const p = req.url.split('?')[0];
++  const f = path.join(site, p === '/' ? 'index.html' : p);
++  fs.readFile(f, (e, b) => { if (e || !f.startsWith(site)) { res.writeHead(404); res.end('nf'); } else { res.writeHead(200, { 'Content-Type': mime[path.extname(f)] || 'application/octet-stream' }); res.end(b); } });
++});
++
++let pass = 0, fail = 0;
++const log = (ok, id, name, extra = '') => { ok ? pass++ : fail++; console.log(`${ok ? 'PASS' : 'FAIL'} ${id} ${name}${ok ? '' : '\n       ' + extra}`); };
++const pngSize = (buf) => ({ w: buf.readUInt32BE(16), h: buf.readUInt32BE(20) });
++
++(async () => {
++  await new Promise((r) => server.listen(0, r));
++  const base = `http://localhost:${server.address().port}`;
++  const browser = await chromium.launch();
++  const errors = [];
++  const apiHits = [];
++  const mkPage = async (ctx) => {
++    const page = await ctx.newPage();
++    page.on('pageerror', (e) => errors.push(String(e)));
++    // Phông Google không tải được trong môi trường kiểm thử (không có Internet) → bỏ qua lỗi tải tài nguyên của chính hai host phông
++    page.on('console', (m) => m.type() === 'error' && !/fonts\.(googleapis|gstatic)\.com/.test(m.location().url || '') && errors.push(`${m.text()} @ ${m.location().url}`));
++    await page.route('**/api/**', (route) => {
++      const u = new URL(route.request().url()); apiHits.push(u.pathname);
++      const j = (o) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(o) });
++      if (u.pathname === '/api/auth/me') return j({ user: { id: 'u1', email: 'lan@gmail.com', displayName: 'Lan', role: 'user', status: 'active' } });
++      if (u.pathname === '/api/portfolio') return route.request().method() === 'GET' ? j({ data: null, version: 0 }) : j({ version: 1 });
++      return j({ prices: [] });
++    });
++    return page;
++  };
++
++  // ---------- Manifest + biểu tượng + thẻ <head> ----------
++  {
++    const ctx = await browser.newContext(); const page = await mkPage(ctx);
++    await page.goto(base + '/'); await page.waitForSelector('[data-sidebar]');
++    const head = await page.evaluate(() => ({
++      manifest: document.querySelector('link[rel="manifest"]')?.getAttribute('href'),
++      apple: document.querySelector('link[rel="apple-touch-icon"]')?.getAttribute('href'),
++      capable: document.querySelector('meta[name="apple-mobile-web-app-capable"]')?.getAttribute('content'),
++      title: document.querySelector('meta[name="apple-mobile-web-app-title"]')?.getAttribute('content'),
++      theme: document.querySelector('meta[name="theme-color"]')?.getAttribute('content'),
++    }));
++    log(head.manifest === '/manifest.webmanifest' && head.apple === '/apple-touch-icon.png' && head.capable === 'yes' && !!head.title, 'P1', 'index.html có manifest, apple-touch-icon, chế độ app trên iOS, tên ngắn', JSON.stringify(head));
++    const mf = await (await fetch(base + head.manifest)).json();
++    const need = ['name', 'short_name', 'start_url', 'scope', 'display', 'background_color', 'theme_color', 'icons'];
++    log(need.every((k) => mf[k]) && mf.display === 'standalone' && mf.start_url === '/' && mf.lang === 'vi', 'P2', 'manifest đủ trường bắt buộc, display=standalone, start_url=/, lang=vi', JSON.stringify(mf).slice(0, 200));
++    const sizes = [];
++    for (const ic of mf.icons) { const b = Buffer.from(await (await fetch(base + ic.src)).arrayBuffer()); sizes.push(`${ic.purpose}:${pngSize(b).w}x${pngSize(b).h}`); }
++    const okIcons = mf.icons.every((ic, i) => sizes[i] === `${ic.purpose}:${ic.sizes}`) && mf.icons.some((i) => i.purpose === 'maskable') && mf.icons.some((i) => i.sizes === '192x192') && mf.icons.some((i) => i.sizes === '512x512');
++    log(okIcons, 'P3', 'icon 192, 512 và maskable có thật và đúng kích thước khai báo', sizes.join(' '));
++    const a = Buffer.from(await (await fetch(base + '/apple-touch-icon.png')).arrayBuffer());
++    log(pngSize(a).w === 180 && pngSize(a).h === 180 && a[25] !== 6 && a[25] !== 4, 'P4', 'apple-touch-icon 180x180, không trong suốt (iOS sẽ tô nền đen nếu có trong suốt)', `${pngSize(a).w}x${pngSize(a).h} colorType=${a[25]}`);
++    await ctx.close();
++  }
++
++  // ---------- Service worker, ngoại tuyến, không lưu /api ----------
++  {
++    const ctx = await browser.newContext(); const page = await mkPage(ctx);
++    await page.goto(base + '/'); await page.waitForSelector('[data-sidebar]');
++    const reg = await page.evaluate(async () => { const r = await navigator.serviceWorker.ready; for (let i = 0; i < 50 && r.active && r.active.state !== 'activated'; i++) await new Promise((x) => setTimeout(x, 100)); return { scope: r.scope, state: r.active && r.active.state, url: r.active && r.active.scriptURL }; });
++    log(reg.scope === base + '/' && /sw\.js$/.test(reg.url) && reg.state === 'activated', 'P5', 'service worker /sw.js được đăng ký, phạm vi "/", đã kích hoạt', JSON.stringify(reg));
++    await page.reload(); await page.waitForSelector('[data-sidebar]');
++    log(await page.evaluate(() => !!navigator.serviceWorker.controller), 'P6', 'sau khi tải lại, trang do service worker điều khiển');
++    const cached = await page.evaluate(async () => { const out = {}; for (const n of await caches.keys()) out[n] = (await (await caches.open(n)).keys()).map((r) => new URL(r.url).pathname); return out; });
++    const all = Object.values(cached).flat();
++    log(all.includes('/') && all.some((p) => /^\/assets\/.*\.js$/.test(p)) && all.some((p) => /^\/assets\/.*\.css$/.test(p)) && all.includes('/manifest.webmanifest'), 'P7', 'đã lưu khung trang, JS, CSS, manifest để mở khi mất mạng', JSON.stringify(cached));
++    log(!all.some((p) => p.startsWith('/api/')), 'P8', 'KHÔNG lưu bất kỳ yêu cầu /api nào (dữ liệu tài chính luôn lấy từ máy chủ)', all.join(','));
++    // Mất mạng: mở lại phải ra được ứng dụng (không phải trang lỗi của trình duyệt)
++    await ctx.setOffline(true);
++    await page.reload({ waitUntil: 'domcontentloaded' });
++    await page.waitForFunction(() => document.querySelector('#root') && document.querySelector('#root').children.length > 0, null, { timeout: 8000 }).catch(() => {});
++    const offline = await page.evaluate(() => ({ rootKids: document.querySelector('#root')?.children.length || 0, text: document.body.innerText.slice(0, 160) }));
++    log(offline.rootKids > 0 && !/ERR_|This site can/i.test(offline.text), 'P9', 'mất mạng vẫn mở được khung ứng dụng (không văng trang lỗi trình duyệt)', JSON.stringify(offline));
++    await ctx.setOffline(false);
++    // Yêu cầu /api vẫn đi ra mạng ở lần tải sau
++    const before = apiHits.length;
++    await page.reload(); await page.waitForSelector('[data-sidebar]');
++    log(apiHits.length > before, 'P10', 'có mạng lại: /api/* vẫn được gọi tới máy chủ (không bị service worker chặn/lấy cache)', `hits ${before}→${apiHits.length}`);
++    await ctx.close();
++  }
++
++  // ---------- Vỏ PWA (khi mở như ứng dụng đã cài) ----------
++  const standaloneScript = () => { const o = window.matchMedia.bind(window); window.matchMedia = (q) => (q === '(display-mode: standalone)' ? { matches: true, media: q, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {}, onchange: null, dispatchEvent: () => false } : o(q)); };
++  {
++    const ctx = await browser.newContext({ viewport: { width: 390, height: 844 } });
++    await ctx.addInitScript(standaloneScript);
++    const page = await mkPage(ctx); await page.goto(base + '/'); await page.waitForSelector('[data-pwa-shell]');
++    const tabs = await page.locator('[data-pwa-tabbar] button').allInnerTexts();
++    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
++    log(tabs.length === 5 && (await page.locator('[data-sidebar]').count()) === 0 && overflow <= 0, 'P11', 'mở ở chế độ ứng dụng (standalone): dùng vỏ PWA 5 tab, không còn thanh bên, không tràn ngang', `tabs=${JSON.stringify(tabs)} overflow=${overflow}`);
++    await page.locator('[data-pwa-tabbar] button').nth(3).click(); await page.waitForTimeout(250);
++    const wallet = await page.locator('[data-pwa-header]').innerText();
++    await page.locator('[data-pwa-tabbar] button').nth(4).click(); await page.waitForTimeout(250);
++    const more = await page.innerText('body');
++    log(/Ví/.test(wallet) && /chức năng mở rộng/i.test(more), 'P12', 'chuyển tab trong vỏ PWA: tab Ví và tab Khác (chức năng mở rộng) hiện đúng', wallet + ' | ' + more.slice(0, 80));
++    await page.evaluate(() => window.dispatchEvent(new Event('offline')));
++    await page.waitForFunction(() => /ngoại tuyến/i.test(document.body.innerText), null, { timeout: 3000 }).catch(() => {});
++    log(/ngoại tuyến/i.test(await page.innerText('body')), 'P13', 'mất mạng: vỏ PWA báo "Đang ngoại tuyến"');
++    await ctx.close();
++  }
++  {
++    const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 } }); const page = await mkPage(ctx);
++    await page.goto(base + '/'); await page.waitForSelector('[data-sidebar]');
++    log((await page.locator('[data-pwa-shell]').count()) === 0, 'P14', 'mở bằng trình duyệt thường (không cài): vẫn là giao diện thanh bên, không bật vỏ PWA');
++    await page.goto(base + '/?pwa=1'); await page.waitForSelector('[data-pwa-shell]');
++    log((await page.locator('[data-sidebar]').count()) === 0, 'P15', 'thêm ?pwa=1 để xem thử vỏ PWA ngay trên trình duyệt');
++    await ctx.close();
++  }
++  log(errors.length === 0, 'P16', 'không có lỗi JS/console trong toàn bộ kịch bản', errors.slice(0, 4).join(' | '));
++  console.log(`\n==== PWA (manifest, service worker, vỏ ứng dụng): ${pass} pass / ${fail} fail ====`);
++  await browser.close(); server.close();
++  process.exit(fail ? 1 : 0);
++})().catch((e) => { console.error(e); process.exit(1); });

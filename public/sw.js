@@ -8,7 +8,7 @@
  *   - chỉ lưu khung trang (index.html không chứa dữ liệu người dùng), file JS/CSS có mã băm, biểu tượng và phông chữ.
  * Khi sửa file này, đổi VERSION để máy người dùng bỏ cache cũ.
  */
-const VERSION = 'v1';
+const VERSION = 'v2';
 const SHELL_CACHE = `fintrack-shell-${VERSION}`;
 const ASSET_CACHE = `fintrack-assets-${VERSION}`;
 const FONT_CACHE = `fintrack-fonts-${VERSION}`;

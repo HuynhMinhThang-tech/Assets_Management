@@ -11,6 +11,8 @@ import { ReportsView } from './components/ReportsView';
 import { AuthScreen } from './components/AuthScreen';
 import { AdminView } from './components/AdminView';
 import { AccountModal } from './components/AccountModal';
+import { PwaAppShell } from './components/pwa/PwaAppShell';
+import { useIsPwaApp } from './utils/usePwaMode';
 import { AlertTriangle, Info, X } from 'lucide-react';
 import { useDialog } from './components/ui/DialogProvider';
 import {
@@ -96,6 +98,7 @@ function FinanceApp({
     if (user.role !== 'admin') setCurrentTab((t) => (t === 'admin' ? 'dashboard' : t));
   }, [user.role]);
   const [currentTab, setCurrentTab] = useState<NavTab>('dashboard');
+  const isPwaApp = useIsPwaApp();
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [isDesktop, setIsDesktop] = useState(() => (typeof window === 'undefined' || !window.matchMedia ? true : window.matchMedia('(min-width: 1024px)').matches));
@@ -608,6 +611,71 @@ function FinanceApp({
   const priceAlertCount = listPriceRows(state, todayLocalStr()).filter(
     (r) => r.mode !== 'readonly' && r.stale
   ).length;
+
+  if (isPwaApp) {
+    return (
+      <>
+        <PwaAppShell
+          user={user}
+          state={state}
+          currentTab={currentTab}
+          onSelectTab={setCurrentTab}
+          pendingAction={pendingAction}
+          onAutoOpenConsumed={() => setPendingAction(null)}
+          onOpenAction={openAction}
+          isDark={isDark}
+          onToggleTheme={onToggleTheme}
+          onLogout={onLogout}
+          onOpenAccount={() => setAccountOpen(true)}
+          syncStatus={syncStatus}
+          onResolveConflict={() => syncer.resolveConflict()}
+          upcomingPaymentCount={summary.upcomingPayments.length}
+          priceAlertCount={priceAlertCount}
+          adminPendingCount={isAdmin && adminAccounts ? countPendingWork(adminAccounts) : 0}
+          adminAccounts={adminAccounts}
+          onRefreshAccounts={refreshAccounts}
+          onClearDemo={handleClearDemo}
+          onKeepDemo={() => setState((p) => ({ ...p, isDemo: false }))}
+          onPayDebtPeriod={handlePayDebtPeriod}
+          onAddAsset={handleAddAsset}
+          onUpdateAsset={handleUpdateAsset}
+          onEditAsset={handleEditAsset}
+          onBuyMore={handleBuyMore}
+          onSellPosition={handleSellPosition}
+          onPositionDividend={handlePositionDividend}
+          onImprovement={handleImprovement}
+          onVoidAsset={handleVoidAsset}
+          onSellAsset={handleSellAsset}
+          onReceiveInterest={handleReceiveInterest}
+          onRolloverSavings={handleRollover}
+          onApplyPrices={handleApplyPrices}
+          onAddDebt={handleAddDebt}
+          onUpdateDebt={handleUpdateDebt}
+          onEditDebt={handleEditDebt}
+          onVoidDebt={handleVoidDebt}
+          onSetFundUse={handleSetFundUse}
+          onAddRateChange={handleAddRateChange}
+          onRemoveRateChange={handleRemoveRateChange}
+          onSettleDebt={handleSettleDebt}
+          onPrepayDebt={handlePrepayDebt}
+          onReconcileDebt={handleReconcileDebt}
+          onUndoReconcile={handleUndoReconcile}
+          onDeposit={handleDeposit}
+          onWithdraw={handleWithdraw}
+          onRecordIncome={handleRecordIncome}
+          onVoidTx={handleVoidTx}
+        />
+        {accountOpen && (
+          <AccountModal
+            user={user}
+            onClose={() => setAccountOpen(false)}
+            onUserChanged={onUserChanged}
+            onDownloadBackup={() => exportStateToJson(state)}
+          />
+        )}
+      </>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-slate-50 flex font-sans antialiased text-slate-900">
