@@ -10,6 +10,7 @@ import {
   CalendarEventKind,
   EVENT_KIND_LABEL,
 } from '../utils/calendar';
+import { PwaCalendarSummary } from './pwa/PwaCalendarParts';
 
 interface CalendarViewProps {
   state: UserFinancialState;
@@ -19,6 +20,8 @@ interface CalendarViewProps {
     periodIndex: number,
     deductFromWallet: boolean
   ) => boolean | void | Promise<boolean | void>;
+  /** 'pwa': bố cục gọn cho điện thoại khi mở như ứng dụng. Mặc định 'web' = bố cục cũ. */
+  layout?: 'web' | 'pwa';
 }
 
 const WEEKDAYS_SHORT = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN'];
@@ -79,7 +82,8 @@ const relativeLabel = (date: string, today: string) => {
   return diff > 0 ? `Còn ${diff} ngày` : `${-diff} ngày trước`;
 };
 
-export const CalendarView: React.FC<CalendarViewProps> = ({ state, onNavigateTab, onPayDebtPeriod }) => {
+export const CalendarView: React.FC<CalendarViewProps> = ({ state, onNavigateTab, onPayDebtPeriod, layout = 'web' }) => {
+  const isPwa = layout === 'pwa';
   const today = todayLocalStr();
   const [cursor, setCursor] = useState(() => {
     const { y, m } = parseYMD(todayLocalStr());
@@ -133,7 +137,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({ state, onNavigateTab
   const walletShort = isCurrentOrFuture && summary.outOpen > cash ? summary.outOpen - cash : 0;
 
   return (
-    <div className="space-y-6 pb-12">
+    <div className={isPwa ? 'space-y-3' : 'space-y-6 pb-12'}>
       {/* Thanh điều hướng tháng */}
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white p-3.5">
         <div className="flex items-center gap-2">
@@ -170,6 +174,8 @@ export const CalendarView: React.FC<CalendarViewProps> = ({ state, onNavigateTab
       </div>
 
       {/* Tổng kết tháng */}
+      {isPwa && <PwaCalendarSummary summary={summary} cash={cash} walletShort={walletShort} />}
+      {!isPwa && (
       <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
         <div className="rounded-xl border border-slate-200 bg-white p-5">
           <span className="block text-xs font-semibold text-slate-500">Phải trả trong tháng</span>
@@ -238,6 +244,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({ state, onNavigateTab
           )}
         </div>
       </div>
+      )}
 
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
         {/* Lưới lịch */}
@@ -250,7 +257,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({ state, onNavigateTab
 
           <div className="grid grid-cols-7 gap-px overflow-hidden rounded-lg border border-slate-200 bg-slate-200">
             {cells.map((date, i) => {
-              if (!date) return <div key={`empty-${i}`} className="min-h-[64px] bg-slate-50/70 sm:min-h-[96px]" />;
+              if (!date) return <div key={`empty-${i}`} className={`${isPwa ? 'min-h-[48px]' : 'min-h-[64px]'} bg-slate-50/70 sm:min-h-[96px]`} />;
               const dayEvents = eventsByDate[date] || [];
               const isToday = date === today;
               const isSelected = date === selected;
@@ -262,7 +269,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({ state, onNavigateTab
                   onClick={() => setSelected(isSelected ? null : date)}
                   aria-label={`Ngày ${day}, ${dayEvents.length} khoản`}
                   aria-pressed={isSelected}
-                  className={`flex min-h-[64px] flex-col items-stretch gap-1 bg-white p-1.5 text-left transition-colors hover:bg-slate-50 sm:min-h-[96px] ${
+                  className={`flex ${isPwa ? 'min-h-[48px]' : 'min-h-[64px]'} flex-col items-stretch gap-1 bg-white p-1.5 text-left transition-colors hover:bg-slate-50 sm:min-h-[96px] ${
                     isSelected ? 'relative z-10 ring-2 ring-slate-900' : ''
                   }`}
                 >
@@ -346,7 +353,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({ state, onNavigateTab
                 : 'Tháng này chưa có khoản thu chi nào.'}
             </p>
           ) : (
-            <div className="max-h-[640px] space-y-4 overflow-y-auto pr-1">
+            <div className={isPwa ? 'space-y-4' : 'max-h-[640px] space-y-4 overflow-y-auto pr-1'} {...(isPwa ? { 'data-pwa-event-list': '' } : {})}>
               {groups.map((g) => (
                 <div key={g.date}>
                   <div className="mb-1.5 flex items-center justify-between text-[11px]">

@@ -29,6 +29,8 @@ import {
 import { canVoidTx, checkTxDate } from '../utils/ops';
 import { CurrencyInput } from './CurrencyInput';
 import { Modal, ModalBody, ModalFooter, FieldError } from './ui/Modal';
+import { PwaWalletHero, PwaLedgerFilters, PwaLedgerSummary, PwaTxList } from './pwa/PwaWalletParts';
+import { PwaCard } from './pwa/pwaUi';
 
 interface WalletViewProps {
   state: UserFinancialState;
@@ -39,6 +41,8 @@ interface WalletViewProps {
   onVoidTx: (txId: string) => void;
   autoOpenDeposit?: boolean;
   onAutoOpenConsumed?: () => void;
+  /** 'pwa': bố cục gọn cho điện thoại khi mở như ứng dụng (cùng dữ liệu, cùng hộp thoại). Mặc định 'web' = bố cục cũ. */
+  layout?: 'web' | 'pwa';
 }
 
 export const WalletView: React.FC<WalletViewProps> = ({
@@ -49,7 +53,9 @@ export const WalletView: React.FC<WalletViewProps> = ({
   onVoidTx,
   autoOpenDeposit,
   onAutoOpenConsumed,
+  layout = 'web',
 }) => {
+  const isPwa = layout === 'pwa';
   const [isDepositModalOpen, setIsDepositModalOpen] = useState(false);
   const [isWithdrawModalOpen, setIsWithdrawModalOpen] = useState(false);
   const [filterType, setFilterType] = useState<string>('all');
@@ -205,8 +211,52 @@ export const WalletView: React.FC<WalletViewProps> = ({
   };
 
   return (
-    <div className="space-y-6 pb-12">
+    <div className={isPwa ? 'space-y-3' : 'space-y-6 pb-12'}>
       {/* 1. WALLET BALANCE CARD */}
+      {isPwa && (
+        <PwaWalletHero
+          available={state.wallet.availableCash}
+          totalDeposited={state.wallet.totalDeposited}
+          totalWithdrawn={state.wallet.totalWithdrawn}
+          onDeposit={() => setIsDepositModalOpen(true)}
+          onWithdraw={() => setIsWithdrawModalOpen(true)}
+          onIncome={() => setIsIncomeOpen(true)}
+        />
+      )}
+      {isPwa && (
+        <PwaCard className="space-y-3 p-3.5">
+          <div className="flex items-baseline justify-between gap-2">
+            <h3 className="text-sm font-semibold text-slate-900">Nhật ký dòng tiền đầu tư thực tế</h3>
+            <span className="text-[11px] text-slate-500">{filteredTransactions.length}/{state.transactions.length} giao dịch</span>
+          </div>
+          <PwaLedgerFilters
+            filterType={filterType}
+            onFilterType={setFilterType}
+            rangePreset={rangePreset}
+            onPreset={pickPreset}
+            onCustom={() => setRangePreset('custom')}
+            dateFrom={dateFrom}
+            dateTo={dateTo}
+            onDateFrom={(v) => {
+              setDateFrom(v);
+              setRangePreset('custom');
+            }}
+            onDateTo={(v) => {
+              setDateTo(v);
+              setRangePreset('custom');
+            }}
+            rangeInvalid={rangeInvalid}
+          />
+          {!rangeInvalid && <PwaLedgerSummary summary={ledgerSummary} showBalances={filterType === 'all'} />}
+        </PwaCard>
+      )}
+      {isPwa && (
+        <PwaTxList
+          rows={filteredTransactions.map((tx) => ({ tx, badge: getTxTypeBadge(tx.type), voidable: canVoidTx(state, tx.id).ok }))}
+          onVoid={onVoidTx}
+        />
+      )}
+      {!isPwa && (
       <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
         {/* Available Cash (Hero) */}
         <div className="bg-white p-6 rounded-xl border border-slate-200 flex flex-col justify-between">
@@ -264,8 +314,10 @@ export const WalletView: React.FC<WalletViewProps> = ({
           </div>
         </div>
       </div>
+      )}
 
       {/* 2. TRANSACTIONS LEDGER */}
+      {!isPwa && (
       <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
         {/* Toolbar */}
         <div className="p-4 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -502,6 +554,7 @@ export const WalletView: React.FC<WalletViewProps> = ({
           </div>
         )}
       </div>
+      )}
 
       {/* INCOME MODAL */}
       {isIncomeOpen && (

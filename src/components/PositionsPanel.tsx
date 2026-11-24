@@ -4,6 +4,7 @@ import { formatVND, todayLocalStr } from '../utils/calculations';
 import { BuyMoreInput, ImprovementInput, Position, PositionSellInput, buildPositions, previewSellPosition } from '../utils/positions';
 import { CurrencyInput } from './CurrencyInput';
 import { FieldError, Modal, ModalBody, ModalFooter } from './ui/Modal';
+import { PwaPositionCards } from './pwa/PwaPositions';
 
 type Result = boolean | void;
 
@@ -244,12 +245,32 @@ export const ImprovementModal: React.FC<{ asset: Asset; cash: number; onClose: (
 };
 
 // ------------------------------------------------------------------ Bảng vị thế
-export const PositionsPanel: React.FC<{ state: UserFinancialState; handlers: PositionHandlers }> = ({ state, handlers }) => {
+export const PositionsPanel: React.FC<{ state: UserFinancialState; handlers: PositionHandlers; /** 'pwa': thẻ theo mã cho điện thoại (mặc định 'web': bảng). */ layout?: 'web' | 'pwa' }> = ({ state, handlers, layout = 'web' }) => {
   const positions = useMemo(() => buildPositions(state.assets), [state.assets]);
   const [open, setOpen] = useState<string | null>(null);
   const [dlg, setDlg] = useState<{ kind: 'buy' | 'sell' | 'div'; key: string } | null>(null);
   if (positions.length === 0) return null;
   const cur = dlg ? positions.find((p) => p.key === dlg.key) : undefined;
+  const dialogs = (
+    <>
+      {dlg && cur && dlg.kind === 'buy' && <BuyMoreModal pos={cur} cash={state.wallet.availableCash} onClose={() => setDlg(null)} onSave={handlers.onBuyMore} />}
+      {dlg && cur && dlg.kind === 'sell' && <SellPositionModal pos={cur} state={state} onClose={() => setDlg(null)} onSave={handlers.onSellPosition} />}
+      {dlg && cur && dlg.kind === 'div' && <DividendModal pos={cur} onClose={() => setDlg(null)} onSave={handlers.onPositionDividend} />}
+    </>
+  );
+  if (layout === 'pwa') {
+    return (
+      <>
+        <PwaPositionCards
+          positions={positions}
+          open={open}
+          onToggle={(key) => setOpen(open === key ? null : key)}
+          onAction={(kind, key) => setDlg({ kind, key })}
+        />
+        {dialogs}
+      </>
+    );
+  }
   return (
     <section className="rounded-xl border border-slate-200 bg-white" data-testid="positions-panel">
       <div className="border-b border-slate-100 px-4 py-2.5">

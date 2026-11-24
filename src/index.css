@@ -325,3 +325,97 @@ html.dark ::-webkit-scrollbar-track { background: #22211E; }
 html.dark ::-webkit-scrollbar-thumb { background: #46433D; }
 html.dark ::-webkit-scrollbar-thumb:hover { background: #5A574F; }
 html.dark input::placeholder, html.dark textarea::placeholder { color: #77746C; }
+
+/* ============================================================================
+   CHẾ ĐỘ ỨNG DỤNG (PWA)
+   Mọi quy tắc dưới đây chỉ có hiệu lực khi <html> có thuộc tính data-pwa-app (do vỏ PWA bật,
+   xem components/pwa/PwaAppShell.tsx). Giao diện web trên trình duyệt KHÔNG bị ảnh hưởng.
+   ============================================================================ */
+
+/* Hàng chip cuộn ngang: ẩn thanh cuộn */
+.no-scrollbar { scrollbar-width: none; -ms-overflow-style: none; }
+.no-scrollbar::-webkit-scrollbar { display: none; }
+
+html[data-pwa-app] body { overscroll-behavior-y: contain; }
+html[data-pwa-app] button,
+html[data-pwa-app] a,
+html[data-pwa-app] input,
+html[data-pwa-app] select,
+html[data-pwa-app] textarea { touch-action: manipulation; }
+
+/* iPhone tự phóng to trang khi chạm vào ô nhập có cỡ chữ nhỏ hơn 16px: nâng lên 16px cho khỏi giật */
+@supports (-webkit-touch-callout: none) {
+  html[data-pwa-app] input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+  html[data-pwa-app] select,
+  html[data-pwa-app] textarea { font-size: 16px; }
+}
+
+/* Hộp thoại nhập liệu thành "tấm trượt" từ đáy màn hình (Modal có aria-labelledby; hộp xác nhận nhỏ giữ nguyên giữa màn hình) */
+html[data-pwa-app] div:has(> [role="dialog"][aria-labelledby]) {
+  align-items: flex-end;
+  padding: 0;
+}
+html[data-pwa-app] [role="dialog"][aria-labelledby] {
+  max-width: none;
+  max-height: calc(100dvh - env(safe-area-inset-top, 0px) - 0.75rem);
+  border-radius: 1.25rem 1.25rem 0 0;
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  animation: sheet-in 0.22s ease-out;
+}
+html[data-pwa-app] [role="dialog"][aria-labelledby]::before {
+  content: '';
+  display: block;
+  flex-shrink: 0;
+  width: 2.25rem;
+  height: 0.25rem;
+  margin: 0.5rem auto 0;
+  border-radius: 999px;
+  background: var(--border-hairline);
+}
+html[data-pwa-app] [role="dialog"][aria-labelledby] button { min-height: 2.25rem; }
+@keyframes sheet-in {
+  from { transform: translateY(24px); opacity: 0.6; }
+  to { transform: none; opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  html[data-pwa-app] [role="dialog"][aria-labelledby] { animation: none; }
+}
+
+/* Lớp phủ hộp thoại (fixed) nằm giữa các khối dùng space-y-*: bỏ lề thừa để tấm trượt sát đáy và lớp mờ phủ kín màn hình */
+html[data-pwa-app] [data-pwa-shell] .fixed.inset-0 { margin: 0 !important; }
+
+/* Thông báo nhỏ (toast) nằm trên thanh điều hướng đáy, không đè lên */
+html[data-pwa-app] [aria-live="polite"].fixed {
+  left: 1rem;
+  right: 1rem;
+  bottom: calc(4.75rem + env(safe-area-inset-bottom, 0px));
+  align-items: center;
+}
+
+/* Các màn hình dùng chung với web (Lịch, Báo cáo, Cập nhật giá, Quản trị): thu gọn khoảng cách và cỡ số liệu */
+html[data-pwa-app] [data-pwa-main] .space-y-6 > :not(:last-child) { margin-block-end: 0.75rem; }
+html[data-pwa-app] [data-pwa-main] .space-y-5 > :not(:last-child) { margin-block-end: 0.75rem; }
+html[data-pwa-app] [data-pwa-main] .pb-12 { padding-bottom: 0; }
+html[data-pwa-app] [data-pwa-main] .p-6 { padding: 1rem; }
+html[data-pwa-app] [data-pwa-main] .p-5 { padding: 0.875rem; }
+html[data-pwa-app] [data-pwa-main] .gap-6,
+html[data-pwa-app] [data-pwa-main] .gap-5,
+html[data-pwa-app] [data-pwa-main] .gap-4 { gap: 0.75rem; }
+html[data-pwa-app] [data-pwa-main] .text-3xl { font-size: 1.5rem; line-height: 2rem; }
+html[data-pwa-app] [data-pwa-main] .text-2xl { font-size: 1.25rem; line-height: 1.75rem; }
+html[data-pwa-app] [data-pwa-main] table th,
+html[data-pwa-app] [data-pwa-main] table td { padding-left: 0.625rem; padding-right: 0.625rem; }
+/* Lịch: nút trong thẻ sự kiện đủ lớn để chạm */
+html[data-pwa-app] [data-pwa-event-list] button { min-height: 2.25rem; }
+/* Báo cáo: thẻ chỉ số 2 cột, gọn hơn */
+html[data-pwa-app] [data-pwa-bs] > section.space-y-3 > .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.5rem; }
+html[data-pwa-app] [data-pwa-bs] > section.space-y-3 > .grid > div { padding: 0.625rem 0.75rem; gap: 0.5rem; }
+html[data-pwa-app] [data-pwa-bs] > section.space-y-3 > .grid .text-xl { font-size: 1rem; line-height: 1.5rem; }
+html[data-pwa-app] [data-pwa-bs] > section.space-y-3 > .grid .text-xs { font-size: 0.6875rem; line-height: 1rem; }
+/* Lịch: nút trong thẻ sự kiện đủ lớn để chạm */
+html[data-pwa-app] [data-pwa-event-list] button { min-height: 2.25rem; }
+/* Báo cáo: thẻ chỉ số 2 cột, gọn hơn */
+html[data-pwa-app] [data-pwa-main] [data-ratio-group] > .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.5rem; }
+html[data-pwa-app] [data-pwa-main] [data-ratio-card] { padding: 0.625rem 0.75rem; gap: 0.5rem; }
+html[data-pwa-app] [data-pwa-main] [data-ratio-card] .text-xl { font-size: 1rem; line-height: 1.5rem; }
+html[data-pwa-app] [data-pwa-main] [data-ratio-card] .text-xs { font-size: 0.6875rem; line-height: 1rem; }

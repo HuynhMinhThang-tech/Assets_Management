@@ -1,5 +1,5 @@
 import React from 'react';
-import { ChevronRight } from 'lucide-react';
+import { ArrowDownRight, ChevronRight, PlusCircle } from 'lucide-react';
 import { UserFinancialState } from '../../types/finance';
 import { NavTab } from '../Sidebar';
 import { buildAllocation, CATEGORY_META } from '../../utils/allocation';
@@ -8,6 +8,9 @@ import { calculateFinancialSummary, formatPercent, formatVND } from '../../utils
 interface PwaOverviewProps {
   state: UserFinancialState;
   onNavigateTab: (tab: NavTab) => void;
+  onOpenAddAsset: () => void;
+  onOpenAddDebt: () => void;
+  onOpenDeposit: () => void;
 }
 
 const DONUT_SIZE = 120;
@@ -27,7 +30,7 @@ interface StatCard {
   onClick?: () => void;
 }
 
-export const PwaOverview: React.FC<PwaOverviewProps> = ({ state, onNavigateTab }) => {
+export const PwaOverview: React.FC<PwaOverviewProps> = ({ state, onNavigateTab, onOpenAddAsset, onOpenAddDebt, onOpenDeposit }) => {
   const summary = calculateFinancialSummary(state);
   const nextPayment = summary.upcomingPayments[0];
   const allocation = buildAllocation(summary.categoryBreakdown);
@@ -43,7 +46,7 @@ export const PwaOverview: React.FC<PwaOverviewProps> = ({ state, onNavigateTab }
     },
     {
       id: 'cash',
-      label: 'Tiền khả dụng',
+      label: 'Khả dụng',
       value: formatVND(summary.availableCash, { compact: true }),
       fullTitle: formatVND(summary.availableCash),
       dotClass: 'bg-emerald-500',
@@ -127,55 +130,102 @@ export const PwaOverview: React.FC<PwaOverviewProps> = ({ state, onNavigateTab }
     return arc;
   });
 
+  const byId = (id: string) => cards.find((c) => c.id === id)!;
+
+  const renderCard = (c: StatCard, size: 'sm' | 'md') => {
+    const inner = (
+      <>
+        <div className="flex items-center justify-between gap-2">
+          <span className="truncate text-[11px] font-medium text-slate-500">{c.label}</span>
+          <span className={`h-2 w-2 shrink-0 rounded-full ${c.dotClass}`} aria-hidden="true" />
+        </div>
+        <div
+          title={c.fullTitle}
+          className={`mt-1.5 truncate font-mono font-bold tracking-tight tabular-nums leading-tight ${
+            size === 'sm' ? 'text-[14px]' : 'text-[16px]'
+          } ${c.valueClass || 'text-slate-900'}`}
+        >
+          {c.value}
+        </div>
+        {c.sub && <div className="mt-0.5 truncate text-[11px] font-medium text-slate-500 tabular-nums">{c.sub}</div>}
+      </>
+    );
+    const cls =
+      'min-w-0 rounded-2xl border border-slate-200 bg-white p-3 text-left shadow-[0_1px_2px_rgba(28,27,24,0.04)]';
+    return c.onClick ? (
+      <button key={c.id} type="button" onClick={c.onClick} className={`${cls} transition-colors active:bg-slate-50`}>
+        {inner}
+      </button>
+    ) : (
+      <div key={c.id} className={cls}>
+        {inner}
+      </div>
+    );
+  };
+
+  const net = byId('net-worth');
+
   return (
-    <div className="space-y-4 animate-tab-in" data-pwa-overview>
-      {/* Lưới thẻ 2 cột tinh gọn theo bố cục ứng dụng */}
-      <div className="grid grid-cols-2 gap-3">
-        {cards.map((c) => {
-          const inner = (
-            <>
-              <div className="flex items-center justify-between gap-2">
-                <span className="truncate text-xs font-medium text-slate-500">{c.label}</span>
-                <span className={`h-2 w-2 shrink-0 rounded-full ${c.dotClass}`} aria-hidden="true" />
-              </div>
-              <div
-                title={c.fullTitle}
-                className={`mt-2.5 font-mono text-[17px] sm:text-lg font-bold tracking-tight tabular-nums whitespace-nowrap leading-tight ${
-                  c.valueClass || 'text-slate-900'
-                }`}
-              >
-                {c.value}
-              </div>
-              {c.sub && (
-                <div className="mt-1 truncate text-[11px] font-medium text-slate-500 tabular-nums">
-                  {c.sub}
-                </div>
-              )}
-            </>
-          );
+    <div className="space-y-3 animate-tab-in" data-pwa-overview>
+      {/* Thẻ chính: tài sản ròng */}
+      <section className="rounded-2xl border border-slate-200 bg-white p-3.5 shadow-[0_1px_2px_rgba(28,27,24,0.04)]">
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-[11px] font-medium text-slate-500">{net.label}</span>
+          <span className={`h-2 w-2 shrink-0 rounded-full ${net.dotClass}`} aria-hidden="true" />
+        </div>
+        <div
+          title={net.fullTitle}
+          className={`mt-0.5 truncate font-mono text-[26px] font-bold leading-tight tracking-tight tabular-nums ${net.valueClass || 'text-slate-900'}`}
+        >
+          {formatVND(summary.netWorth)}
+        </div>
+      </section>
 
-          if (c.onClick) {
-            return (
-              <button
-                key={c.id}
-                type="button"
-                onClick={c.onClick}
-                className="rounded-2xl border border-slate-200 bg-white p-3.5 sm:p-4 text-left shadow-[0_1px_2px_rgba(28,27,24,0.04)] transition-colors hover:border-slate-300 active:bg-slate-50"
-              >
-                {inner}
-              </button>
-            );
-          }
+      {/* Ba số nền tảng */}
+      <div className="grid grid-cols-3 gap-2">
+        {renderCard(byId('cash'), 'sm')}
+        {renderCard(byId('assets'), 'sm')}
+        {renderCard(byId('debt'), 'sm')}
+      </div>
 
-          return (
-            <div
-              key={c.id}
-              className="rounded-2xl border border-slate-200 bg-white p-3.5 sm:p-4 shadow-[0_1px_2px_rgba(28,27,24,0.04)]"
-            >
-              {inner}
-            </div>
-          );
-        })}
+      {/* Lãi / lỗ */}
+      <div className="grid grid-cols-2 gap-2">
+        {renderCard(byId('book-pnl'), 'md')}
+        {renderCard(byId('realized-pnl'), 'md')}
+      </div>
+
+      {/* Nợ phải trả sắp tới */}
+      <div className="grid grid-cols-2 gap-2">
+        {renderCard(byId('monthly-debt'), 'md')}
+        {renderCard(byId('next-due'), 'md')}
+      </div>
+
+      {/* Thao tác nhanh */}
+      <div className="grid grid-cols-3 gap-2" data-pwa-quick-actions>
+        <button
+          type="button"
+          onClick={onOpenAddAsset}
+          className="flex min-h-[64px] flex-col items-center justify-center gap-1 rounded-2xl border border-slate-200 bg-white px-1 text-[11px] font-semibold text-slate-700 active:bg-slate-50"
+        >
+          <PlusCircle className="h-5 w-5 text-accent-ink" />
+          <span>Thêm tài sản</span>
+        </button>
+        <button
+          type="button"
+          onClick={onOpenAddDebt}
+          className="flex min-h-[64px] flex-col items-center justify-center gap-1 rounded-2xl border border-slate-200 bg-white px-1 text-[11px] font-semibold text-slate-700 active:bg-slate-50"
+        >
+          <PlusCircle className="h-5 w-5 text-rose-600" />
+          <span>Thêm khoản nợ</span>
+        </button>
+        <button
+          type="button"
+          onClick={onOpenDeposit}
+          className="flex min-h-[64px] flex-col items-center justify-center gap-1 rounded-2xl border border-slate-200 bg-white px-1 text-[11px] font-semibold text-slate-700 active:bg-slate-50"
+        >
+          <ArrowDownRight className="h-5 w-5 text-emerald-600" />
+          <span>Nạp / Rút ví</span>
+        </button>
       </div>
 
       {/* Thẻ biểu đồ phân bổ tài sản: Donut trái + chú giải phải */}

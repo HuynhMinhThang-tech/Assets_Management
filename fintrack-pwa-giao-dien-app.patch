@@ -1,0 +1,3285 @@
+diff --git a/README.md b/README.md
+index 0c729a9..34c2b61 100644
+--- a/README.md
++++ b/README.md
+@@ -52,6 +52,15 @@ Chi tiết về Neon và Vercel: `docs/DEPLOY.md`.
+ Các file liên quan: `public/manifest.webmanifest`, `public/sw.js` (service worker), biểu tượng `public/pwa-*.png` và `public/apple-touch-icon.png`, đăng ký trong `src/utils/pwa.ts`, nút cài trong `src/components/InstallAppButton.tsx`.
+ Service worker **không bao giờ lưu `/api/*`** (số liệu tài chính luôn lấy từ máy chủ); chỉ lưu khung trang, JS/CSS và biểu tượng để mở nhanh và mở được khi mất mạng (dữ liệu thì cần mạng). Chỉ đăng ký ở bản build (`npm run build`), không đăng ký khi `npm run dev`. Sửa `public/sw.js` thì đổi `VERSION` ở đầu file để máy người dùng bỏ cache cũ. Kiểm thử: `node tests/pwa.cjs`.
+ 
++### Giao diện khi mở như ứng dụng
++
++Khi mở từ biểu tượng đã cài (hoặc thêm `?pwa=1` vào địa chỉ để xem thử ngay trên trình duyệt), ứng dụng dùng vỏ `src/components/pwa/PwaAppShell.tsx`: thanh đầu gọn, thanh tab đáy (Tổng quan · Tài sản · Khoản nợ · Ví · Khác), hộp thoại hiện như tấm trượt từ đáy màn hình. Các màn hình Tài sản, Khoản nợ, Ví, Lịch thu chi, Báo cáo, Cập nhật giá được **sắp xếp lại cho điện thoại** (thẻ thay cho bảng, bộ lọc dạng chip, số liệu gom gọn) nhưng dùng **chung dữ liệu, hàm xử lý và hộp thoại** với bản web.
++
++- Cách làm: mỗi màn hình nhận thêm tham số `layout?: 'web' | 'pwa'` (mặc định `'web'` = giao diện cũ, không đổi). Khối giao diện riêng cho app nằm trong `src/components/pwa/` (`pwaUi.tsx` là bộ thành phần dùng chung).
++- CSS riêng cho app nằm ở cuối `src/index.css`, chỉ có tác dụng khi `<html>` có thuộc tính `data-pwa-app` (do vỏ app bật), nên không ảnh hưởng bản web.
++- Thêm/sửa chức năng ở một màn hình: sửa phần logic trong file màn hình như bình thường; nếu có thêm nút hay thông tin mới thì thêm cả vào khối giao diện app tương ứng.
++- Kiểm thử bố cục app (điện thoại 390px, Chromium): `node tests/pwa-views.cjs`; kiểm thử vỏ app và service worker: `node tests/pwa-app.cjs`.
++
+ ## Xuống dòng (line endings)
+ 
+ Repo dùng LF cho mọi file (`.gitattributes`: `* text=auto eol=lf`), kể cả trên Windows. Nếu `git apply` báo lỗi vì CRLF, chạy một lần `git add --renormalize .` rồi commit (xem hướng dẫn kèm patch giai đoạn 0).
+diff --git a/src/components/AssetsView.tsx b/src/components/AssetsView.tsx
+index 07296d3..1714401 100644
+--- a/src/components/AssetsView.tsx
++++ b/src/components/AssetsView.tsx
+@@ -66,6 +66,8 @@ import { EditAssetModal } from './EditInfoModals';
+ import { ImprovementModal, PositionsPanel } from './PositionsPanel';
+ import type { BuyMoreInput, ImprovementInput, PositionSellInput } from '../utils/positions';
+ import type { AssetEditInput } from '../utils/editOps';
++import { PwaAssetsSummary, PwaAssetsFilters, PwaAssetCard } from './pwa/PwaAssetsParts';
++import { PwaEmpty } from './pwa/pwaUi';
+ 
+ interface AssetsViewProps {
+   state: UserFinancialState;
+@@ -91,6 +93,8 @@ interface AssetsViewProps {
+   onReceiveInterest: (p: { assetId: string; amount: number; date: string; note?: string }) => boolean | void;
+   /** Tái tục sổ tiết kiệm (đổi kỳ hạn, lãi suất; nhập lãi vào gốc hoặc rút lãi về ví). */
+   onRolloverSavings: (p: RolloverInput) => boolean | void;
++  /** 'pwa': bố cục gọn cho điện thoại khi mở như ứng dụng (cùng dữ liệu, cùng hộp thoại). Mặc định 'web' = bố cục cũ. */
++  layout?: 'web' | 'pwa';
+ }
+ 
+ const PAYOUT_LABEL: Record<string, string> = { maturity: 'cuối kỳ', monthly: 'hàng tháng', upfront: 'đầu kỳ' };
+@@ -280,7 +284,9 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
+   onReceiveInterest,
+   onRolloverSavings,
+   onSellAsset,
++  layout = 'web',
+ }) => {
++  const isPwa = layout === 'pwa';
+   const { confirm: confirmDialog, choose: chooseDialog } = useDialog();
+   const dialogApi = { choose: chooseDialog };
+   const [selectedCategory, setSelectedCategory] = useState<AssetCategory | 'all'>('all');
+@@ -480,8 +486,21 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
+   };
+ 
+   return (
+-    <div className="space-y-6 pb-12">
++    <div className={isPwa ? 'space-y-3' : 'space-y-6 pb-12'}>
+       {/* 1. TOP SUMMARY CARDS (cùng bố cục với tab Khoản nợ) */}
++      {isPwa && (
++        <PwaAssetsSummary
++          portfolioValue={portfolioValue}
++          portfolioCost={portfolioCost}
++          portfolioPnL={portfolioPnL}
++          portfolioPnLPct={portfolioPnLPct}
++          realizedFromSales={realizedFromSales}
++          activeCount={activeAssets.length}
++          categoryTotals={categoryTotals}
++          categoryColors={CATEGORY_COLORS}
++        />
++      )}
++      {!isPwa && (
+       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+         {/* Tổng thị giá */}
+         <div className="bg-white p-5 rounded-xl border border-slate-200">
+@@ -560,14 +579,38 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
+           </span>
+         </div>
+       </div>
++      )}
+ 
+       {/* Vị thế theo mã: gộp các lô cùng mã (mua thêm / bán theo giá vốn bình quân / cổ tức) */}
+       <PositionsPanel
+         state={state}
+         handlers={{ onBuyMore, onSellPosition, onPositionDividend }}
++        layout={layout}
+       />
+ 
+       {/* 2. FILTER & TOOLBAR (nằm dưới các thẻ, giống tab Khoản nợ) */}
++      {isPwa && (
++        <PwaAssetsFilters
++          categories={categories}
++          selectedCategory={selectedCategory}
++          onCategory={setSelectedCategory}
++          countByCategory={countByCategory}
++          statusFilter={statusFilter}
++          onStatus={setStatusFilter}
++          countByStatus={countByStatus}
++          searchQuery={searchQuery}
++          onSearch={setSearchQuery}
++          shown={filteredAssets.length}
++          total={state.assets.length}
++          filtersActive={filtersActive}
++          onClear={() => {
++            setSelectedCategory('all');
++            setStatusFilter('active');
++            setSearchQuery('');
++          }}
++        />
++      )}
++      {!isPwa && (
+       <div className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-3.5 lg:flex-row lg:items-end">
+         <div className="lg:w-56">
+           <label htmlFor="asset-category-filter" className="mb-1 block text-[11px] font-semibold text-slate-500">
+@@ -640,8 +683,33 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
+           )}
+         </div>
+       </div>
++      )}
+ 
+       {/* Assets Table / List */}
++      {isPwa && (
++        filteredAssets.length === 0 ? (
++          <PwaEmpty icon={<Layers className="h-9 w-9" />}>Không tìm thấy tài sản nào phù hợp với bộ lọc hiện tại.</PwaEmpty>
++        ) : (
++          <div className="space-y-3" data-pwa-asset-list="">
++            {filteredAssets.map((asset) => (
++              <PwaAssetCard
++                key={asset.id}
++                asset={asset}
++                linkedDebt={state.debts.find((d) => d.id === asset.linkedDebtId || d.collateralAssetId === asset.id)}
++                canVoid={canVoidAsset(state, asset.id).ok}
++                onEdit={() => setEditInfoAsset(asset)}
++                onImprove={() => setImproveAsset(asset)}
++                onIncome={() => openIncomeEdit(asset)}
++                onInterest={() => setInterestAsset(asset)}
++                onRollover={() => setRolloverAsset(asset)}
++                onSell={() => handleOpenSell(asset)}
++                onVoid={() => onVoidAsset(asset.id)}
++              />
++            ))}
++          </div>
++        )
++      )}
++      {!isPwa && (
+       <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+         {filteredAssets.length === 0 ? (
+           <div className="py-16 text-center text-slate-400 text-xs">
+@@ -946,6 +1014,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
+           </div>
+         )}
+       </div>
++      )}
+ 
+       {/* MODAL: SELL / REALIZE PnL (cập nhật giá nằm ở tab "Cập nhật giá") */}
+       {sellAssetTarget && (
+diff --git a/src/components/BalanceSheetView.tsx b/src/components/BalanceSheetView.tsx
+index 2df198e..36fa572 100644
+--- a/src/components/BalanceSheetView.tsx
++++ b/src/components/BalanceSheetView.tsx
+@@ -18,6 +18,8 @@ interface BalanceSheetViewProps {
+   balance?: BalanceSheet;
+   /** Cột đầu kỳ / cuối kỳ / thay đổi theo nhóm. */
+   compare?: { start: BalanceGroups; end: BalanceGroups; startSource: string };
++  /** 'pwa': bố cục gọn cho điện thoại khi mở như ứng dụng (mặc định 'web'). */
++  layout?: 'web' | 'pwa';
+ }
+ 
+ const STATUS_STYLE: Record<RatioStatus, { label: string; className: string }> = {
+@@ -112,7 +114,8 @@ const RatioGroup: React.FC<{ title: string; children: React.ReactNode }> = ({ ti
+   </section>
+ );
+ 
+-export const BalanceSheetView: React.FC<BalanceSheetViewProps> = ({ state, balance, compare }) => {
++export const BalanceSheetView: React.FC<BalanceSheetViewProps> = ({ state, balance, compare, layout = 'web' }) => {
++  const isPwa = layout === 'pwa';
+   const computed = useMemo(() => calculateBalanceSheet(state), [state]);
+   const bs = balance ?? computed;
+   const unspecifiedDebts = state.debts.filter((d) => d.status === 'active' && (!d.fundUse || d.fundUse.kind === 'unspecified')).length;
+@@ -132,15 +135,34 @@ export const BalanceSheetView: React.FC<BalanceSheetViewProps> = ({ state, balan
+   const sLtv = r.ltv === null ? null : statusLowerIsBetter(r.ltv, 0.6, 0.8);
+ 
+   return (
+-    <div className="space-y-6 pb-12">
++    <div className={isPwa ? 'space-y-3' : 'space-y-6 pb-12'} {...(isPwa ? { 'data-pwa-bs': '' } : {})}>
+       <div className="flex flex-wrap items-center justify-between gap-2">
+-        <h2 className="text-lg font-semibold text-slate-900">Bảng cân đối</h2>
++        {!isPwa && <h2 className="text-lg font-semibold text-slate-900">Bảng cân đối</h2>}
+         <span className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-700">
+           Tại ngày {formatDateVN(bs.asOf)}
+         </span>
+       </div>
+ 
+       {/* 1. TỔNG HỢP */}
++      {isPwa && (
++        <div data-pwa-bs-summary className="divide-y divide-slate-100 rounded-2xl border border-slate-200 bg-white px-3.5 shadow-[0_1px_2px_rgba(28,27,24,0.04)]">
++          <div className="flex items-baseline justify-between gap-3 py-2.5">
++            <span className="text-xs font-medium text-slate-500">Tổng tài sản</span>
++            <span className="truncate font-mono text-[15px] font-bold tabular-nums text-slate-900">{formatVND(bs.totalAssets)}</span>
++          </div>
++          <div className="flex items-baseline justify-between gap-3 py-2.5">
++            <span className="text-xs font-medium text-slate-500">Nợ phải trả</span>
++            <span className="truncate font-mono text-[15px] font-bold tabular-nums text-rose-600">{formatVND(bs.totalLiabilities)}</span>
++          </div>
++          <div className="flex items-baseline justify-between gap-3 py-2.5">
++            <span className="text-xs font-medium text-slate-500">Vốn chủ sở hữu</span>
++            <span className={`truncate font-mono text-[15px] font-bold tabular-nums ${bs.equity.total < 0 ? 'text-rose-600' : 'text-emerald-600'}`}>
++              {formatVND(bs.equity.total)}
++            </span>
++          </div>
++        </div>
++      )}
++      {!isPwa && (
+       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+         <div className="bg-white p-5 rounded-xl border border-slate-200">
+           <div className="text-xs font-medium text-slate-500 mb-2">Tổng tài sản</div>
+@@ -161,6 +183,7 @@ export const BalanceSheetView: React.FC<BalanceSheetViewProps> = ({ state, balan
+           </div>
+         </div>
+       </div>
++      )}
+ 
+       {/* Cảnh báo định giá cũ: nhà thường chiếm phần lớn tài sản ròng nên số trên bảng có thể đã lệch */}
+       {bs.staleValuations.length > 0 && (
+@@ -215,6 +238,33 @@ export const BalanceSheetView: React.FC<BalanceSheetViewProps> = ({ state, balan
+             <h3 className="text-sm font-semibold text-slate-900">Biến động trong kỳ</h3>
+             <span className="text-[11px] font-semibold text-slate-500">Đầu kỳ: {compare.startSource}</span>
+           </div>
++          {isPwa && (
++            <ul data-pwa-compare className="divide-y divide-slate-100">
++              {[...GROUP_LABELS, ['assets', 'Tổng tài sản'], ['debts', 'Tổng nợ phải trả'], ['equity', 'Vốn chủ sở hữu']].map(([k, label]) => {
++                const a = compare.start[k as keyof BalanceGroups];
++                const b = compare.end[k as keyof BalanceGroups];
++                const total = ['assets', 'debts', 'equity'].includes(k as string);
++                if (a === 0 && b === 0 && !total) return null;
++                const d = b - a;
++                return (
++                  <li key={k as string} data-group={k as string} className="py-2">
++                    <div className="flex items-baseline justify-between gap-3">
++                      <span className={`text-[13px] ${total ? 'font-semibold text-slate-900' : 'text-slate-700'}`}>{label as string}</span>
++                      <span className={`font-mono text-[13px] font-semibold tabular-nums ${d > 0 ? 'text-emerald-600' : d < 0 ? 'text-rose-600' : 'text-slate-400'}`}>
++                        {d > 0 ? '+' : d < 0 ? '-' : ''}
++                        {formatVND(Math.abs(d))}
++                      </span>
++                    </div>
++                    <div className="mt-0.5 flex justify-between gap-3 font-mono text-[11px] tabular-nums text-slate-500">
++                      <span>Đầu kỳ {formatVND(a)}</span>
++                      <span>Cuối kỳ {formatVND(b)}</span>
++                    </div>
++                  </li>
++                );
++              })}
++            </ul>
++          )}
++          {!isPwa && (
+           <div className="overflow-x-auto"><table className="w-full text-sm mt-2">
+             <thead>
+               <tr className="text-xs text-slate-500 text-right">
+@@ -245,6 +295,7 @@ export const BalanceSheetView: React.FC<BalanceSheetViewProps> = ({ state, balan
+               })}
+             </tbody>
+           </table></div>
++          )}
+         </section>
+       )}
+ 
+@@ -252,7 +303,7 @@ export const BalanceSheetView: React.FC<BalanceSheetViewProps> = ({ state, balan
+           Hai panel dùng chung 4 hàng (tiêu đề / mục A / mục B / tổng) qua subgrid ở màn hình rộng:
+           tiêu đề, đầu mục A, đầu mục B và dòng tổng của hai bên luôn ngang hàng, hai panel cao bằng nhau.
+           Dòng cộng cuối mỗi mục đẩy xuống đáy mục (mt-auto) để các đường kẻ thẳng hàng. */}
+-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-4 gap-y-4 lg:gap-y-0">
++      <div className={`grid grid-cols-1 lg:grid-cols-2 gap-x-4 ${isPwa ? 'gap-y-3' : 'gap-y-4'} lg:gap-y-0`}>
+         <section className="bg-white p-5 rounded-xl border border-slate-200 lg:row-span-4 lg:grid lg:grid-rows-subgrid">
+           <h3 className="text-sm font-semibold text-slate-900 pb-2 border-b border-slate-200">Tài sản</h3>
+ 
+diff --git a/src/components/CalendarView.tsx b/src/components/CalendarView.tsx
+index 5bbd5b3..7c77594 100644
+--- a/src/components/CalendarView.tsx
++++ b/src/components/CalendarView.tsx
+@@ -10,6 +10,7 @@ import {
+   CalendarEventKind,
+   EVENT_KIND_LABEL,
+ } from '../utils/calendar';
++import { PwaCalendarSummary } from './pwa/PwaCalendarParts';
+ 
+ interface CalendarViewProps {
+   state: UserFinancialState;
+@@ -19,6 +20,8 @@ interface CalendarViewProps {
+     periodIndex: number,
+     deductFromWallet: boolean
+   ) => boolean | void | Promise<boolean | void>;
++  /** 'pwa': bố cục gọn cho điện thoại khi mở như ứng dụng. Mặc định 'web' = bố cục cũ. */
++  layout?: 'web' | 'pwa';
+ }
+ 
+ const WEEKDAYS_SHORT = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN'];
+@@ -79,7 +82,8 @@ const relativeLabel = (date: string, today: string) => {
+   return diff > 0 ? `Còn ${diff} ngày` : `${-diff} ngày trước`;
+ };
+ 
+-export const CalendarView: React.FC<CalendarViewProps> = ({ state, onNavigateTab, onPayDebtPeriod }) => {
++export const CalendarView: React.FC<CalendarViewProps> = ({ state, onNavigateTab, onPayDebtPeriod, layout = 'web' }) => {
++  const isPwa = layout === 'pwa';
+   const today = todayLocalStr();
+   const [cursor, setCursor] = useState(() => {
+     const { y, m } = parseYMD(todayLocalStr());
+@@ -133,7 +137,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({ state, onNavigateTab
+   const walletShort = isCurrentOrFuture && summary.outOpen > cash ? summary.outOpen - cash : 0;
+ 
+   return (
+-    <div className="space-y-6 pb-12">
++    <div className={isPwa ? 'space-y-3' : 'space-y-6 pb-12'}>
+       {/* Thanh điều hướng tháng */}
+       <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white p-3.5">
+         <div className="flex items-center gap-2">
+@@ -170,6 +174,8 @@ export const CalendarView: React.FC<CalendarViewProps> = ({ state, onNavigateTab
+       </div>
+ 
+       {/* Tổng kết tháng */}
++      {isPwa && <PwaCalendarSummary summary={summary} cash={cash} walletShort={walletShort} />}
++      {!isPwa && (
+       <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+         <div className="rounded-xl border border-slate-200 bg-white p-5">
+           <span className="block text-xs font-semibold text-slate-500">Phải trả trong tháng</span>
+@@ -238,6 +244,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({ state, onNavigateTab
+           )}
+         </div>
+       </div>
++      )}
+ 
+       <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
+         {/* Lưới lịch */}
+@@ -250,7 +257,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({ state, onNavigateTab
+ 
+           <div className="grid grid-cols-7 gap-px overflow-hidden rounded-lg border border-slate-200 bg-slate-200">
+             {cells.map((date, i) => {
+-              if (!date) return <div key={`empty-${i}`} className="min-h-[64px] bg-slate-50/70 sm:min-h-[96px]" />;
++              if (!date) return <div key={`empty-${i}`} className={`${isPwa ? 'min-h-[48px]' : 'min-h-[64px]'} bg-slate-50/70 sm:min-h-[96px]`} />;
+               const dayEvents = eventsByDate[date] || [];
+               const isToday = date === today;
+               const isSelected = date === selected;
+@@ -262,7 +269,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({ state, onNavigateTab
+                   onClick={() => setSelected(isSelected ? null : date)}
+                   aria-label={`Ngày ${day}, ${dayEvents.length} khoản`}
+                   aria-pressed={isSelected}
+-                  className={`flex min-h-[64px] flex-col items-stretch gap-1 bg-white p-1.5 text-left transition-colors hover:bg-slate-50 sm:min-h-[96px] ${
++                  className={`flex ${isPwa ? 'min-h-[48px]' : 'min-h-[64px]'} flex-col items-stretch gap-1 bg-white p-1.5 text-left transition-colors hover:bg-slate-50 sm:min-h-[96px] ${
+                     isSelected ? 'relative z-10 ring-2 ring-slate-900' : ''
+                   }`}
+                 >
+@@ -346,7 +353,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({ state, onNavigateTab
+                 : 'Tháng này chưa có khoản thu chi nào.'}
+             </p>
+           ) : (
+-            <div className="max-h-[640px] space-y-4 overflow-y-auto pr-1">
++            <div className={isPwa ? 'space-y-4' : 'max-h-[640px] space-y-4 overflow-y-auto pr-1'} {...(isPwa ? { 'data-pwa-event-list': '' } : {})}>
+               {groups.map((g) => (
+                 <div key={g.date}>
+                   <div className="mb-1.5 flex items-center justify-between text-[11px]">
+diff --git a/src/components/DebtsView.tsx b/src/components/DebtsView.tsx
+index 59a0d09..93a62ed 100644
+--- a/src/components/DebtsView.tsx
++++ b/src/components/DebtsView.tsx
+@@ -45,6 +45,8 @@ import { AddDebtOptions, canVoidDebt, PreexistingAssetInput } from '../utils/ops
+ import { buildTrackedDebt, changeAt, ensureTimeline } from '../utils/debtCore';
+ import { DebtActionHandlers, DebtDetailModal } from './DebtActions';
+ import type { DebtEditInput } from '../utils/editOps';
++import { PwaDebtsSummary, PwaDebtsFilters, PwaDebtCard } from './pwa/PwaDebtsParts';
++import { PwaEmpty } from './pwa/pwaUi';
+ 
+ const DEBT_CATEGORY_OPTIONS: { id: DebtCategory; label: string }[] = [
+   { id: 'mortgage', label: 'Vay nhà / BĐS' },
+@@ -77,6 +79,8 @@ interface DebtsViewProps {
+   onPrepayDebt: DebtActionHandlers['onPrepay'];
+   onReconcileDebt: DebtActionHandlers['onReconcile'];
+   onUndoReconcile: DebtActionHandlers['onUndoReconcile'];
++  /** 'pwa': bố cục gọn cho điện thoại khi mở như ứng dụng (cùng dữ liệu, cùng hộp thoại). Mặc định 'web' = bố cục cũ. */
++  layout?: 'web' | 'pwa';
+ }
+ 
+ export const DebtsView: React.FC<DebtsViewProps> = ({
+@@ -95,7 +99,9 @@ export const DebtsView: React.FC<DebtsViewProps> = ({
+   onUndoReconcile,
+   autoOpenAdd,
+   onAutoOpenConsumed,
++  layout = 'web',
+ }) => {
++  const isPwa = layout === 'pwa';
+   const [scheduleDebtId, setScheduleDebtId] = useState<string | null>(null);
+   const selectedDebtForSchedule = scheduleDebtId ? state.debts.find((d) => d.id === scheduleDebtId) || null : null;
+   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+@@ -137,8 +143,20 @@ export const DebtsView: React.FC<DebtsViewProps> = ({
+   });
+ 
+   return (
+-    <div className="space-y-6 pb-12">
++    <div className={isPwa ? 'space-y-3' : 'space-y-6 pb-12'}>
+       {/* 1. TOP SUMMARY BANNER */}
++      {isPwa && (
++        <PwaDebtsSummary
++          totalRemaining={totalRemainingDebt}
++          totalOriginal={totalOriginalDebt}
++          totalPaid={totalPaidDebt}
++          securedCount={securedDebts.length}
++          unsecuredCount={unsecuredDebts.length}
++          totalSecured={totalSecuredDebt}
++          totalUnsecured={totalUnsecuredDebt}
++        />
++      )}
++      {!isPwa && (
+       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+         {/* Total Debt */}
+         <div className="bg-white p-5 rounded-xl border border-slate-200">
+@@ -224,8 +242,38 @@ export const DebtsView: React.FC<DebtsViewProps> = ({
+           </span>
+         </div>
+       </div>
++      )}
+ 
+       {/* 2. FILTER & TOOLBAR */}
++      {isPwa && (
++        <PwaDebtsFilters
++          securityFilter={securityFilter}
++          onSecurity={setSecurityFilter}
++          securityCounts={{
++            all: state.debts.length,
++            secured: state.debts.filter(isSecuredDebt).length,
++            unsecured: state.debts.filter((d) => !isSecuredDebt(d)).length,
++          }}
++          categoryFilter={categoryFilter}
++          onCategory={setCategoryFilter}
++          categoryOptions={DEBT_CATEGORY_OPTIONS.map((opt) => ({
++            id: opt.id,
++            label: opt.label,
++            count: state.debts.filter((d) => d.category === opt.id).length,
++          }))}
++          totalCount={state.debts.length}
++          voidedCount={voidedCount}
++          showVoided={showVoided}
++          onShowVoided={setShowVoided}
++          shown={filteredDebts.length}
++          filtersActive={securityFilter !== 'all' || categoryFilter !== 'all'}
++          onClear={() => {
++            setSecurityFilter('all');
++            setCategoryFilter('all');
++          }}
++        />
++      )}
++      {!isPwa && (
+       <div className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-3.5 sm:flex-row sm:items-end">
+         <div className="sm:w-60">
+           <label htmlFor="debt-security-filter" className="mb-1 block text-[11px] font-semibold text-slate-500">
+@@ -286,9 +334,29 @@ export const DebtsView: React.FC<DebtsViewProps> = ({
+           )}
+         </div>
+       </div>
++      )}
+ 
+       {/* 3. DEBT CARDS LIST */}
+-      {filteredDebts.length === 0 ? (
++      {isPwa ? (
++        filteredDebts.length === 0 ? (
++          <PwaEmpty icon={<CreditCard className="h-9 w-9" />}>Hiện không có khoản nợ nào trong danh mục lọc.</PwaEmpty>
++        ) : (
++          <div className="space-y-3" data-pwa-debt-list="">
++            {filteredDebts.map((debt) => (
++              <PwaDebtCard
++                key={debt.id}
++                debt={debt}
++                state={state}
++                canVoid={canVoidDebt(state, debt.id).ok}
++                onVoid={() => onVoidDebt(debt.id)}
++                onFundUse={() => setFundUseDebtId(debt.id)}
++                onDetail={() => setScheduleDebtId(debt.id)}
++                onPay={(periodIndex) => onPayDebtPeriod(debt.id, periodIndex, true)}
++              />
++            ))}
++          </div>
++        )
++      ) : filteredDebts.length === 0 ? (
+         <div className="bg-white rounded-xl border border-slate-200 p-12 text-center text-xs text-slate-400">
+           <CreditCard className="w-10 h-10 text-slate-300 mx-auto mb-2" />
+           <p>Hiện không có khoản nợ nào trong danh mục lọc.</p>
+diff --git a/src/components/PositionsPanel.tsx b/src/components/PositionsPanel.tsx
+index 1cca097..31ebf15 100644
+--- a/src/components/PositionsPanel.tsx
++++ b/src/components/PositionsPanel.tsx
+@@ -4,6 +4,7 @@ import { formatVND, todayLocalStr } from '../utils/calculations';
+ import { BuyMoreInput, ImprovementInput, Position, PositionSellInput, buildPositions, previewSellPosition } from '../utils/positions';
+ import { CurrencyInput } from './CurrencyInput';
+ import { FieldError, Modal, ModalBody, ModalFooter } from './ui/Modal';
++import { PwaPositionCards } from './pwa/PwaPositions';
+ 
+ type Result = boolean | void;
+ 
+@@ -244,12 +245,32 @@ export const ImprovementModal: React.FC<{ asset: Asset; cash: number; onClose: (
+ };
+ 
+ // ------------------------------------------------------------------ Bảng vị thế
+-export const PositionsPanel: React.FC<{ state: UserFinancialState; handlers: PositionHandlers }> = ({ state, handlers }) => {
++export const PositionsPanel: React.FC<{ state: UserFinancialState; handlers: PositionHandlers; /** 'pwa': thẻ theo mã cho điện thoại (mặc định 'web': bảng). */ layout?: 'web' | 'pwa' }> = ({ state, handlers, layout = 'web' }) => {
+   const positions = useMemo(() => buildPositions(state.assets), [state.assets]);
+   const [open, setOpen] = useState<string | null>(null);
+   const [dlg, setDlg] = useState<{ kind: 'buy' | 'sell' | 'div'; key: string } | null>(null);
+   if (positions.length === 0) return null;
+   const cur = dlg ? positions.find((p) => p.key === dlg.key) : undefined;
++  const dialogs = (
++    <>
++      {dlg && cur && dlg.kind === 'buy' && <BuyMoreModal pos={cur} cash={state.wallet.availableCash} onClose={() => setDlg(null)} onSave={handlers.onBuyMore} />}
++      {dlg && cur && dlg.kind === 'sell' && <SellPositionModal pos={cur} state={state} onClose={() => setDlg(null)} onSave={handlers.onSellPosition} />}
++      {dlg && cur && dlg.kind === 'div' && <DividendModal pos={cur} onClose={() => setDlg(null)} onSave={handlers.onPositionDividend} />}
++    </>
++  );
++  if (layout === 'pwa') {
++    return (
++      <>
++        <PwaPositionCards
++          positions={positions}
++          open={open}
++          onToggle={(key) => setOpen(open === key ? null : key)}
++          onAction={(kind, key) => setDlg({ kind, key })}
++        />
++        {dialogs}
++      </>
++    );
++  }
+   return (
+     <section className="rounded-xl border border-slate-200 bg-white" data-testid="positions-panel">
+       <div className="border-b border-slate-100 px-4 py-2.5">
+diff --git a/src/components/PricesView.tsx b/src/components/PricesView.tsx
+index 62ddb23..07cbd89 100644
+--- a/src/components/PricesView.tsx
++++ b/src/components/PricesView.tsx
+@@ -17,6 +17,8 @@ interface PricesViewProps {
+   state: UserFinancialState;
+   /** Áp các giá lên danh mục (App giữ state). Trả về kết quả để hiện thông báo. */
+   onApplyPrices: (updates: PriceUpdate[]) => ApplyResult;
++  /** 'pwa': bố cục gọn cho điện thoại khi mở như ứng dụng (mặc định 'web': bảng). */
++  layout?: 'web' | 'pwa';
+ }
+ 
+ const GROUPS: { category: AssetCategory; title: string; hint: string }[] = [
+@@ -49,7 +51,8 @@ const STATUS_LABEL: Record<PlanItem['status'], string> = {
+   ok: 'Sẵn sàng', anomaly: 'Lệch bất thường', unmatched: 'Không khớp', invalid: 'Dòng lỗi', older: 'Bỏ qua (cũ)', future: 'Bỏ qua (tương lai)', readonly: 'Bỏ qua',
+ };
+ 
+-export const PricesView: React.FC<PricesViewProps> = ({ state, onApplyPrices }) => {
++export const PricesView: React.FC<PricesViewProps> = ({ state, onApplyPrices, layout = 'web' }) => {
++  const isPwa = layout === 'pwa';
+   const dialog = useDialog();
+   const today = todayLocalStr();
+   const rows = useMemo(() => listPriceRows(state, today), [state, today]);
+@@ -242,6 +245,140 @@ export const PricesView: React.FC<PricesViewProps> = ({ state, onApplyPrices })
+     const priceLabel = r.mode === 'unit' ? `mỗi ${r.unit}` : 'tổng giá trị';
+     const cur = r.mode === 'unit' ? r.currentUnitPrice : a.currentValue;
+ 
++    if (isPwa) {
++      // Bố cục điện thoại: mỗi tài sản một khối, ô nhập giá và nút Lưu nằm cùng hàng, dễ chạm.
++      if (r.mode === 'readonly') {
++        return (
++          <div key={a.id} data-price-row={a.id} className="px-3.5 py-3">
++            <div className="text-[14px] font-semibold text-slate-900">{a.name}</div>
++            <div className="mt-0.5 text-[11px] text-slate-500">
++              Giá trị hiện tại <span className="font-mono font-semibold text-slate-800">{formatVND(a.currentValue)}</span> – tự tính theo lãi suất, không cần nhập giá.
++            </div>
++          </div>
++        );
++      }
++      const pnlNow = a.currentValue - a.initialCost;
++      return (
++        <div key={a.id} data-price-row={a.id} className="space-y-2.5 px-3.5 py-3">
++          <div className="flex items-start justify-between gap-3">
++            <div className="min-w-0">
++              <div className="text-[14px] font-semibold leading-snug text-slate-900">{a.name}</div>
++              <div className="text-[11px] text-slate-500">
++                {r.mode === 'unit' ? `${fmtQty(r.quantity)} ${r.unit}` : 'Nhập tổng giá trị'}
++                {r.quoteKey && r.mode === 'unit' ? ` · ${r.quoteKey.symbol}` : ''}
++              </div>
++            </div>
++            <div className="shrink-0 text-right">
++              <div className="font-mono text-[13px] font-bold tabular-nums text-slate-900">{cur !== null ? formatVND(cur) : '—'}</div>
++              <div className="text-[10px] text-slate-400">{r.mode === 'unit' ? `hiện tại / ${r.unit}` : 'hiện tại'}</div>
++            </div>
++          </div>
++
++          <div className="grid grid-cols-2 gap-x-3 gap-y-1 rounded-xl bg-slate-50 p-2.5 text-[11px]">
++            <div>
++              <div className="text-slate-400">Giá vốn</div>
++              <div className="font-mono font-semibold tabular-nums text-slate-800">
++                {r.mode === 'unit' && r.costPerUnit !== null ? formatVND(Math.round(r.costPerUnit)) : formatVND(a.initialCost)}
++              </div>
++            </div>
++            <div>
++              <div className="text-slate-400">Lãi/lỗ hiện tại</div>
++              <div className={`font-mono font-semibold tabular-nums ${tone(pnlNow)}`}>{signed(pnlNow)}</div>
++            </div>
++            <div className={`col-span-2 ${stale ? 'font-semibold text-amber-700' : 'text-slate-400'}`}>
++              {stale ? `Quá hạn ${r.staleDays} ngày (nhắc sau ${r.staleThreshold} ngày) · ` : ''}định giá {fmtDate(a.lastValuationDate)}
++            </div>
++          </div>
++
++          {dep && (
++            <div data-depreciation className="flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
++              <span>
++                Gợi ý khấu hao {dep.ratePerYear}%/năm: <span className="font-mono font-semibold text-slate-800">{formatVND(dep.suggestedValue)}</span>
++              </span>
++              <button type="button" onClick={() => useDepreciation(r)} className="min-h-[32px] rounded-lg border border-slate-300 px-2.5 font-semibold text-slate-700 active:bg-slate-50">
++                Điền vào ô
++              </button>
++            </div>
++          )}
++
++          {s && (
++            <div data-auto-price className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 p-2.5">
++              <div className="min-w-0 text-[11px] text-slate-500">
++                <div className="text-slate-400">Giá tự động</div>
++                <div className="font-mono text-[13px] font-semibold tabular-nums text-slate-900">{formatVND(s.newUnitPrice)}</div>
++                <div>
++                  đóng cửa {fmtDate(s.date)}
++                  {s.dayChangePct !== null && <span className={`ml-1 font-semibold ${tone(s.dayChangePct)}`}>{formatPercent(s.dayChangePct, 2)}</span>}
++                </div>
++                {s.status === 'same' && <div className="text-slate-400">Đã khớp giá này</div>}
++                {s.status === 'newer_manual' && <div className="text-slate-400">Bạn đã định giá mới hơn</div>}
++              </div>
++              {s.status === 'ok' && (
++                <button
++                  type="button"
++                  onClick={() => void applyOneAuto(r, s)}
++                  className={`min-h-[40px] shrink-0 rounded-xl px-3.5 text-xs font-semibold text-on-accent ${s.anomaly ? 'bg-amber-600 active:bg-amber-700' : 'bg-accent active:bg-accent-hover'}`}
++                >
++                  {s.anomaly ? `Lệch ${formatPercent(s.changePct ?? 0)} – kiểm tra` : 'Áp dụng'}
++                </button>
++              )}
++            </div>
++          )}
++          {!s && r.quoteKey && r.mode === 'unit' && (
++            <div className="text-[11px] text-slate-400">{loading ? 'Đang tải…' : 'Chưa có giá tự động'}</div>
++          )}
++
++          <div>
++            <div className="flex items-center gap-2">
++              <div className="min-w-0 flex-1">
++                <CurrencyInput
++                  value={edit}
++                  allowDecimal={r.allowDecimal}
++                  onChange={(v) => setEdits((e) => ({ ...e, [a.id]: v }))}
++                  invalid={false}
++                  className="h-10 w-full rounded-xl border border-slate-300 px-3 text-right text-sm focus:border-slate-500 focus:outline-none"
++                />
++              </div>
++              <button
++                type="button"
++                disabled={!(edit > 0)}
++                onClick={() => void saveManual(r)}
++                className="min-h-[40px] shrink-0 rounded-xl bg-accent px-4 text-xs font-semibold text-on-accent active:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-40"
++              >
++                Lưu
++              </button>
++            </div>
++            <div className="mt-0.5 text-right text-[10px] text-slate-400">Giá mới: {priceLabel} (VND)</div>
++            {!s && (
++              <input
++                type="text"
++                list="valuation-sources"
++                data-source-input
++                placeholder="Nguồn định giá (tùy chọn)"
++                value={sources[a.id] || ''}
++                onChange={(e) => setSources((x) => ({ ...x, [a.id]: e.target.value }))}
++                className="mt-1 h-9 w-full rounded-lg border border-slate-200 px-2.5 text-xs text-slate-700 placeholder:text-slate-400 focus:border-slate-400 focus:outline-none"
++              />
++            )}
++          </div>
++
++          {pv && (
++            <div data-price-preview className="rounded-xl bg-slate-50 px-2.5 py-2 text-[11px]">
++              <span className="text-slate-500">Sau khi lưu: </span>
++              <span className="font-mono font-semibold tabular-nums text-slate-900">{formatVND(pv.total)}</span>
++              <span className={`ml-2 font-mono font-semibold tabular-nums ${tone(pv.pnl)}`}>
++                {signed(pv.pnl)}
++                {pv.pnlPct !== null && ` (${formatPercent(pv.pnlPct)})`}
++              </span>
++              {isAnomalous(pv.changePct) && (
++                <div className="font-semibold text-amber-700">Lệch &gt; {ANOMALY_PCT}% so với hiện tại</div>
++              )}
++            </div>
++          )}
++        </div>
++      );
++    }
++
+     if (r.mode === 'readonly') {
+       return (
+         <tr key={a.id} className="border-t border-slate-100">
+@@ -371,10 +508,18 @@ export const PricesView: React.FC<PricesViewProps> = ({ state, onApplyPrices })
+   };
+ 
+   return (
+-    <div className="space-y-6 pb-12">
++    <div className={isPwa ? 'space-y-3' : 'space-y-6 pb-12'}>
++      {isPwa && (
++        <datalist id="valuation-sources">
++          <option value="Giá rao bán cùng khu" />
++          <option value="Ngân hàng thẩm định" />
++          <option value="Hóa đơn / hợp đồng mua" />
++          <option value="Tự ước tính" />
++        </datalist>
++      )}
+       <div className="flex flex-wrap items-start justify-between gap-3">
+         <div>
+-          <h2 className="text-lg font-semibold text-slate-900">Cập nhật giá</h2>
++          {!isPwa && <h2 className="text-lg font-semibold text-slate-900">Cập nhật giá</h2>}
+           <p className="mt-0.5 text-xs text-slate-500">
+             {loading ? (
+               <span className="inline-flex items-center gap-1"><Loader2 className="h-3 w-3 animate-spin" /> Đang tải giá thị trường…</span>
+@@ -389,7 +534,7 @@ export const PricesView: React.FC<PricesViewProps> = ({ state, onApplyPrices })
+             )}
+           </p>
+         </div>
+-        <div className="flex flex-wrap items-center gap-2">
++        <div className={isPwa ? 'grid w-full grid-cols-3 gap-2 [&>button]:min-h-[40px] [&>button]:justify-center [&>button]:px-2' : 'flex flex-wrap items-center gap-2'}>
+           <button type="button" onClick={() => void loadQuotes()} disabled={loading} className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50">
+             <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} /> Làm mới
+           </button>
+@@ -397,7 +542,7 @@ export const PricesView: React.FC<PricesViewProps> = ({ state, onApplyPrices })
+             <Download className="h-3.5 w-3.5" /> Tải file mẫu
+           </button>
+           <button type="button" onClick={() => fileRef.current?.click()} disabled={!hasPriceable} className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50">
+-            <FileUp className="h-3.5 w-3.5" /> Nhập từ file CSV
++            <FileUp className="h-3.5 w-3.5" /> {isPwa ? 'Nhập CSV' : 'Nhập từ file CSV'}
+           </button>
+           <input ref={fileRef} type="file" accept=".csv,.txt,text/csv,text/plain,.xlsx,.xls" className="hidden" onChange={(e) => void onPickFile(e)} data-price-file />
+           <button
+@@ -405,7 +550,7 @@ export const PricesView: React.FC<PricesViewProps> = ({ state, onApplyPrices })
+             data-apply-all
+             onClick={() => void applyAllAuto()}
+             disabled={autoApplicable.length === 0}
+-            className="inline-flex items-center gap-1.5 rounded-lg bg-accent px-3.5 py-1.5 text-xs font-medium text-on-accent hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-40"
++            className={`inline-flex items-center gap-1.5 rounded-lg bg-accent px-3.5 py-1.5 text-xs font-medium text-on-accent hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-40${isPwa ? ' col-span-3' : ''}`}
+           >
+             <CheckCircle2 className="h-3.5 w-3.5" /> Áp dụng giá tự động ({autoApplicable.length})
+           </button>
+@@ -438,10 +583,13 @@ export const PricesView: React.FC<PricesViewProps> = ({ state, onApplyPrices })
+         if (list.length === 0) return null;
+         return (
+           <section key={g.category} data-price-group={g.category} className="rounded-xl border border-slate-200 bg-white">
+-            <div className="border-b border-slate-200 px-5 py-3">
++            <div className={`border-b border-slate-200 ${isPwa ? 'px-3.5' : 'px-5'} py-3`}>
+               <h3 className="text-sm font-semibold text-slate-900">{g.title}</h3>
+               <p className="text-[11px] text-slate-500">{g.hint}</p>
+             </div>
++            {isPwa ? (
++              <div className="divide-y divide-slate-100" data-pwa-price-list="">{list.map(renderRow)}</div>
++            ) : (
+             <div className="overflow-x-auto">
+               <table className="w-full min-w-[860px] text-sm">
+                 <thead>
+@@ -457,6 +605,7 @@ export const PricesView: React.FC<PricesViewProps> = ({ state, onApplyPrices })
+                 <tbody>{list.map(renderRow)}</tbody>
+               </table>
+             </div>
++            )}
+           </section>
+         );
+       })}
+diff --git a/src/components/ReportsView.tsx b/src/components/ReportsView.tsx
+index 1faa81c..39b75fa 100644
+--- a/src/components/ReportsView.tsx
++++ b/src/components/ReportsView.tsx
+@@ -11,6 +11,8 @@ type Tab = 'balance' | 'cashflow' | 'profit';
+ 
+ const KINDS: Array<[PeriodKind, string]> = [['month', 'Tháng'], ['quarter', 'Quý'], ['year', 'Năm'], ['custom', 'Tùy chọn']];
+ const TABS: Array<[Tab, string]> = [['balance', 'Bảng cân đối'], ['cashflow', 'Báo cáo lưu chuyển tiền tệ'], ['profit', 'Báo cáo hoạt động kinh doanh']];
++/** Nhãn ngắn cho thanh chọn trên điện thoại (nhãn đầy đủ vẫn là tiêu đề trong từng báo cáo). */
++const TAB_SHORT: Record<Tab, string> = { balance: 'Bảng cân đối', cashflow: 'Lưu chuyển tiền', profit: 'Hoạt động' };
+ 
+ const vnDate = (s: string) => `${s.slice(8, 10)}/${s.slice(5, 7)}/${s.slice(0, 4)}`;
+ const signed = (n: number) => `${n > 0 ? '+' : n < 0 ? '-' : ''}${formatVND(Math.abs(n))}`;
+@@ -42,7 +44,8 @@ const Section: React.FC<{ title: string; children: React.ReactNode }> = ({ title
+   </div>
+ );
+ 
+-export const ReportsView: React.FC<{ state: UserFinancialState }> = ({ state }) => {
++export const ReportsView: React.FC<{ state: UserFinancialState; /** 'pwa': bố cục gọn cho điện thoại khi mở như ứng dụng (mặc định 'web'). */ layout?: 'web' | 'pwa' }> = ({ state, layout = 'web' }) => {
++  const isPwa = layout === 'pwa';
+   const today = todayLocalStr();
+   const [tab, setTab] = useState<Tab>('balance');
+   const [spec, setSpec] = useState<PeriodSpec>({
+@@ -72,9 +75,9 @@ export const ReportsView: React.FC<{ state: UserFinancialState }> = ({ state })
+   const monthValue = `${spec.year}-${String(spec.month).padStart(2, '0')}`;
+ 
+   return (
+-    <div className="space-y-6 pb-12">
++    <div className={isPwa ? 'space-y-3' : 'space-y-6 pb-12'}>
+       <div className="flex flex-wrap items-center justify-between gap-3">
+-        <h2 className="text-lg font-semibold text-slate-900">Báo cáo</h2>
++        {!isPwa && <h2 className="text-lg font-semibold text-slate-900">Báo cáo</h2>}
+         <span data-period-label className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-700">
+           {period.valid ? `${period.label} · ${vnDate(period.from)} – ${vnDate(period.to)}` : period.label}
+         </span>
+@@ -133,6 +136,24 @@ export const ReportsView: React.FC<{ state: UserFinancialState }> = ({ state })
+       </div>
+ 
+       {/* Tab con */}
++      {isPwa ? (
++        <div className="flex gap-1 rounded-xl bg-slate-100 p-1" role="tablist">
++          {TABS.map(([k, label]) => (
++            <button
++              key={k}
++              type="button"
++              role="tab"
++              aria-selected={tab === k}
++              title={label}
++              data-report-tab={k}
++              onClick={() => setTab(k)}
++              className={`min-h-[36px] min-w-0 flex-1 truncate rounded-lg px-1.5 text-xs font-semibold ${tab === k ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500'}`}
++            >
++              {TAB_SHORT[k]}
++            </button>
++          ))}
++        </div>
++      ) : (
+       <div className="flex gap-1 border-b border-slate-200 text-sm">
+         {TABS.map(([k, label]) => (
+           <button
+@@ -146,6 +167,7 @@ export const ReportsView: React.FC<{ state: UserFinancialState }> = ({ state })
+           </button>
+         ))}
+       </div>
++      )}
+ 
+       {!data ? (
+         <div className="rounded-xl border border-slate-200 bg-white p-8 text-center text-sm text-slate-500">Chọn kỳ báo cáo hợp lệ.</div>
+@@ -153,6 +175,7 @@ export const ReportsView: React.FC<{ state: UserFinancialState }> = ({ state })
+         <>
+           {tab === 'balance' && (
+             <BalanceSheetView
++              layout={layout}
+               state={state}
+               balance={data.pb.end}
+               compare={{ start: snap?.groups ?? data.pb.startGroups, end: data.pb.endGroups, startSource: snap ? `ảnh chụp ngày ${vnDate(snap.date)}` : 'tính lại từ lịch sử' }}
+diff --git a/src/components/WalletView.tsx b/src/components/WalletView.tsx
+index cc4451f..0e46c63 100644
+--- a/src/components/WalletView.tsx
++++ b/src/components/WalletView.tsx
+@@ -29,6 +29,8 @@ import {
+ import { canVoidTx, checkTxDate } from '../utils/ops';
+ import { CurrencyInput } from './CurrencyInput';
+ import { Modal, ModalBody, ModalFooter, FieldError } from './ui/Modal';
++import { PwaWalletHero, PwaLedgerFilters, PwaLedgerSummary, PwaTxList } from './pwa/PwaWalletParts';
++import { PwaCard } from './pwa/pwaUi';
+ 
+ interface WalletViewProps {
+   state: UserFinancialState;
+@@ -39,6 +41,8 @@ interface WalletViewProps {
+   onVoidTx: (txId: string) => void;
+   autoOpenDeposit?: boolean;
+   onAutoOpenConsumed?: () => void;
++  /** 'pwa': bố cục gọn cho điện thoại khi mở như ứng dụng (cùng dữ liệu, cùng hộp thoại). Mặc định 'web' = bố cục cũ. */
++  layout?: 'web' | 'pwa';
+ }
+ 
+ export const WalletView: React.FC<WalletViewProps> = ({
+@@ -49,7 +53,9 @@ export const WalletView: React.FC<WalletViewProps> = ({
+   onVoidTx,
+   autoOpenDeposit,
+   onAutoOpenConsumed,
++  layout = 'web',
+ }) => {
++  const isPwa = layout === 'pwa';
+   const [isDepositModalOpen, setIsDepositModalOpen] = useState(false);
+   const [isWithdrawModalOpen, setIsWithdrawModalOpen] = useState(false);
+   const [filterType, setFilterType] = useState<string>('all');
+@@ -205,8 +211,52 @@ export const WalletView: React.FC<WalletViewProps> = ({
+   };
+ 
+   return (
+-    <div className="space-y-6 pb-12">
++    <div className={isPwa ? 'space-y-3' : 'space-y-6 pb-12'}>
+       {/* 1. WALLET BALANCE CARD */}
++      {isPwa && (
++        <PwaWalletHero
++          available={state.wallet.availableCash}
++          totalDeposited={state.wallet.totalDeposited}
++          totalWithdrawn={state.wallet.totalWithdrawn}
++          onDeposit={() => setIsDepositModalOpen(true)}
++          onWithdraw={() => setIsWithdrawModalOpen(true)}
++          onIncome={() => setIsIncomeOpen(true)}
++        />
++      )}
++      {isPwa && (
++        <PwaCard className="space-y-3 p-3.5">
++          <div className="flex items-baseline justify-between gap-2">
++            <h3 className="text-sm font-semibold text-slate-900">Nhật ký dòng tiền đầu tư thực tế</h3>
++            <span className="text-[11px] text-slate-500">{filteredTransactions.length}/{state.transactions.length} giao dịch</span>
++          </div>
++          <PwaLedgerFilters
++            filterType={filterType}
++            onFilterType={setFilterType}
++            rangePreset={rangePreset}
++            onPreset={pickPreset}
++            onCustom={() => setRangePreset('custom')}
++            dateFrom={dateFrom}
++            dateTo={dateTo}
++            onDateFrom={(v) => {
++              setDateFrom(v);
++              setRangePreset('custom');
++            }}
++            onDateTo={(v) => {
++              setDateTo(v);
++              setRangePreset('custom');
++            }}
++            rangeInvalid={rangeInvalid}
++          />
++          {!rangeInvalid && <PwaLedgerSummary summary={ledgerSummary} showBalances={filterType === 'all'} />}
++        </PwaCard>
++      )}
++      {isPwa && (
++        <PwaTxList
++          rows={filteredTransactions.map((tx) => ({ tx, badge: getTxTypeBadge(tx.type), voidable: canVoidTx(state, tx.id).ok }))}
++          onVoid={onVoidTx}
++        />
++      )}
++      {!isPwa && (
+       <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+         {/* Available Cash (Hero) */}
+         <div className="bg-white p-6 rounded-xl border border-slate-200 flex flex-col justify-between">
+@@ -264,8 +314,10 @@ export const WalletView: React.FC<WalletViewProps> = ({
+           </div>
+         </div>
+       </div>
++      )}
+ 
+       {/* 2. TRANSACTIONS LEDGER */}
++      {!isPwa && (
+       <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+         {/* Toolbar */}
+         <div className="p-4 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+@@ -502,6 +554,7 @@ export const WalletView: React.FC<WalletViewProps> = ({
+           </div>
+         )}
+       </div>
++      )}
+ 
+       {/* INCOME MODAL */}
+       {isIncomeOpen && (
+diff --git a/src/components/pwa/PwaAppShell.tsx b/src/components/pwa/PwaAppShell.tsx
+index 773241d..6248af9 100644
+--- a/src/components/pwa/PwaAppShell.tsx
++++ b/src/components/pwa/PwaAppShell.tsx
+@@ -1,4 +1,4 @@
+-import React, { useState } from 'react';
++import React, { useEffect, useState } from 'react';
+ import {
+   LayoutGrid,
+   PieChart,
+@@ -6,11 +6,11 @@ import {
+   Wallet as WalletIcon,
+   MoreHorizontal,
+   Sun,
+-  Moon,
+-  LogOut,
+   ChevronLeft,
+   Info,
+   WifiOff,
++  Plus,
++  CloudOff,
+ } from 'lucide-react';
+ import { Asset, Debt, FundUse, UserFinancialState } from '../../types/finance';
+ import { PublicUser, AdminAccount } from '../../utils/auth';
+@@ -166,6 +166,17 @@ export const PwaAppShell: React.FC<PwaAppShellProps> = ({
+   const isOnline = useOnlineStatus();
+   const [moreOpen, setMoreOpen] = useState(false);
+ 
++  // Bật các quy tắc CSS riêng của ứng dụng (tấm trượt, cỡ chữ ô nhập, toast...) — xem khối "CHẾ ĐỘ ỨNG DỤNG" trong index.css
++  useEffect(() => {
++    document.documentElement.setAttribute('data-pwa-app', '');
++    return () => document.documentElement.removeAttribute('data-pwa-app');
++  }, []);
++
++  // Mỗi lần chuyển màn hình thì cuộn về đầu trang (thanh tab đáy dùng chung một vùng cuộn)
++  useEffect(() => {
++    window.scrollTo({ top: 0 });
++  }, [currentTab, moreOpen]);
++
+   const isSecondaryView = !moreOpen && SECONDARY_TABS.has(currentTab);
+   const activeBottom: 'dashboard' | 'assets' | 'debts' | 'wallet' | 'more' =
+     moreOpen || isSecondaryView ? 'more' : (currentTab as 'dashboard' | 'assets' | 'debts' | 'wallet');
+@@ -180,6 +191,11 @@ export const PwaAppShell: React.FC<PwaAppShellProps> = ({
+     onSelectTab(tab);
+   };
+ 
++  const goAnyTab = (tab: NavTab) => {
++    if (SECONDARY_TABS.has(tab)) goSecondaryTab(tab as PwaSecondaryTab);
++    else goPrimaryTab(tab as 'dashboard' | 'assets' | 'debts' | 'wallet');
++  };
++
+   const triggerAction = (tab: NavTab, action: PendingAction) => {
+     setMoreOpen(false);
+     onOpenAction(tab, action);
+@@ -190,84 +206,95 @@ export const PwaAppShell: React.FC<PwaAppShellProps> = ({
+   const moreAlerts = priceAlertCount + adminPendingCount;
+   const containerWidth = isDashboardRoot || moreOpen ? 'max-w-lg' : 'max-w-3xl';
+ 
++  // Nút thêm nhanh ở góc phải tiêu đề của từng màn hình (bản web để ở thanh đầu trang)
++  const headerAction: { label: string; onClick: () => void } | null = moreOpen
++    ? null
++    : currentTab === 'assets'
++    ? { label: 'Thêm tài sản', onClick: () => triggerAction('assets', 'add_asset') }
++    : currentTab === 'debts'
++    ? { label: 'Thêm khoản nợ', onClick: () => triggerAction('debts', 'add_debt') }
++    : null;
++
+   return (
+     <div
+       data-pwa-shell
+-      className="min-h-screen bg-slate-50 font-sans antialiased text-slate-900 pt-[env(safe-area-inset-top)] pb-[calc(5.25rem+env(safe-area-inset-bottom))]"
++      className="min-h-screen bg-slate-50 font-sans antialiased text-slate-900 pb-[calc(5rem+env(safe-area-inset-bottom))]"
+     >
+-      <div className={`mx-auto w-full ${containerWidth} px-4`}>
+-        {/* Thanh đầu app tối giản kiểu native mobile app */}
+-        <header data-pwa-header className="flex items-start justify-between gap-3 pt-4 pb-4">
+-          <div className="min-w-0 flex-1">
++      {/* Thanh đầu app: dính đầu màn hình, tránh tai thỏ / thanh trạng thái */}
++      <header
++        data-pwa-header
++        className="sticky top-0 z-20 border-b border-slate-200/70 bg-slate-50/90 pt-[env(safe-area-inset-top)] backdrop-blur-md"
++      >
++        <div className={`mx-auto flex w-full ${containerWidth} items-center justify-between gap-3 px-4 py-2.5`}>
++          <div className="flex min-w-0 flex-1 items-center gap-1.5">
+             {isSecondaryView && (
+               <button
+                 type="button"
+                 onClick={() => setMoreOpen(true)}
+-                className="mb-1 -ml-1 inline-flex min-h-[36px] items-center gap-0.5 rounded-lg px-1 text-xs font-semibold text-accent-ink hover:bg-slate-100"
++                aria-label="Quay lại mục Khác"
++                className="-ml-2 grid h-10 w-10 shrink-0 place-items-center rounded-xl text-slate-600 active:bg-slate-100"
+               >
+-                <ChevronLeft className="h-4 w-4" />
+-                <span>Khác</span>
++                <ChevronLeft className="h-5 w-5" />
+               </button>
+             )}
+-            <h1 className="truncate text-2xl font-bold tracking-tight text-slate-900">
+-              {headerTitle}
+-            </h1>
+-            {isDashboardRoot ? (
+-              <p className="mt-1 flex items-center gap-1.5 text-sm text-slate-500">
+-                <Sun className="h-4 w-4 shrink-0 text-accent-ink" />
+-                <span className="truncate">
+-                  {greetingForNow()},{' '}
+-                  <span className="font-semibold text-slate-900">{user.displayName}</span>
+-                </span>
+-              </p>
+-            ) : (
+-              <p className="mt-1 truncate text-xs text-slate-500 font-mono tabular-nums">
+-                Tiền khả dụng:{' '}
+-                <span className="font-semibold text-slate-900">
+-                  {formatVND(state.wallet.availableCash)}
+-                </span>
+-              </p>
+-            )}
++            <div className="min-w-0">
++              <h1 className="truncate text-xl font-bold leading-tight tracking-tight text-slate-900">{headerTitle}</h1>
++              {isDashboardRoot ? (
++                <p className="flex items-center gap-1.5 truncate text-xs text-slate-500">
++                  <Sun className="h-3.5 w-3.5 shrink-0 text-accent-ink" />
++                  <span className="truncate">
++                    {greetingForNow()}, <span className="font-semibold text-slate-900">{user.displayName}</span>
++                  </span>
++                </p>
++              ) : !moreOpen ? (
++                <p className="truncate font-mono text-[11px] tabular-nums text-slate-500">
++                  Tiền khả dụng: <span className="font-semibold text-slate-900">{formatVND(state.wallet.availableCash)}</span>
++                </p>
++              ) : null}
++            </div>
+           </div>
+ 
+-          <div className="flex shrink-0 items-center gap-2 pt-0.5">
++          {headerAction && (
+             <button
+               type="button"
+-              onClick={onToggleTheme}
+-              aria-label={isDark ? 'Chuyển giao diện sáng' : 'Chuyển giao diện tối'}
+-              title={isDark ? 'Giao diện sáng' : 'Giao diện tối'}
+-              className="grid h-11 w-11 place-items-center rounded-xl border border-slate-200 bg-slate-100/80 text-slate-700 transition-colors hover:bg-slate-200/70"
++              onClick={headerAction.onClick}
++              data-pwa-header-action
++              className="inline-flex min-h-[40px] shrink-0 items-center gap-1 rounded-xl bg-accent px-3.5 text-xs font-semibold text-on-accent active:bg-accent-hover"
+             >
+-              {isDark ? <Sun className="h-5 w-5 text-accent-ink" /> : <Moon className="h-5 w-5" />}
++              <Plus className="h-4 w-4" />
++              <span>{headerAction.label}</span>
+             </button>
+-            <button
+-              type="button"
+-              onClick={onLogout}
+-              aria-label="Đăng xuất"
+-              title="Đăng xuất"
+-              className="grid h-11 w-11 place-items-center rounded-xl border border-slate-200 bg-white text-rose-600 transition-colors hover:bg-rose-50"
+-            >
+-              <LogOut className="h-5 w-5" />
+-            </button>
+-          </div>
+-        </header>
++          )}
++        </div>
++      </header>
+ 
+-        {/* Thông báo ngoại tuyến hoặc xung đột đồng bộ */}
++      <div className={`mx-auto w-full ${containerWidth} px-4 pt-3`}>
++        {/* Thông báo: ngoại tuyến, chưa lưu được, xung đột đồng bộ */}
+         {!isOnline && (
+           <div
+             role="status"
+-            className="mb-3 flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-xs text-slate-600"
++            className="mb-3 flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600"
+           >
+             <WifiOff className="h-4 w-4 shrink-0 text-amber-600" />
+             <span>Đang ngoại tuyến — thay đổi sẽ đồng bộ khi có kết nối lại.</span>
+           </div>
+         )}
+ 
++        {syncStatus === 'error' && isOnline && (
++          <div
++            role="status"
++            className="mb-3 flex items-center gap-2 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-medium text-rose-700"
++          >
++            <CloudOff className="h-4 w-4 shrink-0" />
++            <span>Chưa lưu được lên máy chủ — đang thử lại.</span>
++          </div>
++        )}
++
+         {syncStatus === 'conflict' && (
+           <button
+             type="button"
+             onClick={onResolveConflict}
+-            className="mb-3 flex w-full items-center justify-between gap-2 rounded-xl border border-amber-300 bg-amber-50 px-3.5 py-2.5 text-left text-xs font-semibold text-amber-800 hover:bg-amber-100"
++            className="mb-3 flex w-full items-center justify-between gap-2 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-left text-xs font-semibold text-amber-800 active:bg-amber-100"
+           >
+             <span>Dữ liệu chưa đồng bộ do thay đổi từ thiết bị khác</span>
+             <span className="shrink-0 underline">Xử lý</span>
+@@ -277,26 +304,26 @@ export const PwaAppShell: React.FC<PwaAppShellProps> = ({
+         {state.isDemo && !moreOpen && (
+           <div
+             role="status"
+-            className="mb-4 rounded-2xl border border-sky-200 bg-sky-50 p-3.5 text-xs text-sky-900"
++            className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border border-sky-200 bg-sky-50 px-3 py-2.5 text-xs text-sky-900"
+           >
+-            <div className="flex items-start gap-2.5">
++            <div className="flex min-w-0 flex-1 basis-40 items-start gap-2">
+               <Info className="mt-0.5 h-4 w-4 shrink-0" />
+-              <div className="flex-1">
+-                <strong>Bạn đang xem DỮ LIỆU MẪU.</strong> Số liệu dưới đây là giả định để minh họa.
+-              </div>
++              <span>
++                <strong>Đang xem DỮ LIỆU MẪU</strong> — số liệu giả định để minh họa.
++              </span>
+             </div>
+-            <div className="mt-2.5 flex flex-wrap items-center gap-2 pl-6">
++            <div className="flex items-center gap-2">
+               <button
+                 type="button"
+                 onClick={onClearDemo}
+-                className="min-h-[34px] rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-on-accent hover:bg-accent-hover"
++                className="min-h-[34px] rounded-lg bg-accent px-3 text-xs font-semibold text-on-accent active:bg-accent-hover"
+               >
+                 Xóa dữ liệu mẫu
+               </button>
+               <button
+                 type="button"
+                 onClick={onKeepDemo}
+-                className="min-h-[34px] rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
++                className="min-h-[34px] rounded-lg border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-700 active:bg-slate-50"
+               >
+                 Giữ lại
+               </button>
+@@ -305,12 +332,15 @@ export const PwaAppShell: React.FC<PwaAppShellProps> = ({
+         )}
+ 
+         {/* Nội dung chính */}
+-        <main>
++        <main data-pwa-main>
+           {moreOpen ? (
+             <PwaMoreView
+               user={{ displayName: user.displayName, email: user.email, role: user.role }}
+               priceAlertCount={priceAlertCount}
+               adminPendingCount={adminPendingCount}
++              isDark={isDark}
++              onToggleTheme={onToggleTheme}
++              onLogout={onLogout}
+               onSelectSubTab={goSecondaryTab}
+               onOpenAddAsset={() => triggerAction('assets', 'add_asset')}
+               onOpenAddDebt={() => triggerAction('debts', 'add_debt')}
+@@ -322,15 +352,16 @@ export const PwaAppShell: React.FC<PwaAppShellProps> = ({
+               {currentTab === 'dashboard' && (
+                 <PwaOverview
+                   state={state}
+-                  onNavigateTab={(tab) => {
+-                    if (SECONDARY_TABS.has(tab)) goSecondaryTab(tab as PwaSecondaryTab);
+-                    else goPrimaryTab(tab as 'dashboard' | 'assets' | 'debts' | 'wallet');
+-                  }}
++                  onNavigateTab={goAnyTab}
++                  onOpenAddAsset={() => triggerAction('assets', 'add_asset')}
++                  onOpenAddDebt={() => triggerAction('debts', 'add_debt')}
++                  onOpenDeposit={() => triggerAction('wallet', 'deposit')}
+                 />
+               )}
+ 
+               {currentTab === 'assets' && (
+                 <AssetsView
++                  layout="pwa"
+                   state={state}
+                   autoOpenAdd={pendingAction === 'add_asset'}
+                   onAutoOpenConsumed={onAutoOpenConsumed}
+@@ -348,10 +379,11 @@ export const PwaAppShell: React.FC<PwaAppShellProps> = ({
+                 />
+               )}
+ 
+-              {currentTab === 'prices' && <PricesView state={state} onApplyPrices={onApplyPrices} />}
++              {currentTab === 'prices' && <PricesView layout="pwa" state={state} onApplyPrices={onApplyPrices} />}
+ 
+               {currentTab === 'debts' && (
+                 <DebtsView
++                  layout="pwa"
+                   state={state}
+                   autoOpenAdd={pendingAction === 'add_debt'}
+                   onAutoOpenConsumed={onAutoOpenConsumed}
+@@ -372,6 +404,7 @@ export const PwaAppShell: React.FC<PwaAppShellProps> = ({
+ 
+               {currentTab === 'wallet' && (
+                 <WalletView
++                  layout="pwa"
+                   state={state}
+                   autoOpenDeposit={pendingAction === 'deposit'}
+                   onAutoOpenConsumed={onAutoOpenConsumed}
+@@ -384,16 +417,14 @@ export const PwaAppShell: React.FC<PwaAppShellProps> = ({
+ 
+               {currentTab === 'calendar' && (
+                 <CalendarView
++                  layout="pwa"
+                   state={state}
+-                  onNavigateTab={(tab) => {
+-                    if (SECONDARY_TABS.has(tab)) goSecondaryTab(tab as PwaSecondaryTab);
+-                    else goPrimaryTab(tab as 'dashboard' | 'assets' | 'debts' | 'wallet');
+-                  }}
++                  onNavigateTab={goAnyTab}
+                   onPayDebtPeriod={onPayDebtPeriod}
+                 />
+               )}
+ 
+-              {currentTab === 'balance' && <ReportsView state={state} />}
++              {currentTab === 'balance' && <ReportsView layout="pwa" state={state} />}
+ 
+               {currentTab === 'admin' && user.role === 'admin' && (
+                 <AdminView
+diff --git a/src/components/pwa/PwaAssetsParts.tsx b/src/components/pwa/PwaAssetsParts.tsx
+new file mode 100644
+index 0000000..9f84d6a
+--- /dev/null
++++ b/src/components/pwa/PwaAssetsParts.tsx
+@@ -0,0 +1,422 @@
++import React from 'react';
++import {
++  Pencil,
++  Hammer,
++  CalendarClock,
++  Coins,
++  Repeat,
++  DollarSign,
++  Undo2,
++  CreditCard,
++  ShieldCheck,
++} from 'lucide-react';
++import {
++  Asset,
++  AssetCategory,
++  Debt,
++  FundMetadata,
++  GoldMetadata,
++  RealEstateMetadata,
++  SavingsMetadata,
++  StockMetadata,
++} from '../../types/finance';
++import { formatPercent, formatVND } from '../../utils/calculations';
++import { getRecurringIncome } from '../../utils/calendar';
++import { PwaAction, PwaBadge, PwaCard, PwaChips, PwaResultLine, PwaSearch, PwaSegmented, PwaStat } from './pwaUi';
++
++export const ASSET_CATEGORY_LABEL: Record<AssetCategory, string> = {
++  real_estate: 'Bất động sản',
++  stock: 'Cổ phiếu',
++  fund: 'Chứng chỉ quỹ',
++  savings: 'Tiết kiệm',
++  gold: 'Vàng',
++  other: 'Khác',
++};
++
++type StatusFilter = 'all' | 'active' | 'sold' | 'voided';
++
++// ------------------------------------------------------------------ Tổng hợp danh mục
++export interface PwaAssetsSummaryProps {
++  portfolioValue: number;
++  portfolioCost: number;
++  portfolioPnL: number;
++  portfolioPnLPct: number;
++  realizedFromSales: number;
++  activeCount: number;
++  categoryTotals: { id: AssetCategory; label: string; count: number; value: number }[];
++  categoryColors: Record<AssetCategory, string>;
++}
++
++export const PwaAssetsSummary: React.FC<PwaAssetsSummaryProps> = ({
++  portfolioValue,
++  portfolioCost,
++  portfolioPnL,
++  portfolioPnLPct,
++  realizedFromSales,
++  activeCount,
++  categoryTotals,
++  categoryColors,
++}) => (
++  <PwaCard className="p-3.5" data-pwa-assets-summary="">
++    <div className="flex items-start justify-between gap-3">
++      <div className="min-w-0">
++        <div className="text-[11px] font-medium text-slate-500">Tổng thị giá tài sản</div>
++        <div className="mt-0.5 truncate font-mono text-[22px] font-bold leading-tight tracking-tight tabular-nums text-slate-900">
++          {formatVND(portfolioValue)}
++        </div>
++      </div>
++      <PwaBadge>{activeCount} đang nắm giữ</PwaBadge>
++    </div>
++
++    {categoryTotals.length > 0 ? (
++      <div className="mt-3">
++        <div className="flex h-2 w-full overflow-hidden rounded-full bg-slate-100">
++          {categoryTotals.map((c) => (
++            <div
++              key={c.id}
++              className="h-full"
++              style={{
++                width: `${portfolioValue > 0 ? (c.value / portfolioValue) * 100 : 0}%`,
++                backgroundColor: categoryColors[c.id],
++              }}
++              title={`${c.label}: ${portfolioValue > 0 ? ((c.value / portfolioValue) * 100).toFixed(1) : 0}%`}
++            />
++          ))}
++        </div>
++        <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1">
++          {categoryTotals.map((c) => (
++            <span key={c.id} className="inline-flex items-center gap-1.5 text-[11px] text-slate-600">
++              <span className="h-2 w-2 shrink-0 rounded-sm" style={{ backgroundColor: categoryColors[c.id] }} />
++              <span className="font-medium">{c.label}</span>
++              <span className="font-mono text-slate-500">
++                {portfolioValue > 0 ? ((c.value / portfolioValue) * 100).toFixed(0) : 0}%
++              </span>
++            </span>
++          ))}
++        </div>
++      </div>
++    ) : (
++      <p className="mt-2 text-xs text-slate-400">Chưa có tài sản đang nắm giữ.</p>
++    )}
++
++    <div className="mt-3 grid grid-cols-3 gap-2 border-t border-slate-100 pt-3">
++      <PwaStat label="Giá vốn" value={formatVND(portfolioCost, { compact: true })} title={formatVND(portfolioCost)} />
++      <PwaStat
++        label="Lãi/lỗ sổ sách"
++        value={`${portfolioPnL >= 0 ? '+' : ''}${formatVND(portfolioPnL, { compact: true })}`}
++        sub={formatPercent(portfolioPnLPct)}
++        valueClass={portfolioPnL >= 0 ? 'text-emerald-600' : 'text-rose-600'}
++        title={formatVND(portfolioPnL)}
++      />
++      <PwaStat
++        label="Lãi chốt từ bán"
++        value={`${realizedFromSales >= 0 ? '+' : ''}${formatVND(realizedFromSales, { compact: true })}`}
++        valueClass={realizedFromSales > 0 ? 'text-emerald-600' : realizedFromSales < 0 ? 'text-rose-600' : 'text-slate-900'}
++        title={formatVND(realizedFromSales)}
++      />
++    </div>
++  </PwaCard>
++);
++
++// ------------------------------------------------------------------ Bộ lọc
++export interface PwaAssetsFiltersProps {
++  categories: { id: AssetCategory | 'all'; label: string }[];
++  selectedCategory: AssetCategory | 'all';
++  onCategory: (c: AssetCategory | 'all') => void;
++  countByCategory: (c: AssetCategory | 'all') => number;
++  statusFilter: StatusFilter;
++  onStatus: (s: StatusFilter) => void;
++  countByStatus: (s: StatusFilter) => number;
++  searchQuery: string;
++  onSearch: (q: string) => void;
++  shown: number;
++  total: number;
++  filtersActive: boolean;
++  onClear: () => void;
++}
++
++export const PwaAssetsFilters: React.FC<PwaAssetsFiltersProps> = (p) => (
++  <PwaCard className="space-y-2.5 p-3.5" data-pwa-assets-filters="">
++    <PwaSearch
++      id="asset-search"
++      value={p.searchQuery}
++      onChange={p.onSearch}
++      placeholder="Tìm tên tài sản, mã cổ phiếu, dự án…"
++    />
++    <PwaChips
++      label="Loại tài sản"
++      attr="data-asset-category"
++      value={p.selectedCategory}
++      onChange={p.onCategory}
++      items={p.categories.map((c) => ({
++        id: c.id,
++        label: c.id === 'all' ? 'Mọi loại' : c.label,
++        count: p.countByCategory(c.id),
++      }))}
++    />
++    <PwaSegmented
++      label="Trạng thái"
++      value={p.statusFilter}
++      onChange={p.onStatus}
++      items={[
++        { id: 'active', label: 'Đang giữ', count: p.countByStatus('active') },
++        { id: 'sold', label: 'Đã bán', count: p.countByStatus('sold') },
++        { id: 'voided', label: 'Đã hủy', count: p.countByStatus('voided') },
++        { id: 'all', label: 'Tất cả', count: p.countByStatus('all') },
++      ]}
++    />
++    <PwaResultLine
++      shown={p.shown}
++      total={p.total}
++      noun="tài sản"
++      onClear={p.filtersActive ? p.onClear : undefined}
++    />
++  </PwaCard>
++);
++
++// ------------------------------------------------------------------ Dòng thông số riêng của từng loại
++function MetaLines({ asset, linkedDebt }: { asset: Asset; linkedDebt?: Debt }) {
++  const lines: React.ReactNode[] = [];
++  const mono = 'font-mono';
++  if (asset.category === 'stock') {
++    const m = asset.metadata as StockMetadata;
++    lines.push(
++      <span key="m">
++        <span className="font-semibold text-slate-700">{m.symbol}</span> · Sàn {m.exchange} · SL{' '}
++        <span className={mono}>{m.quantity.toLocaleString()} CP</span> · Vốn{' '}
++        <span className={mono}>{formatVND(m.avgCostPrice)}</span>
++      </span>
++    );
++  } else if (asset.category === 'real_estate') {
++    const m = asset.metadata as RealEstateMetadata;
++    lines.push(
++      <span key="m">
++        {m.address} · {m.areaM2} m²
++      </span>
++    );
++    lines.push(
++      <span key="r">
++        Thuê:{' '}
++        <span className={`${mono} font-semibold text-emerald-600`}>{formatVND(m.monthlyRentalIncome)}/tháng</span>
++        {m.rentalDayOfMonth ? <span> · nhận ngày {m.rentalDayOfMonth}</span> : null}
++      </span>
++    );
++  } else if (asset.category === 'fund') {
++    const m = asset.metadata as FundMetadata;
++    lines.push(
++      <span key="m">
++        Quỹ {m.fundCode} · SL <span className={mono}>{m.units.toLocaleString()} CCQ</span> · NAV vốn{' '}
++        {formatVND(m.avgNav)}
++      </span>
++    );
++  } else if (asset.category === 'savings') {
++    const m = asset.metadata as SavingsMetadata;
++    lines.push(
++      <span key="m">
++        {m.bankName} · Lãi suất <span className={`${mono} font-semibold`}>{m.annualInterestRate}%/năm</span> · Đáo
++        hạn {m.maturityDate}
++      </span>
++    );
++  } else if (asset.category === 'gold') {
++    const m = asset.metadata as GoldMetadata;
++    lines.push(
++      <span key="m">
++        {m.goldType} · SL <span className={mono}>{m.quantityChi} chỉ</span> · Vốn {formatVND(m.costPerChi)}/chỉ
++      </span>
++    );
++  } else if (asset.category === 'other') {
++    const rec = getRecurringIncome(asset);
++    if (rec) {
++      lines.push(
++        <span key="m">
++          Thu nhập:{' '}
++          <span className={`${mono} font-semibold text-emerald-600`}>{formatVND(rec.amount)}/tháng</span> · nhận ngày{' '}
++          {rec.day}
++        </span>
++      );
++    }
++  }
++  if (asset.notes) {
++    lines.push(
++      <span key="n" className="italic text-slate-400">
++        {asset.notes}
++      </span>
++    );
++  }
++  return (
++    <div className="mt-1 space-y-0.5 text-[11px] leading-snug text-slate-500">
++      {lines.map((l, i) => (
++        <div key={i} className={i === lines.length - 1 && asset.notes ? 'line-clamp-2' : undefined}>
++          {l}
++        </div>
++      ))}
++      {linkedDebt && (
++        <div className="mt-1.5 flex items-start gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5">
++          {linkedDebt.securityType === 'unsecured' ? (
++            <span className="inline-flex shrink-0 items-center gap-1 rounded border border-amber-200 bg-amber-50 px-1.5 py-px text-[10px] font-semibold text-amber-800">
++              <CreditCard className="h-3 w-3 text-amber-600" />
++              Tín chấp
++            </span>
++          ) : (
++            <span className="inline-flex shrink-0 items-center gap-1 rounded border border-sky-200 bg-sky-50 px-1.5 py-px text-[10px] font-semibold text-sky-800">
++              <ShieldCheck className="h-3 w-3 text-sky-600" />
++              Thế chấp
++            </span>
++          )}
++          <span className="min-w-0 text-slate-700">
++            {linkedDebt.lender} ({linkedDebt.name}) · Dư nợ{' '}
++            <strong className="font-mono text-rose-600">
++              {formatVND(linkedDebt.remainingPrincipal, { compact: true })}
++            </strong>{' '}
++            · Lãi {linkedDebt.annualInterestRate}%
++          </span>
++        </div>
++      )}
++    </div>
++  );
++}
++
++// ------------------------------------------------------------------ Thẻ một tài sản
++export interface PwaAssetCardProps {
++  asset: Asset;
++  linkedDebt?: Debt;
++  canVoid: boolean;
++  onEdit: () => void;
++  onImprove: () => void;
++  onIncome: () => void;
++  onInterest: () => void;
++  onRollover: () => void;
++  onSell: () => void;
++  onVoid: () => void;
++}
++
++export const PwaAssetCard: React.FC<PwaAssetCardProps> = ({
++  asset,
++  linkedDebt,
++  canVoid,
++  onEdit,
++  onImprove,
++  onIncome,
++  onInterest,
++  onRollover,
++  onSell,
++  onVoid,
++}) => {
++  const pnl = asset.currentValue - asset.initialCost;
++  const pnlPct = asset.initialCost > 0 ? (pnl / asset.initialCost) * 100 : 0;
++  const isSold = asset.status === 'sold';
++  const isVoided = asset.status === 'voided';
++  const open = !isSold && !isVoided;
++  const isProperty = asset.category === 'real_estate' || asset.category === 'other';
++  const toneCls = pnl >= 0 ? 'text-emerald-600' : 'text-rose-600';
++
++  return (
++    <PwaCard as="section" className={`p-3.5 ${isSold || isVoided ? 'opacity-80' : ''}`} data-pwa-asset={asset.id}>
++      <div className="flex items-start justify-between gap-2">
++        <div className="min-w-0">
++          <h3 className="text-[15px] font-semibold leading-snug text-slate-900">{asset.name}</h3>
++          <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[11px] text-slate-500">
++            <span>{ASSET_CATEGORY_LABEL[asset.category]}</span>
++            {isSold && <PwaBadge>Đã bán</PwaBadge>}
++            {isVoided && <PwaBadge tone="rose">Đã hủy</PwaBadge>}
++          </div>
++        </div>
++        {canVoid && (
++          <button
++            type="button"
++            data-void-asset={asset.id}
++            onClick={onVoid}
++            title="Hủy bản ghi nhập nhầm"
++            aria-label="Hủy bản ghi nhập nhầm"
++            className="-mr-1 -mt-1 grid h-10 w-10 shrink-0 place-items-center rounded-xl text-slate-400 active:bg-rose-50 active:text-rose-600"
++          >
++            <Undo2 className="h-4 w-4" />
++          </button>
++        )}
++      </div>
++
++      <MetaLines asset={asset} linkedDebt={linkedDebt} />
++
++      <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-2.5 rounded-xl bg-slate-50 p-2.5">
++        <PwaStat label="Giá vốn" value={formatVND(asset.initialCost)} />
++        <PwaStat
++          label="Thị giá hiện tại"
++          value={isSold ? '0 ₫' : formatVND(asset.currentValue)}
++          sub={asset.lastValuationDate}
++        />
++        <PwaStat
++          label="Lãi/lỗ sổ sách"
++          value={isSold ? '—' : `${pnl >= 0 ? '+' : ''}${formatVND(pnl)}`}
++          sub={isSold ? undefined : formatPercent(pnlPct)}
++          valueClass={isSold ? 'text-slate-400' : toneCls}
++        />
++        <PwaStat
++          label="Lãi chốt thực tế"
++          value={
++            asset.realizedPnL > 0 ? `+${formatVND(asset.realizedPnL)}` : asset.realizedPnL < 0 ? formatVND(asset.realizedPnL) : '0 ₫'
++          }
++          valueClass={asset.realizedPnL > 0 ? 'text-emerald-700' : asset.realizedPnL < 0 ? 'text-rose-700' : 'text-slate-400'}
++        />
++      </div>
++
++      {open && (
++        <div className="mt-3 grid grid-cols-2 gap-2">
++          <PwaAction
++            label="Sửa thông tin"
++            icon={<Pencil className="h-3.5 w-3.5" />}
++            onClick={onEdit}
++            data-asset-action="edit"
++            title="Sửa thông tin (tên, ghi chú, ngày mua…)"
++          />
++          {isProperty && (
++            <PwaAction
++              label="Cải tạo"
++              icon={<Hammer className="h-3.5 w-3.5" />}
++              onClick={onImprove}
++              data-asset-action="improve"
++              title="Ghi chi phí cải tạo / đầu tư thêm (cộng vào giá vốn)"
++            />
++          )}
++          {isProperty && (
++            <PwaAction
++              label="Thu nhập tháng"
++              tone="info"
++              icon={<CalendarClock className="h-3.5 w-3.5" />}
++              onClick={onIncome}
++              data-asset-action="income"
++              title="Thu nhập hàng tháng (cho thuê…) – hiển thị trên Lịch"
++            />
++          )}
++          {asset.category === 'savings' && (
++            <>
++              <PwaAction
++                label="Nhận lãi"
++                tone="warn"
++                icon={<Coins className="h-3.5 w-3.5" />}
++                onClick={onInterest}
++                data-savings-action="interest"
++                title="Nhận lãi về ví"
++              />
++              <PwaAction
++                label="Tái tục"
++                tone="info"
++                icon={<Repeat className="h-3.5 w-3.5" />}
++                onClick={onRollover}
++                data-savings-action="rollover"
++                title="Tái tục sổ tiết kiệm"
++              />
++            </>
++          )}
++          <PwaAction
++            label={asset.category === 'savings' ? 'Rút tiền' : 'Bán / Chốt lời'}
++            tone="success"
++            icon={<DollarSign className="h-3.5 w-3.5" />}
++            onClick={onSell}
++            data-asset-action="sell"
++            title={asset.category === 'savings' ? 'Rút tiền tiết kiệm' : 'Bán / Chốt lời về ví'}
++          />
++        </div>
++      )}
++    </PwaCard>
++  );
++};
+diff --git a/src/components/pwa/PwaCalendarParts.tsx b/src/components/pwa/PwaCalendarParts.tsx
+new file mode 100644
+index 0000000..dce1ef9
+--- /dev/null
++++ b/src/components/pwa/PwaCalendarParts.tsx
+@@ -0,0 +1,82 @@
++import React from 'react';
++import { AlertTriangle } from 'lucide-react';
++import { formatVND } from '../../utils/calculations';
++import { summarizeMonth } from '../../utils/calendar';
++import { PwaCard, PwaStat } from './pwaUi';
++
++type MonthSummary = ReturnType<typeof summarizeMonth>;
++
++/** Tổng kết tháng trên điện thoại: 3 số chính một hàng, các dòng chi tiết bên dưới (thay cho 3 thẻ lớn xếp dọc). */
++export const PwaCalendarSummary: React.FC<{ summary: MonthSummary; cash: number; walletShort: number }> = ({
++  summary,
++  cash,
++  walletShort,
++}) => (
++  <PwaCard className="space-y-3 p-3.5" data-pwa-calendar-summary="">
++    <div className="grid grid-cols-3 gap-2">
++      <PwaStat
++        label="Phải trả"
++        value={formatVND(summary.outTotal, { compact: true })}
++        valueClass="text-rose-600"
++        title={formatVND(summary.outTotal)}
++      />
++      <PwaStat
++        label="Tiền nhận"
++        value={formatVND(summary.inTotal, { compact: true })}
++        valueClass="text-emerald-600"
++        title={formatVND(summary.inTotal)}
++      />
++      <PwaStat
++        label="Chênh lệch"
++        value={`${summary.net >= 0 ? '+' : ''}${formatVND(summary.net, { compact: true })}`}
++        valueClass={summary.net >= 0 ? 'text-emerald-600' : 'text-rose-600'}
++        title={formatVND(summary.net)}
++      />
++    </div>
++
++    <div className="space-y-2.5 border-t border-slate-100 pt-2.5 text-[11px] text-slate-600">
++      <div className="space-y-1">
++        <div className="flex justify-between gap-2">
++          <span>Đã trả</span>
++          <span className="font-mono">{formatVND(summary.outPaid)}</span>
++        </div>
++        <div className="flex justify-between gap-2">
++          <span>Còn phải trả</span>
++          <span className="font-mono font-semibold text-slate-900">{formatVND(summary.outOpen)}</span>
++        </div>
++        {summary.outOverdue > 0 && (
++          <div className="flex justify-between gap-2 font-semibold text-rose-600">
++            <span>Trong đó quá hạn</span>
++            <span className="font-mono">{formatVND(summary.outOverdue)}</span>
++          </div>
++        )}
++      </div>
++      <div className="space-y-1 border-t border-dashed border-slate-100 pt-2.5">
++        <div className="flex justify-between gap-2">
++          <span>Đã nhận</span>
++          <span className="font-mono">{formatVND(summary.inReceived)}</span>
++        </div>
++        <div className="flex justify-between gap-2">
++          <span>Dự kiến nhận</span>
++          <span className="font-mono">{formatVND(summary.inExpected)}</span>
++        </div>
++        {summary.inUnrecorded > 0 && (
++          <div className="flex justify-between gap-2 font-semibold text-amber-700">
++            <span>Đến ngày nhưng chưa ghi nhận</span>
++            <span className="font-mono">{formatVND(summary.inUnrecorded)}</span>
++          </div>
++        )}
++      </div>
++    </div>
++
++    <div className="border-t border-slate-100 pt-2.5 text-[11px] text-slate-600">
++      Tiền khả dụng trong ví: <strong className="font-mono text-slate-900">{formatVND(cash)}</strong>
++      {walletShort > 0 && (
++        <div className="mt-1.5 flex items-start gap-1 font-semibold text-rose-600">
++          <AlertTriangle className="mt-px h-3 w-3 shrink-0" />
++          <span>Ví chưa đủ cho các khoản còn phải trả (thiếu {formatVND(walletShort)}).</span>
++        </div>
++      )}
++    </div>
++  </PwaCard>
++);
+diff --git a/src/components/pwa/PwaDebtsParts.tsx b/src/components/pwa/PwaDebtsParts.tsx
+new file mode 100644
+index 0000000..a01537e
+--- /dev/null
++++ b/src/components/pwa/PwaDebtsParts.tsx
+@@ -0,0 +1,316 @@
++import React from 'react';
++import { CheckCircle2, CreditCard, Link as LinkIcon, ShieldCheck, Table, Undo2 } from 'lucide-react';
++import { Debt, DebtCategory, UserFinancialState } from '../../types/finance';
++import {
++  calculateCollateralMetrics,
++  checkPayable,
++  formatVND,
++  getNextDuePayment,
++  payLockLabel,
++  todayLocalStr,
++} from '../../utils/calculations';
++import { changeAt, ensureTimeline } from '../../utils/debtCore';
++import { PwaAction, PwaBadge, PwaCard, PwaChips, PwaResultLine } from './pwaUi';
++
++const vnDate = (d: string) => (/^\d{4}-\d{2}-\d{2}$/.test(d) ? `${d.slice(8, 10)}/${d.slice(5, 7)}/${d.slice(0, 4)}` : d);
++
++const CATEGORY_SHORT: Record<DebtCategory, string> = {
++  mortgage: 'Vay mua nhà',
++  car_loan: 'Vay mua xe',
++  student_loan: 'Vay sinh viên',
++  business_loan: 'Vay kinh doanh',
++  consumer_loan: 'Vay tiêu dùng',
++  other: 'Khoản vay khác',
++};
++
++// ------------------------------------------------------------------ Tổng hợp
++export const PwaDebtsSummary: React.FC<{
++  totalRemaining: number;
++  totalOriginal: number;
++  totalPaid: number;
++  securedCount: number;
++  unsecuredCount: number;
++  totalSecured: number;
++  totalUnsecured: number;
++}> = ({ totalRemaining, totalOriginal, totalPaid, securedCount, unsecuredCount, totalSecured, totalUnsecured }) => {
++  const securedPct = totalRemaining > 0 ? (totalSecured / totalRemaining) * 100 : 0;
++  const unsecuredPct = totalRemaining > 0 ? (totalUnsecured / totalRemaining) * 100 : 0;
++  const paidPct = totalOriginal > 0 ? (totalPaid / totalOriginal) * 100 : 100;
++  return (
++    <PwaCard className="p-3.5" data-pwa-debts-summary="">
++      <div className="text-[11px] font-medium text-slate-500">Tổng dư nợ hiện tại</div>
++      <div className="mt-0.5 truncate font-mono text-[22px] font-bold leading-tight tracking-tight tabular-nums text-rose-600">
++        {formatVND(totalRemaining)}
++      </div>
++      <div className="mt-0.5 text-[11px] text-slate-500">Gốc ban đầu: {formatVND(totalOriginal, { compact: true })}</div>
++
++      <div className="mt-3 flex h-2 w-full overflow-hidden rounded-full bg-slate-100">
++        <div style={{ width: `${securedPct}%` }} className="h-full bg-sky-500" title="Tỷ trọng nợ thế chấp" />
++        <div style={{ width: `${unsecuredPct}%` }} className="h-full bg-amber-500" title="Tỷ trọng nợ tín chấp" />
++      </div>
++      <div className="mt-2 grid grid-cols-2 gap-x-3 text-[11px]">
++        <div className="min-w-0">
++          <div className="flex items-center gap-1 font-medium text-sky-800">
++            <ShieldCheck className="h-3.5 w-3.5 shrink-0 text-sky-600" />
++            <span className="truncate">Thế chấp ({securedCount})</span>
++          </div>
++          <div className="font-mono font-semibold text-slate-900">
++            {formatVND(totalSecured, { compact: true })} <span className="font-normal text-slate-500">· {securedPct.toFixed(0)}%</span>
++          </div>
++        </div>
++        <div className="min-w-0">
++          <div className="flex items-center gap-1 font-medium text-amber-800">
++            <CreditCard className="h-3.5 w-3.5 shrink-0 text-amber-600" />
++            <span className="truncate">Tín chấp ({unsecuredCount})</span>
++          </div>
++          <div className="font-mono font-semibold text-slate-900">
++            {formatVND(totalUnsecured, { compact: true })} <span className="font-normal text-slate-500">· {unsecuredPct.toFixed(0)}%</span>
++          </div>
++        </div>
++      </div>
++
++      <div className="mt-3 border-t border-slate-100 pt-3">
++        <div className="flex items-baseline justify-between gap-2">
++          <span className="text-[11px] font-medium text-slate-500">Đã thanh toán gốc</span>
++          <span className="text-[11px] text-slate-500">
++            Tiến độ giải phóng nợ <strong className="font-mono text-slate-800">{paidPct.toFixed(1)}%</strong>
++          </span>
++        </div>
++        <div className="mt-0.5 truncate font-mono text-[15px] font-bold tabular-nums text-emerald-600">{formatVND(totalPaid)}</div>
++      </div>
++    </PwaCard>
++  );
++};
++
++// ------------------------------------------------------------------ Bộ lọc
++export interface PwaDebtsFiltersProps {
++  securityFilter: 'all' | 'secured' | 'unsecured';
++  onSecurity: (v: 'all' | 'secured' | 'unsecured') => void;
++  securityCounts: { all: number; secured: number; unsecured: number };
++  categoryFilter: string;
++  onCategory: (v: string) => void;
++  categoryOptions: { id: string; label: string; count: number }[];
++  totalCount: number;
++  voidedCount: number;
++  showVoided: boolean;
++  onShowVoided: (v: boolean) => void;
++  shown: number;
++  onClear: () => void;
++  filtersActive: boolean;
++}
++
++export const PwaDebtsFilters: React.FC<PwaDebtsFiltersProps> = (p) => (
++  <PwaCard className="space-y-2.5 p-3.5" data-pwa-debts-filters="">
++    <PwaChips
++      label="Hình thức vay"
++      attr="data-debt-security"
++      value={p.securityFilter}
++      onChange={p.onSecurity}
++      items={[
++        { id: 'all', label: 'Tất cả', count: p.securityCounts.all },
++        { id: 'secured', label: 'Thế chấp', count: p.securityCounts.secured },
++        { id: 'unsecured', label: 'Tín chấp', count: p.securityCounts.unsecured },
++      ]}
++    />
++    <PwaChips
++      label="Mục đích vay"
++      attr="data-debt-category"
++      value={p.categoryFilter}
++      onChange={p.onCategory}
++      items={[{ id: 'all', label: 'Mọi mục đích', count: p.totalCount }, ...p.categoryOptions.map((o) => ({ id: o.id, label: o.label, count: o.count }))]}
++    />
++    <PwaResultLine shown={p.shown} total={p.totalCount} noun="khoản nợ" onClear={p.filtersActive ? p.onClear : undefined}>
++      {p.voidedCount > 0 && (
++        <label className="flex min-h-[28px] items-center gap-1.5 font-semibold text-slate-600">
++          <input type="checkbox" checked={p.showVoided} onChange={(e) => p.onShowVoided(e.target.checked)} />
++          Đã hủy ({p.voidedCount})
++        </label>
++      )}
++    </PwaResultLine>
++  </PwaCard>
++);
++
++// ------------------------------------------------------------------ Thẻ một khoản nợ
++export interface PwaDebtCardProps {
++  debt: Debt;
++  state: UserFinancialState;
++  canVoid: boolean;
++  onVoid: () => void;
++  onFundUse: () => void;
++  onDetail: () => void;
++  onPay: (periodIndex: number) => void;
++}
++
++export const PwaDebtCard: React.FC<PwaDebtCardProps> = ({ debt, state, canVoid, onVoid, onFundUse, onDetail, onPay }) => {
++  const nextPay = getNextDuePayment(debt);
++  // Mỗi tháng chỉ trả một kỳ: kỳ tới đến hạn ở tháng sau thì khóa nút
++  const payCheck = nextPay ? checkPayable(debt, nextPay.periodIndex) : null;
++  const payLocked = !!payCheck && payCheck.reason === 'month_locked';
++  const cash = state.wallet.availableCash;
++  const collateralAsset = state.assets.find((a) => a.id === debt.collateralAssetId);
++  const collateralMetrics = collateralAsset ? calculateCollateralMetrics(collateralAsset, debt) : null;
++  const paidProgress =
++    debt.principalAmount > 0 ? ((debt.principalAmount - debt.remainingPrincipal) / debt.principalAmount) * 100 : 100;
++  const short = nextPay && !payLocked && cash < nextPay.total ? nextPay.total - cash : 0;
++  const dayTone =
++    !nextPay || nextPay.daysRemaining > 5 ? 'text-slate-700' : nextPay.daysRemaining < 0 ? 'text-rose-600' : 'text-amber-600';
++
++  return (
++    <PwaCard as="section" className="p-3.5" data-pwa-debt={debt.id}>
++      <div className="flex items-start justify-between gap-2">
++        <div className="min-w-0">
++          <h3 className="text-[15px] font-semibold leading-snug text-slate-900">{debt.name}</h3>
++          <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[11px] text-slate-500">
++            <span>{debt.lender}</span>
++            <span>·</span>
++            <span>{CATEGORY_SHORT[debt.category]}</span>
++            {debt.status === 'paid_off' && <PwaBadge tone="emerald">Đã tất toán</PwaBadge>}
++            {debt.status === 'voided' && <PwaBadge tone="rose">Đã hủy</PwaBadge>}
++          </div>
++          <div className="mt-1.5" data-fund-use={debt.fundUse?.kind || 'unspecified'}>
++            {!debt.fundUse || debt.fundUse.kind === 'unspecified' ? (
++              debt.status === 'voided' ? null : (
++                <button
++                  type="button"
++                  onClick={onFundUse}
++                  className="min-h-[28px] rounded-md border border-amber-200 bg-amber-50 px-2 py-0.5 text-left text-[11px] font-semibold text-amber-700 active:bg-amber-100"
++                >
++                  Chưa xác định nơi dùng vốn · Bổ sung
++                </button>
++              )
++            ) : (
++              <span className="inline-block rounded-md border border-slate-200 bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-600">
++                {debt.fundUse.kind === 'wallet' &&
++                  (debt.fundUse.cashRecorded ? 'Nơi dùng vốn: vào ví đầu tư' : 'Nơi dùng vốn: vào ví (chỉ ghi nợ)')}
++                {debt.fundUse.kind === 'asset' &&
++                  `Nơi dùng vốn: mua ${state.assets.find((a) => a.id === debt.fundUse?.assetId)?.name || 'tài sản'}`}
++                {debt.fundUse.kind === 'spent' && 'Nơi dùng vốn: đã chi tiêu'}
++              </span>
++            )}
++          </div>
++        </div>
++        {canVoid && (
++          <button
++            type="button"
++            data-void-debt={debt.id}
++            onClick={onVoid}
++            title="Hủy bản ghi nhập nhầm"
++            aria-label="Hủy bản ghi nhập nhầm"
++            className="-mr-1 -mt-1 grid h-10 w-10 shrink-0 place-items-center rounded-xl text-slate-400 active:bg-rose-50 active:text-rose-600"
++          >
++            <Undo2 className="h-4 w-4" />
++          </button>
++        )}
++      </div>
++
++      {/* Tiến độ trả gốc */}
++      <div className="mt-3">
++        <div className="flex items-baseline justify-between gap-2 text-[11px]">
++          <span className="text-slate-500">Tiến độ trả nợ gốc</span>
++          <span className="font-mono font-semibold text-slate-800">
++            {paidProgress.toFixed(1)}% · còn {formatVND(debt.remainingPrincipal, { compact: true })}
++          </span>
++        </div>
++        <div className="mt-1 h-2 w-full overflow-hidden rounded-full bg-slate-100">
++          <div style={{ width: `${paidProgress}%` }} className="h-full rounded-full bg-emerald-500 transition-all" />
++        </div>
++      </div>
++
++      {/* Lãi suất / phương thức / ngày đóng tiền */}
++      <div className="mt-3 grid grid-cols-3 gap-2 rounded-xl bg-slate-50 p-2.5 text-[12px]">
++        <div className="min-w-0">
++          <div className="text-[10px] text-slate-400">Lãi suất</div>
++          <div className="font-mono font-semibold text-slate-900">{debt.annualInterestRate}%/năm</div>
++          {debt.status === 'active' && (
++            <div className="text-[10px] leading-tight text-slate-500">
++              từ {vnDate(changeAt(ensureTimeline(debt), todayLocalStr()).effectiveDate)}
++            </div>
++          )}
++        </div>
++        <div className="min-w-0">
++          <div className="text-[10px] text-slate-400">Phương thức</div>
++          <div className="font-semibold leading-tight text-slate-900">
++            {debt.method === 'declining_balance' ? 'Dư nợ giảm dần' : 'Trả đều hàng tháng'}
++          </div>
++          <div className="text-[10px] leading-tight text-slate-500">Kỳ hạn {debt.tenorMonths} tháng</div>
++        </div>
++        <div className="min-w-0">
++          <div className="text-[10px] text-slate-400">Ngày đóng tiền</div>
++          <div className="font-mono font-semibold leading-tight text-slate-900">Ngày {debt.paymentDayOfMonth}</div>
++          <div className="text-[10px] leading-tight text-slate-500">từ {vnDate(debt.startDate)}</div>
++        </div>
++      </div>
++
++      {/* Tài sản thế chấp */}
++      {collateralAsset && collateralMetrics && (
++        <div className="mt-2.5 space-y-1 rounded-xl border border-sky-200 bg-sky-50/50 p-2.5 text-[11px] text-sky-800">
++          <div className="flex items-start justify-between gap-2">
++            <div className="flex min-w-0 items-start gap-1.5 font-semibold text-sky-900">
++              <LinkIcon className="mt-0.5 h-3.5 w-3.5 shrink-0 text-sky-600" />
++              <span className="min-w-0">Thế chấp: {collateralAsset.name}</span>
++            </div>
++            <span className="shrink-0 rounded bg-sky-100 px-1.5 py-0.5 font-mono font-semibold">
++              LTV {collateralMetrics.ltvPercent.toFixed(1)}%
++            </span>
++          </div>
++          <div className="flex flex-wrap justify-between gap-x-3">
++            <span>
++              Thị giá TS: <strong>{formatVND(collateralMetrics.assetValue, { compact: true })}</strong>
++            </span>
++            <span>
++              Vốn tự có: <strong>{formatVND(collateralMetrics.netEquity, { compact: true })}</strong> ({collateralMetrics.equityPercent.toFixed(1)}%)
++            </span>
++          </div>
++        </div>
++      )}
++
++      {/* Kỳ tới + thao tác */}
++      <div className="mt-3 border-t border-slate-100 pt-3">
++        {nextPay ? (
++          <div className="flex items-end justify-between gap-3">
++            <div className="min-w-0 text-[11px] text-slate-500">
++              <div>Kỳ tới · {vnDate(nextPay.dueDate)}</div>
++              <div className={`font-semibold ${dayTone}`}>
++                {nextPay.daysRemaining < 0
++                  ? `Quá hạn ${Math.abs(nextPay.daysRemaining)} ngày`
++                  : nextPay.daysRemaining === 0
++                  ? 'Hôm nay'
++                  : `Còn ${nextPay.daysRemaining} ngày`}
++              </div>
++            </div>
++            <div className="text-right">
++              <div className="font-mono text-[17px] font-bold tabular-nums text-slate-900">{formatVND(nextPay.total)}</div>
++              <div className="font-mono text-[10px] text-slate-500">
++                Gốc {formatVND(nextPay.principal, { compact: true })} · Lãi {formatVND(nextPay.interest, { compact: true })}
++              </div>
++            </div>
++          </div>
++        ) : (
++          <div className="text-xs text-slate-400">Không còn kỳ nợ nào đến hạn</div>
++        )}
++        {short > 0 && <div className="mt-1 text-[11px] font-medium text-rose-600">Ví thiếu {formatVND(short)}</div>}
++
++        <div className={`mt-2.5 grid gap-2 ${nextPay ? 'grid-cols-2' : 'grid-cols-1'}`}>
++          <PwaAction label="Chi tiết & lịch trả" icon={<Table className="h-3.5 w-3.5" />} onClick={onDetail} data-debt-action="detail" />
++          {nextPay && (
++            <PwaAction
++              label={payLocked && payCheck ? payLockLabel(payCheck) : 'Trả kỳ này'}
++              tone="warn"
++              icon={<CheckCircle2 className="h-3.5 w-3.5" />}
++              onClick={() => onPay(nextPay.periodIndex)}
++              disabled={payLocked || cash < nextPay.total}
++              data-debt-action="pay"
++              title={
++                payLocked && payCheck
++                  ? `Kỳ tiếp theo ngày ${payCheck.dueDate} – mở thanh toán từ ${payCheck.unlockDate}`
++                  : cash < nextPay.total
++                  ? `Ví thiếu ${formatVND(nextPay.total - cash)} – hãy nạp thêm tiền vào ví`
++                  : undefined
++              }
++            />
++          )}
++        </div>
++      </div>
++    </PwaCard>
++  );
++};
+diff --git a/src/components/pwa/PwaMoreView.tsx b/src/components/pwa/PwaMoreView.tsx
+index 2040c4d..32efc72 100644
+--- a/src/components/pwa/PwaMoreView.tsx
++++ b/src/components/pwa/PwaMoreView.tsx
+@@ -7,6 +7,9 @@ import {
+   PlusCircle,
+   ArrowDownRight,
+   ChevronRight,
++  Sun,
++  Moon,
++  LogOut,
+ } from 'lucide-react';
+ 
+ export type PwaSecondaryTab = 'prices' | 'calendar' | 'balance' | 'admin';
+@@ -15,6 +18,9 @@ interface PwaMoreViewProps {
+   user: { displayName: string; email: string; role: 'admin' | 'user' };
+   priceAlertCount: number;
+   adminPendingCount: number;
++  isDark: boolean;
++  onToggleTheme: () => void;
++  onLogout: () => void;
+   onSelectSubTab: (tab: PwaSecondaryTab) => void;
+   onOpenAddAsset: () => void;
+   onOpenAddDebt: () => void;
+@@ -29,6 +35,9 @@ export const PwaMoreView: React.FC<PwaMoreViewProps> = ({
+   user,
+   priceAlertCount,
+   adminPendingCount,
++  isDark,
++  onToggleTheme,
++  onLogout,
+   onSelectSubTab,
+   onOpenAddAsset,
+   onOpenAddDebt,
+@@ -173,6 +182,30 @@ export const PwaMoreView: React.FC<PwaMoreViewProps> = ({
+           </button>
+         </div>
+       </section>
++
++      {/* Nhóm 4: Giao diện & đăng xuất (chuyển từ thanh đầu app xuống đây cho gọn) */}
++      <section>
++        <div className="divide-y divide-slate-100 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_1px_2px_rgba(28,27,24,0.04)]">
++          <button type="button" onClick={onToggleTheme} className={ROW_BTN} data-pwa-theme-toggle>
++            <div className="flex min-w-0 items-center gap-3">
++              <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-slate-100 text-slate-700">
++                {isDark ? <Sun className="h-4 w-4 text-accent-ink" /> : <Moon className="h-4 w-4" />}
++              </span>
++              <span className="text-sm font-semibold text-slate-900">Giao diện</span>
++            </div>
++            <span className="shrink-0 text-xs font-semibold text-slate-500">{isDark ? 'Tối · chuyển sang sáng' : 'Sáng · chuyển sang tối'}</span>
++          </button>
++
++          <button type="button" onClick={onLogout} className={ROW_BTN} data-pwa-logout>
++            <div className="flex min-w-0 items-center gap-3">
++              <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-rose-50 text-rose-600">
++                <LogOut className="h-4 w-4" />
++              </span>
++              <span className="text-sm font-semibold text-rose-600">Đăng xuất</span>
++            </div>
++          </button>
++        </div>
++      </section>
+     </div>
+   );
+ };
+diff --git a/src/components/pwa/PwaOverview.tsx b/src/components/pwa/PwaOverview.tsx
+index 0ee1d99..2ef265c 100644
+--- a/src/components/pwa/PwaOverview.tsx
++++ b/src/components/pwa/PwaOverview.tsx
+@@ -1,5 +1,5 @@
+ import React from 'react';
+-import { ChevronRight } from 'lucide-react';
++import { ArrowDownRight, ChevronRight, PlusCircle } from 'lucide-react';
+ import { UserFinancialState } from '../../types/finance';
+ import { NavTab } from '../Sidebar';
+ import { buildAllocation, CATEGORY_META } from '../../utils/allocation';
+@@ -8,6 +8,9 @@ import { calculateFinancialSummary, formatPercent, formatVND } from '../../utils
+ interface PwaOverviewProps {
+   state: UserFinancialState;
+   onNavigateTab: (tab: NavTab) => void;
++  onOpenAddAsset: () => void;
++  onOpenAddDebt: () => void;
++  onOpenDeposit: () => void;
+ }
+ 
+ const DONUT_SIZE = 120;
+@@ -27,7 +30,7 @@ interface StatCard {
+   onClick?: () => void;
+ }
+ 
+-export const PwaOverview: React.FC<PwaOverviewProps> = ({ state, onNavigateTab }) => {
++export const PwaOverview: React.FC<PwaOverviewProps> = ({ state, onNavigateTab, onOpenAddAsset, onOpenAddDebt, onOpenDeposit }) => {
+   const summary = calculateFinancialSummary(state);
+   const nextPayment = summary.upcomingPayments[0];
+   const allocation = buildAllocation(summary.categoryBreakdown);
+@@ -43,7 +46,7 @@ export const PwaOverview: React.FC<PwaOverviewProps> = ({ state, onNavigateTab }
+     },
+     {
+       id: 'cash',
+-      label: 'Tiền khả dụng',
++      label: 'Khả dụng',
+       value: formatVND(summary.availableCash, { compact: true }),
+       fullTitle: formatVND(summary.availableCash),
+       dotClass: 'bg-emerald-500',
+@@ -127,55 +130,102 @@ export const PwaOverview: React.FC<PwaOverviewProps> = ({ state, onNavigateTab }
+     return arc;
+   });
+ 
++  const byId = (id: string) => cards.find((c) => c.id === id)!;
++
++  const renderCard = (c: StatCard, size: 'sm' | 'md') => {
++    const inner = (
++      <>
++        <div className="flex items-center justify-between gap-2">
++          <span className="truncate text-[11px] font-medium text-slate-500">{c.label}</span>
++          <span className={`h-2 w-2 shrink-0 rounded-full ${c.dotClass}`} aria-hidden="true" />
++        </div>
++        <div
++          title={c.fullTitle}
++          className={`mt-1.5 truncate font-mono font-bold tracking-tight tabular-nums leading-tight ${
++            size === 'sm' ? 'text-[14px]' : 'text-[16px]'
++          } ${c.valueClass || 'text-slate-900'}`}
++        >
++          {c.value}
++        </div>
++        {c.sub && <div className="mt-0.5 truncate text-[11px] font-medium text-slate-500 tabular-nums">{c.sub}</div>}
++      </>
++    );
++    const cls =
++      'min-w-0 rounded-2xl border border-slate-200 bg-white p-3 text-left shadow-[0_1px_2px_rgba(28,27,24,0.04)]';
++    return c.onClick ? (
++      <button key={c.id} type="button" onClick={c.onClick} className={`${cls} transition-colors active:bg-slate-50`}>
++        {inner}
++      </button>
++    ) : (
++      <div key={c.id} className={cls}>
++        {inner}
++      </div>
++    );
++  };
++
++  const net = byId('net-worth');
++
+   return (
+-    <div className="space-y-4 animate-tab-in" data-pwa-overview>
+-      {/* Lưới thẻ 2 cột tinh gọn theo bố cục ứng dụng */}
+-      <div className="grid grid-cols-2 gap-3">
+-        {cards.map((c) => {
+-          const inner = (
+-            <>
+-              <div className="flex items-center justify-between gap-2">
+-                <span className="truncate text-xs font-medium text-slate-500">{c.label}</span>
+-                <span className={`h-2 w-2 shrink-0 rounded-full ${c.dotClass}`} aria-hidden="true" />
+-              </div>
+-              <div
+-                title={c.fullTitle}
+-                className={`mt-2.5 font-mono text-[17px] sm:text-lg font-bold tracking-tight tabular-nums whitespace-nowrap leading-tight ${
+-                  c.valueClass || 'text-slate-900'
+-                }`}
+-              >
+-                {c.value}
+-              </div>
+-              {c.sub && (
+-                <div className="mt-1 truncate text-[11px] font-medium text-slate-500 tabular-nums">
+-                  {c.sub}
+-                </div>
+-              )}
+-            </>
+-          );
++    <div className="space-y-3 animate-tab-in" data-pwa-overview>
++      {/* Thẻ chính: tài sản ròng */}
++      <section className="rounded-2xl border border-slate-200 bg-white p-3.5 shadow-[0_1px_2px_rgba(28,27,24,0.04)]">
++        <div className="flex items-center justify-between gap-2">
++          <span className="text-[11px] font-medium text-slate-500">{net.label}</span>
++          <span className={`h-2 w-2 shrink-0 rounded-full ${net.dotClass}`} aria-hidden="true" />
++        </div>
++        <div
++          title={net.fullTitle}
++          className={`mt-0.5 truncate font-mono text-[26px] font-bold leading-tight tracking-tight tabular-nums ${net.valueClass || 'text-slate-900'}`}
++        >
++          {formatVND(summary.netWorth)}
++        </div>
++      </section>
+ 
+-          if (c.onClick) {
+-            return (
+-              <button
+-                key={c.id}
+-                type="button"
+-                onClick={c.onClick}
+-                className="rounded-2xl border border-slate-200 bg-white p-3.5 sm:p-4 text-left shadow-[0_1px_2px_rgba(28,27,24,0.04)] transition-colors hover:border-slate-300 active:bg-slate-50"
+-              >
+-                {inner}
+-              </button>
+-            );
+-          }
++      {/* Ba số nền tảng */}
++      <div className="grid grid-cols-3 gap-2">
++        {renderCard(byId('cash'), 'sm')}
++        {renderCard(byId('assets'), 'sm')}
++        {renderCard(byId('debt'), 'sm')}
++      </div>
+ 
+-          return (
+-            <div
+-              key={c.id}
+-              className="rounded-2xl border border-slate-200 bg-white p-3.5 sm:p-4 shadow-[0_1px_2px_rgba(28,27,24,0.04)]"
+-            >
+-              {inner}
+-            </div>
+-          );
+-        })}
++      {/* Lãi / lỗ */}
++      <div className="grid grid-cols-2 gap-2">
++        {renderCard(byId('book-pnl'), 'md')}
++        {renderCard(byId('realized-pnl'), 'md')}
++      </div>
++
++      {/* Nợ phải trả sắp tới */}
++      <div className="grid grid-cols-2 gap-2">
++        {renderCard(byId('monthly-debt'), 'md')}
++        {renderCard(byId('next-due'), 'md')}
++      </div>
++
++      {/* Thao tác nhanh */}
++      <div className="grid grid-cols-3 gap-2" data-pwa-quick-actions>
++        <button
++          type="button"
++          onClick={onOpenAddAsset}
++          className="flex min-h-[64px] flex-col items-center justify-center gap-1 rounded-2xl border border-slate-200 bg-white px-1 text-[11px] font-semibold text-slate-700 active:bg-slate-50"
++        >
++          <PlusCircle className="h-5 w-5 text-accent-ink" />
++          <span>Thêm tài sản</span>
++        </button>
++        <button
++          type="button"
++          onClick={onOpenAddDebt}
++          className="flex min-h-[64px] flex-col items-center justify-center gap-1 rounded-2xl border border-slate-200 bg-white px-1 text-[11px] font-semibold text-slate-700 active:bg-slate-50"
++        >
++          <PlusCircle className="h-5 w-5 text-rose-600" />
++          <span>Thêm khoản nợ</span>
++        </button>
++        <button
++          type="button"
++          onClick={onOpenDeposit}
++          className="flex min-h-[64px] flex-col items-center justify-center gap-1 rounded-2xl border border-slate-200 bg-white px-1 text-[11px] font-semibold text-slate-700 active:bg-slate-50"
++        >
++          <ArrowDownRight className="h-5 w-5 text-emerald-600" />
++          <span>Nạp / Rút ví</span>
++        </button>
+       </div>
+ 
+       {/* Thẻ biểu đồ phân bổ tài sản: Donut trái + chú giải phải */}
+diff --git a/src/components/pwa/PwaPositions.tsx b/src/components/pwa/PwaPositions.tsx
+new file mode 100644
+index 0000000..611c7eb
+--- /dev/null
++++ b/src/components/pwa/PwaPositions.tsx
+@@ -0,0 +1,89 @@
++import React from 'react';
++import { ChevronDown } from 'lucide-react';
++import { formatVND } from '../../utils/calculations';
++import { Position } from '../../utils/positions';
++import { PwaAction, PwaCard } from './pwaUi';
++
++const vnDate = (d: string) => (/^\d{4}-\d{2}-\d{2}$/.test(d) ? `${d.slice(8, 10)}/${d.slice(5, 7)}/${d.slice(0, 4)}` : d);
++const fmtQty = (n: number) => n.toLocaleString('vi-VN', { maximumFractionDigits: 4 });
++const pct = (n: number | null) => (n === null ? '—' : `${n >= 0 ? '+' : ''}${(n * 100).toFixed(1)}%`);
++
++/**
++ * Vị thế theo mã trên điện thoại: một thẻ chung, mỗi mã một dòng gọn (mã, số lượng, giá vốn BQ, giá trị, lãi/lỗ).
++ * Chạm vào dòng để mở các lô và các nút Mua thêm / Bán / Cổ tức.
++ */
++export const PwaPositionCards: React.FC<{
++  positions: Position[];
++  open: string | null;
++  onToggle: (key: string) => void;
++  onAction: (kind: 'buy' | 'sell' | 'div', key: string) => void;
++}> = ({ positions, open, onToggle, onAction }) => (
++  <PwaCard as="section" data-testid="positions-panel" className="overflow-hidden">
++    <div className="flex items-baseline justify-between gap-2 border-b border-slate-100 px-3.5 py-2.5">
++      <h3 className="text-sm font-semibold text-slate-900">Vị thế theo mã</h3>
++      <span className="text-[11px] text-slate-500">Gộp lô cùng mã · chạm để mở</span>
++    </div>
++    <div className="divide-y divide-slate-100">
++      {positions.map((p) => {
++        const isOpen = open === p.key;
++        const tone = p.unrealized >= 0 ? 'text-emerald-600' : 'text-rose-600';
++        return (
++          <div key={p.key} data-position={p.key}>
++            <button
++              type="button"
++              onClick={() => onToggle(p.key)}
++              aria-expanded={isOpen}
++              title="Xem từng lô"
++              className="w-full px-3.5 py-2.5 text-left active:bg-slate-50"
++            >
++              <div className="flex items-center justify-between gap-3">
++                <span className="flex min-w-0 items-baseline gap-2">
++                  <span className="text-[15px] font-semibold text-slate-900">{p.symbol}</span>
++                  <span className="text-[11px] text-slate-400">{p.lots.length} lô</span>
++                </span>
++                <span className="flex shrink-0 items-center gap-1.5">
++                  <span className="font-mono text-[14px] font-bold tabular-nums text-slate-900">{formatVND(p.totalValue)}</span>
++                  <ChevronDown className={`h-4 w-4 text-slate-400 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
++                </span>
++              </div>
++              <div className="mt-0.5 flex items-baseline justify-between gap-3 text-[11px]">
++                <span className="min-w-0 truncate text-slate-500">
++                  <span className="font-mono">{fmtQty(p.totalQuantity)}</span> {p.unitLabel} · vốn BQ <span className="font-mono">{formatVND(p.avgCost)}</span>
++                </span>
++                <span className={`shrink-0 font-mono font-semibold tabular-nums ${tone}`}>
++                  {p.unrealized >= 0 ? '+' : '−'}
++                  {formatVND(Math.abs(p.unrealized), { compact: true })} ({pct(p.unrealizedPct)})
++                </span>
++              </div>
++            </button>
++
++            {isOpen && (
++              <div className="space-y-2.5 bg-slate-50/70 px-3.5 pb-3 pt-1">
++                <ul data-position-lots={p.key} className="space-y-1.5 text-[11px] text-slate-700">
++                  {p.lots.map((l) => (
++                    <li key={l.id} className="flex flex-wrap items-baseline justify-between gap-x-3">
++                      <span className="font-mono text-slate-500">{vnDate(l.purchaseDate)}</span>
++                      <span>
++                        {fmtQty(
++                          Number((l.metadata as any)[p.category === 'stock' ? 'quantity' : p.category === 'fund' ? 'units' : 'quantityChi']) || 0
++                        )}{' '}
++                        {p.unitLabel}
++                      </span>
++                      <span className="font-mono">vốn {formatVND(l.initialCost)}</span>
++                      <span className="font-mono">giá trị {formatVND(l.currentValue)}</span>
++                    </li>
++                  ))}
++                </ul>
++                <div className={`grid gap-2 ${p.category === 'stock' ? 'grid-cols-3' : 'grid-cols-2'}`}>
++                  <PwaAction label="Mua thêm" onClick={() => onAction('buy', p.key)} data-pos-action="buy" />
++                  <PwaAction label="Bán" tone="success" onClick={() => onAction('sell', p.key)} data-pos-action="sell" />
++                  {p.category === 'stock' && <PwaAction label="Cổ tức" tone="info" onClick={() => onAction('div', p.key)} data-pos-action="div" />}
++                </div>
++              </div>
++            )}
++          </div>
++        );
++      })}
++    </div>
++  </PwaCard>
++);
+diff --git a/src/components/pwa/PwaWalletParts.tsx b/src/components/pwa/PwaWalletParts.tsx
+new file mode 100644
+index 0000000..f4f3432
+--- /dev/null
++++ b/src/components/pwa/PwaWalletParts.tsx
+@@ -0,0 +1,235 @@
++import React from 'react';
++import { ArrowDownRight, ArrowUpRight, Clock, Coins, Undo2 } from 'lucide-react';
++import { CashTransaction } from '../../types/finance';
++import { formatVND, todayLocalStr } from '../../utils/calculations';
++import { LedgerSummary, RANGE_PRESETS, RangePreset, txEffect } from '../../utils/ledger';
++import { PwaAction, PwaCard, PwaChips, PwaEmpty, PwaStat } from './pwaUi';
++
++const vnDate = (d: string) => (/^\d{4}-\d{2}-\d{2}$/.test(d) ? `${d.slice(8, 10)}/${d.slice(5, 7)}/${d.slice(0, 4)}` : d);
++
++// ------------------------------------------------------------------ Số dư ví + thao tác
++export const PwaWalletHero: React.FC<{
++  available: number;
++  totalDeposited: number;
++  totalWithdrawn: number;
++  onDeposit: () => void;
++  onWithdraw: () => void;
++  onIncome: () => void;
++}> = ({ available, totalDeposited, totalWithdrawn, onDeposit, onWithdraw, onIncome }) => (
++  <PwaCard className="p-3.5" data-pwa-wallet-hero="">
++    <div className="text-[11px] font-medium text-slate-500">Tiền khả dụng ví đầu tư</div>
++    <div className="mt-0.5 truncate font-mono text-[26px] font-bold leading-tight tracking-tight tabular-nums text-slate-900">
++      {formatVND(available)}
++    </div>
++
++    <div className="mt-3 grid grid-cols-2 gap-2 border-t border-slate-100 pt-3">
++      <PwaStat label="Tổng vốn đã nạp" value={formatVND(totalDeposited)} />
++      <PwaStat label="Tổng vốn đã rút" value={formatVND(totalWithdrawn)} valueClass="text-slate-700" />
++    </div>
++
++    <div className="mt-3 grid grid-cols-2 gap-2">
++      <PwaAction
++        label="Nạp tiền"
++        tone="primary"
++        icon={<ArrowDownRight className="h-3.5 w-3.5" />}
++        onClick={onDeposit}
++        data-wallet-action="deposit"
++      />
++      <PwaAction
++        label="Rút vốn"
++        icon={<ArrowUpRight className="h-3.5 w-3.5" />}
++        onClick={onWithdraw}
++        disabled={available <= 0}
++        title={available <= 0 ? 'Ví không còn tiền khả dụng' : undefined}
++        data-wallet-action="withdraw"
++      />
++      <PwaAction
++        label="Ghi nhận thu nhập (cổ tức / tiền thuê / lãi)"
++        tone="info"
++        icon={<Coins className="h-3.5 w-3.5" />}
++        onClick={onIncome}
++        className="col-span-2"
++        data-wallet-action="income"
++      />
++    </div>
++  </PwaCard>
++);
++
++// ------------------------------------------------------------------ Bộ lọc nhật ký
++export interface PwaLedgerFiltersProps {
++  filterType: string;
++  onFilterType: (id: string) => void;
++  rangePreset: RangePreset;
++  onPreset: (id: Exclude<RangePreset, 'custom'>) => void;
++  onCustom: () => void;
++  dateFrom: string;
++  dateTo: string;
++  onDateFrom: (v: string) => void;
++  onDateTo: (v: string) => void;
++  rangeInvalid: boolean;
++}
++
++const TYPE_FILTERS = [
++  { id: 'all', label: 'Tất cả' },
++  { id: 'inflow', label: 'Tiền vào (+)' },
++  { id: 'outflow', label: 'Tiền ra (−)' },
++  { id: 'debt_payment', label: 'Trả nợ' },
++  { id: 'dividend', label: 'Cổ tức' },
++  { id: 'rental_income', label: 'Tiền thuê' },
++];
++
++export const PwaLedgerFilters: React.FC<PwaLedgerFiltersProps> = (p) => (
++  <div className="space-y-2.5">
++    <PwaChips label="Loại giao dịch" attr="data-ledger-type" value={p.filterType} onChange={p.onFilterType} items={TYPE_FILTERS} />
++    <PwaChips
++      label="Khoảng thời gian"
++      attr="data-range"
++      value={p.rangePreset}
++      onChange={(id) => (id === 'custom' ? p.onCustom() : p.onPreset(id as Exclude<RangePreset, 'custom'>))}
++      items={[...RANGE_PRESETS.map((r) => ({ id: r.id as RangePreset, label: r.label })), { id: 'custom' as RangePreset, label: 'Chọn ngày…' }]}
++    />
++    {p.rangePreset === 'custom' && (
++      <div className="grid grid-cols-2 gap-2">
++        <label className="block text-[11px] font-semibold text-slate-600" htmlFor="ledger-from">
++          Từ ngày
++          <input
++            id="ledger-from"
++            type="date"
++            value={p.dateFrom}
++            max={todayLocalStr()}
++            aria-invalid={p.rangeInvalid ? true : undefined}
++            onChange={(e) => p.onDateFrom(e.target.value)}
++            className="mt-1 h-10 w-full rounded-xl border border-slate-200 bg-white px-2.5 text-sm font-normal"
++          />
++        </label>
++        <label className="block text-[11px] font-semibold text-slate-600" htmlFor="ledger-to">
++          Đến ngày
++          <input
++            id="ledger-to"
++            type="date"
++            value={p.dateTo}
++            max={todayLocalStr()}
++            aria-invalid={p.rangeInvalid ? true : undefined}
++            onChange={(e) => p.onDateTo(e.target.value)}
++            className="mt-1 h-10 w-full rounded-xl border border-slate-200 bg-white px-2.5 text-sm font-normal"
++          />
++        </label>
++        {p.rangeInvalid && (
++          <span role="alert" className="col-span-2 text-[11px] font-medium text-rose-600">
++            Ngày bắt đầu phải trước ngày kết thúc.
++          </span>
++        )}
++      </div>
++    )}
++  </div>
++);
++
++// ------------------------------------------------------------------ Dòng tổng của khoảng đã lọc
++export const PwaLedgerSummary: React.FC<{ summary: LedgerSummary; showBalances: boolean }> = ({ summary, showBalances }) => (
++  <div data-ledger-summary className="space-y-2.5 rounded-xl bg-slate-50 p-2.5">
++    <div className="grid grid-cols-3 gap-2">
++      <PwaStat label="Tổng vào" value={`+${formatVND(summary.inflow, { compact: true })}`} valueClass="text-emerald-600" title={formatVND(summary.inflow)} />
++      <PwaStat label="Tổng ra" value={`-${formatVND(summary.outflow, { compact: true })}`} title={formatVND(summary.outflow)} />
++      <PwaStat
++        label="Chênh lệch"
++        value={`${summary.net >= 0 ? '+' : '-'}${formatVND(Math.abs(summary.net), { compact: true })}`}
++        valueClass={summary.net >= 0 ? 'text-emerald-600' : 'text-rose-600'}
++        title={formatVND(summary.net)}
++      />
++    </div>
++    {showBalances && (
++      <div className="grid grid-cols-2 gap-2 border-t border-slate-200/70 pt-2.5">
++        <PwaStat label="Số dư đầu kỳ" value={formatVND(summary.openingBalance)} />
++        <PwaStat label="Số dư cuối kỳ" value={formatVND(summary.closingBalance)} />
++      </div>
++    )}
++  </div>
++);
++
++// ------------------------------------------------------------------ Danh sách giao dịch
++export interface PwaTxRow {
++  tx: CashTransaction & { balanceAfter: number };
++  badge: { label: string; color: string };
++  voidable: boolean;
++}
++
++export const PwaTxList: React.FC<{ rows: PwaTxRow[]; onVoid: (txId: string) => void }> = ({ rows, onVoid }) => {
++  if (rows.length === 0) {
++    return <PwaEmpty icon={<Clock className="h-8 w-8" />}>Chưa có giao dịch dòng tiền nào thuộc bộ lọc này.</PwaEmpty>;
++  }
++  const groups: { date: string; items: PwaTxRow[] }[] = [];
++  rows.forEach((r) => {
++    const last = groups[groups.length - 1];
++    if (last && last.date === r.tx.date) last.items.push(r);
++    else groups.push({ date: r.tx.date, items: [r] });
++  });
++  return (
++    <div className="space-y-3" data-pwa-tx-list="">
++      {groups.map((g) => (
++        <div key={g.date}>
++          <div className="mb-1.5 px-1 font-mono text-[11px] font-semibold text-slate-500">{vnDate(g.date)}</div>
++          <PwaCard className="divide-y divide-slate-100 overflow-hidden">
++            {g.items.map(({ tx, badge, voidable }) => {
++              const isVoided = tx.status === 'voided';
++              const isReversal = !!tx.reversalOf;
++              const dim = isVoided || isReversal;
++              const effect = txEffect(tx);
++              return (
++                <div
++                  key={tx.id}
++                  data-tx={tx.id}
++                  data-voided={isVoided ? 'true' : undefined}
++                  data-reversal={isReversal ? 'true' : undefined}
++                  className="px-3.5 py-3"
++                >
++                  <div className="flex items-start justify-between gap-3">
++                    <div className="min-w-0">
++                      <div className="flex flex-wrap items-center gap-1">
++                        <span className={`rounded border px-1.5 py-px text-[10px] font-semibold ${badge.color}`}>{badge.label}</span>
++                        {isVoided && (
++                          <span className="rounded border border-rose-200 bg-rose-50 px-1.5 py-px text-[10px] font-semibold text-rose-700">Đã hủy</span>
++                        )}
++                        {isReversal && (
++                          <span className="rounded border border-slate-200 bg-slate-100 px-1.5 py-px text-[10px] font-semibold text-slate-600">Bút toán đảo</span>
++                        )}
++                        {voidable && (
++                          <button
++                            type="button"
++                            data-void-tx={tx.id}
++                            onClick={() => onVoid(tx.id)}
++                            title="Hủy bản ghi nhập nhầm"
++                            aria-label="Hủy bản ghi nhập nhầm"
++                            className="inline-flex min-h-[28px] items-center gap-1 rounded-md border border-slate-200 bg-white px-2 text-[10px] font-semibold text-slate-500 active:bg-rose-50 active:text-rose-700"
++                          >
++                            <Undo2 className="h-3 w-3" />
++                            <span>Hủy</span>
++                          </button>
++                        )}
++                      </div>
++                      <div
++                        className={`mt-1 text-[13px] font-medium leading-snug ${dim ? 'text-slate-400' : 'text-slate-900'} ${isVoided ? 'line-through' : ''}`}
++                      >
++                        {tx.title}
++                      </div>
++                    </div>
++                    <div className="shrink-0 text-right">
++                      <div
++                        className={`font-mono text-[14px] font-bold tabular-nums ${
++                          dim ? 'text-slate-400' : effect > 0 ? 'text-emerald-600' : 'text-slate-900'
++                        }`}
++                      >
++                        {effect > 0 ? '+' : '-'}
++                        {formatVND(tx.amount)}
++                      </div>
++                      <div className="mt-0.5 font-mono text-[10px] tabular-nums text-slate-500">Dư {formatVND(tx.balanceAfter)}</div>
++                    </div>
++                  </div>
++                </div>
++              );
++            })}
++          </PwaCard>
++        </div>
++      ))}
++    </div>
++  );
++};
+diff --git a/src/components/pwa/pwaUi.tsx b/src/components/pwa/pwaUi.tsx
+new file mode 100644
+index 0000000..29f696b
+--- /dev/null
++++ b/src/components/pwa/pwaUi.tsx
+@@ -0,0 +1,253 @@
++import React from 'react';
++import { Search, X } from 'lucide-react';
++
++/**
++ * Các thành phần giao diện nhỏ dùng chung cho các màn hình ở chế độ ứng dụng (PWA).
++ * Chỉ là phần trình bày: không chứa nghiệp vụ, không đụng tới dữ liệu.
++ */
++
++export const CARD_CLS = 'rounded-2xl border border-slate-200 bg-white shadow-[0_1px_2px_rgba(28,27,24,0.04)]';
++
++export const PwaCard: React.FC<{
++  children: React.ReactNode;
++  className?: string;
++  as?: 'div' | 'section';
++  [key: `data-${string}`]: string | undefined;
++}> = ({ children, className = '', as: Tag = 'div', ...rest }) => (
++  <Tag className={`${CARD_CLS} ${className}`} {...rest}>
++    {children}
++  </Tag>
++);
++
++/** Một ô số liệu: nhãn nhỏ phía trên, số mono phía dưới. */
++export const PwaStat: React.FC<{
++  label: string;
++  value: React.ReactNode;
++  sub?: React.ReactNode;
++  valueClass?: string;
++  className?: string;
++  title?: string;
++}> = ({ label, value, sub, valueClass = 'text-slate-900', className = '', title }) => (
++  <div className={`min-w-0 ${className}`} title={title}>
++    <div className="truncate text-[11px] font-medium text-slate-500">{label}</div>
++    <div className={`mt-0.5 truncate font-mono text-[13px] font-semibold tabular-nums ${valueClass}`}>{value}</div>
++    {sub !== undefined && sub !== null && sub !== '' && (
++      <div className="mt-px truncate font-mono text-[11px] tabular-nums text-slate-500">{sub}</div>
++    )}
++  </div>
++);
++
++export interface ChipItem<T extends string> {
++  id: T;
++  label: string;
++  count?: number;
++  /** thuộc tính data-* để test chọn theo id */
++  dataAttr?: string;
++}
++
++/** Hàng chip cuộn ngang (chọn một). */
++export function PwaChips<T extends string>({
++  items,
++  value,
++  onChange,
++  label,
++  attr,
++}: {
++  items: ChipItem<T>[];
++  value: T;
++  onChange: (id: T) => void;
++  label: string;
++  attr?: string;
++}) {
++  return (
++    <div
++      role="group"
++      aria-label={label}
++      className="no-scrollbar -mx-3.5 flex gap-1.5 overflow-x-auto px-3.5 pb-0.5"
++    >
++      {items.map((it) => {
++        const active = it.id === value;
++        const dataProps = attr ? ({ [attr]: it.id } as Record<string, string>) : {};
++        return (
++          <button
++            key={it.id}
++            type="button"
++            aria-pressed={active}
++            onClick={() => onChange(it.id)}
++            {...dataProps}
++            className={`inline-flex min-h-[36px] shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-3 text-xs font-semibold transition-colors ${
++              active
++                ? 'border-accent bg-accent text-on-accent'
++                : 'border-slate-200 bg-white text-slate-600 active:bg-slate-100'
++            }`}
++          >
++            <span>{it.label}</span>
++            {it.count !== undefined && (
++              <span
++                className={`font-mono text-[11px] ${active ? 'text-on-accent/80' : 'text-slate-400'}`}
++              >
++                {it.count}
++              </span>
++            )}
++          </button>
++        );
++      })}
++    </div>
++  );
++}
++
++/** Thanh chọn một trong vài mục, chia đều bề ngang. */
++export function PwaSegmented<T extends string>({
++  items,
++  value,
++  onChange,
++  label,
++}: {
++  items: ChipItem<T>[];
++  value: T;
++  onChange: (id: T) => void;
++  label: string;
++}) {
++  return (
++    <div role="group" aria-label={label} className="flex gap-1 rounded-xl bg-slate-100 p-1">
++      {items.map((it) => {
++        const active = it.id === value;
++        return (
++          <button
++            key={it.id}
++            type="button"
++            aria-pressed={active}
++            onClick={() => onChange(it.id)}
++            className={`flex min-h-[34px] min-w-0 flex-1 items-center justify-center gap-1 rounded-lg px-1.5 text-xs font-semibold transition-colors ${
++              active ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 active:text-slate-900'
++            }`}
++          >
++            <span className="truncate">{it.label}</span>
++            {it.count !== undefined && (
++              <span className="font-mono text-[11px] text-slate-400">{it.count}</span>
++            )}
++          </button>
++        );
++      })}
++    </div>
++  );
++}
++
++export const PwaSearch: React.FC<{
++  id?: string;
++  value: string;
++  onChange: (v: string) => void;
++  placeholder: string;
++}> = ({ id, value, onChange, placeholder }) => (
++  <div className="relative">
++    <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
++    <input
++      id={id}
++      type="search"
++      inputMode="search"
++      enterKeyHint="search"
++      autoComplete="off"
++      placeholder={placeholder}
++      value={value}
++      onChange={(e) => onChange(e.target.value)}
++      className="h-10 w-full rounded-xl border border-slate-200 bg-white pl-9 pr-9 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none"
++    />
++    {value && (
++      <button
++        type="button"
++        aria-label="Xóa nội dung tìm kiếm"
++        onClick={() => onChange('')}
++        className="absolute right-1 top-1/2 grid h-8 w-8 -translate-y-1/2 place-items-center rounded-lg text-slate-400 active:bg-slate-100"
++      >
++        <X className="h-4 w-4" />
++      </button>
++    )}
++  </div>
++);
++
++/** Dòng "Hiển thị n/m ... · Xóa lọc" dưới bộ lọc. */
++export const PwaResultLine: React.FC<{
++  shown: number;
++  total: number;
++  noun: string;
++  onClear?: () => void;
++  children?: React.ReactNode;
++}> = ({ shown, total, noun, onClear, children }) => (
++  <div className="flex items-center justify-between gap-3 text-[11px] text-slate-500">
++    <span>
++      Hiển thị <strong className="text-slate-800">{shown}</strong>/{total} {noun}
++    </span>
++    <span className="flex items-center gap-3">
++      {children}
++      {onClear && (
++        <button
++          type="button"
++          onClick={onClear}
++          className="min-h-[28px] font-semibold text-accent-ink active:opacity-70"
++        >
++          Xóa lọc
++        </button>
++      )}
++    </span>
++  </div>
++);
++
++/** Nút thao tác trong thẻ danh sách: có biểu tượng + nhãn, cao ≥ 40px để dễ chạm. */
++export type ActionTone = 'neutral' | 'primary' | 'success' | 'info' | 'warn' | 'danger';
++const ACTION_TONE: Record<ActionTone, string> = {
++  neutral: 'border-slate-200 bg-white text-slate-700 active:bg-slate-100',
++  primary: 'border-accent bg-accent text-on-accent active:bg-accent-hover',
++  success: 'border-emerald-200 bg-emerald-50 text-emerald-700 active:bg-emerald-100',
++  info: 'border-sky-200 bg-sky-50 text-sky-700 active:bg-sky-100',
++  warn: 'border-amber-200 bg-amber-50 text-amber-700 active:bg-amber-100',
++  danger: 'border-rose-200 bg-white text-rose-600 active:bg-rose-50',
++};
++
++export const PwaAction: React.FC<{
++  label: string;
++  icon?: React.ReactNode;
++  tone?: ActionTone;
++  onClick: () => void;
++  disabled?: boolean;
++  title?: string;
++  className?: string;
++  [key: `data-${string}`]: string | undefined;
++}> = ({ label, icon, tone = 'neutral', onClick, disabled, title, className = '', ...rest }) => (
++  <button
++    type="button"
++    onClick={onClick}
++    disabled={disabled}
++    title={title}
++    {...rest}
++    className={`inline-flex min-h-[40px] items-center justify-center gap-1.5 rounded-xl border px-3 text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${ACTION_TONE[tone]} ${className}`}
++  >
++    {icon}
++    <span className="whitespace-nowrap">{label}</span>
++  </button>
++);
++
++/** Huy hiệu nhỏ (nhãn trạng thái / loại). */
++export const PwaBadge: React.FC<{ children: React.ReactNode; tone?: 'slate' | 'rose' | 'emerald' | 'amber' | 'sky' }> = ({
++  children,
++  tone = 'slate',
++}) => {
++  const cls = {
++    slate: 'border-slate-200 bg-slate-100 text-slate-600',
++    rose: 'border-rose-200 bg-rose-50 text-rose-700',
++    emerald: 'border-emerald-200 bg-emerald-50 text-emerald-700',
++    amber: 'border-amber-200 bg-amber-50 text-amber-800',
++    sky: 'border-sky-200 bg-sky-50 text-sky-800',
++  }[tone];
++  return (
++    <span className={`inline-flex items-center rounded-md border px-1.5 py-px text-[10px] font-semibold ${cls}`}>
++      {children}
++    </span>
++  );
++};
++
++export const PwaEmpty: React.FC<{ icon?: React.ReactNode; children: React.ReactNode }> = ({ icon, children }) => (
++  <div className={`${CARD_CLS} px-4 py-10 text-center text-xs text-slate-400`}>
++    {icon && <div className="mx-auto mb-2 flex justify-center text-slate-300">{icon}</div>}
++    <p>{children}</p>
++  </div>
++);
+diff --git a/src/index.css b/src/index.css
+index 23a1d63..cde4d3d 100644
+--- a/src/index.css
++++ b/src/index.css
+@@ -325,3 +325,97 @@ html.dark ::-webkit-scrollbar-track { background: #22211E; }
+ html.dark ::-webkit-scrollbar-thumb { background: #46433D; }
+ html.dark ::-webkit-scrollbar-thumb:hover { background: #5A574F; }
+ html.dark input::placeholder, html.dark textarea::placeholder { color: #77746C; }
++
++/* ============================================================================
++   CHẾ ĐỘ ỨNG DỤNG (PWA)
++   Mọi quy tắc dưới đây chỉ có hiệu lực khi <html> có thuộc tính data-pwa-app (do vỏ PWA bật,
++   xem components/pwa/PwaAppShell.tsx). Giao diện web trên trình duyệt KHÔNG bị ảnh hưởng.
++   ============================================================================ */
++
++/* Hàng chip cuộn ngang: ẩn thanh cuộn */
++.no-scrollbar { scrollbar-width: none; -ms-overflow-style: none; }
++.no-scrollbar::-webkit-scrollbar { display: none; }
++
++html[data-pwa-app] body { overscroll-behavior-y: contain; }
++html[data-pwa-app] button,
++html[data-pwa-app] a,
++html[data-pwa-app] input,
++html[data-pwa-app] select,
++html[data-pwa-app] textarea { touch-action: manipulation; }
++
++/* iPhone tự phóng to trang khi chạm vào ô nhập có cỡ chữ nhỏ hơn 16px: nâng lên 16px cho khỏi giật */
++@supports (-webkit-touch-callout: none) {
++  html[data-pwa-app] input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
++  html[data-pwa-app] select,
++  html[data-pwa-app] textarea { font-size: 16px; }
++}
++
++/* Hộp thoại nhập liệu thành "tấm trượt" từ đáy màn hình (Modal có aria-labelledby; hộp xác nhận nhỏ giữ nguyên giữa màn hình) */
++html[data-pwa-app] div:has(> [role="dialog"][aria-labelledby]) {
++  align-items: flex-end;
++  padding: 0;
++}
++html[data-pwa-app] [role="dialog"][aria-labelledby] {
++  max-width: none;
++  max-height: calc(100dvh - env(safe-area-inset-top, 0px) - 0.75rem);
++  border-radius: 1.25rem 1.25rem 0 0;
++  padding-bottom: env(safe-area-inset-bottom, 0px);
++  animation: sheet-in 0.22s ease-out;
++}
++html[data-pwa-app] [role="dialog"][aria-labelledby]::before {
++  content: '';
++  display: block;
++  flex-shrink: 0;
++  width: 2.25rem;
++  height: 0.25rem;
++  margin: 0.5rem auto 0;
++  border-radius: 999px;
++  background: var(--border-hairline);
++}
++html[data-pwa-app] [role="dialog"][aria-labelledby] button { min-height: 2.25rem; }
++@keyframes sheet-in {
++  from { transform: translateY(24px); opacity: 0.6; }
++  to { transform: none; opacity: 1; }
++}
++@media (prefers-reduced-motion: reduce) {
++  html[data-pwa-app] [role="dialog"][aria-labelledby] { animation: none; }
++}
++
++/* Lớp phủ hộp thoại (fixed) nằm giữa các khối dùng space-y-*: bỏ lề thừa để tấm trượt sát đáy và lớp mờ phủ kín màn hình */
++html[data-pwa-app] [data-pwa-shell] .fixed.inset-0 { margin: 0 !important; }
++
++/* Thông báo nhỏ (toast) nằm trên thanh điều hướng đáy, không đè lên */
++html[data-pwa-app] [aria-live="polite"].fixed {
++  left: 1rem;
++  right: 1rem;
++  bottom: calc(4.75rem + env(safe-area-inset-bottom, 0px));
++  align-items: center;
++}
++
++/* Các màn hình dùng chung với web (Lịch, Báo cáo, Cập nhật giá, Quản trị): thu gọn khoảng cách và cỡ số liệu */
++html[data-pwa-app] [data-pwa-main] .space-y-6 > :not(:last-child) { margin-block-end: 0.75rem; }
++html[data-pwa-app] [data-pwa-main] .space-y-5 > :not(:last-child) { margin-block-end: 0.75rem; }
++html[data-pwa-app] [data-pwa-main] .pb-12 { padding-bottom: 0; }
++html[data-pwa-app] [data-pwa-main] .p-6 { padding: 1rem; }
++html[data-pwa-app] [data-pwa-main] .p-5 { padding: 0.875rem; }
++html[data-pwa-app] [data-pwa-main] .gap-6,
++html[data-pwa-app] [data-pwa-main] .gap-5,
++html[data-pwa-app] [data-pwa-main] .gap-4 { gap: 0.75rem; }
++html[data-pwa-app] [data-pwa-main] .text-3xl { font-size: 1.5rem; line-height: 2rem; }
++html[data-pwa-app] [data-pwa-main] .text-2xl { font-size: 1.25rem; line-height: 1.75rem; }
++html[data-pwa-app] [data-pwa-main] table th,
++html[data-pwa-app] [data-pwa-main] table td { padding-left: 0.625rem; padding-right: 0.625rem; }
++/* Lịch: nút trong thẻ sự kiện đủ lớn để chạm */
++html[data-pwa-app] [data-pwa-event-list] button { min-height: 2.25rem; }
++/* Báo cáo: thẻ chỉ số 2 cột, gọn hơn */
++html[data-pwa-app] [data-pwa-bs] > section.space-y-3 > .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.5rem; }
++html[data-pwa-app] [data-pwa-bs] > section.space-y-3 > .grid > div { padding: 0.625rem 0.75rem; gap: 0.5rem; }
++html[data-pwa-app] [data-pwa-bs] > section.space-y-3 > .grid .text-xl { font-size: 1rem; line-height: 1.5rem; }
++html[data-pwa-app] [data-pwa-bs] > section.space-y-3 > .grid .text-xs { font-size: 0.6875rem; line-height: 1rem; }
++/* Lịch: nút trong thẻ sự kiện đủ lớn để chạm */
++html[data-pwa-app] [data-pwa-event-list] button { min-height: 2.25rem; }
++/* Báo cáo: thẻ chỉ số 2 cột, gọn hơn */
++html[data-pwa-app] [data-pwa-main] [data-ratio-group] > .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.5rem; }
++html[data-pwa-app] [data-pwa-main] [data-ratio-card] { padding: 0.625rem 0.75rem; gap: 0.5rem; }
++html[data-pwa-app] [data-pwa-main] [data-ratio-card] .text-xl { font-size: 1rem; line-height: 1.5rem; }
++html[data-pwa-app] [data-pwa-main] [data-ratio-card] .text-xs { font-size: 0.6875rem; line-height: 1rem; }
+diff --git a/tests/pwa-views.cjs b/tests/pwa-views.cjs
+new file mode 100644
+index 0000000..cd5ae9d
+--- /dev/null
++++ b/tests/pwa-views.cjs
+@@ -0,0 +1,222 @@
++/**
++ * Kiểm thử BỐ CỤC ỨNG DỤNG (PWA) trên điện thoại 390px trong Chromium:
++ *  - mọi màn hình không tràn ngang, đủ khối thông tin chính
++ *  - bộ lọc dạng chip, vị thế theo mã bấm để mở, nút thao tác mở đúng hộp thoại (dùng lại hộp thoại của bản web)
++ *  - hộp thoại hiện như tấm trượt từ đáy màn hình
++ *  - bản WEB (không phải app) vẫn giữ nguyên bảng/bố cục cũ
++ * Chạy: node tests/pwa-views.cjs   (cần playwright + esbuild + stub lucide-react: bash tests/gen-stubs.sh)
++ */
++const { chromium } = require('playwright');
++const { execFileSync } = require('child_process');
++const http = require('http'), fs = require('fs'), path = require('path');
++const root = path.resolve(__dirname, '..');
++const G = process.env.NODE_PATH || execFileSync('npm', ['root', '-g']).toString().trim();
++const esbuild = process.env.ESBUILD || path.join(G, 'tsx/node_modules/esbuild/bin/esbuild');
++const site = path.join(root, 'tests/dist/pwa-views-site');
++fs.rmSync(site, { recursive: true, force: true });
++fs.mkdirSync(path.join(site, 'assets'), { recursive: true });
++
++execFileSync(esbuild, ['src/main.tsx', '--bundle', `--outfile=${site}/assets/app.js`, '--format=iife', '--jsx=automatic', '--platform=browser',
++  '--loader:.css=empty', '--define:process.env.NODE_ENV="production"', '--define:import.meta.env.PROD=false', '--log-level=error'], { cwd: root, stdio: 'inherit' });
++execFileSync('node', [path.join(__dirname, 'build-css.cjs')], { cwd: root, stdio: 'inherit', env: { ...process.env, NODE_PATH: G } });
++fs.copyFileSync(path.join(root, 'tests/dist/app.css'), path.join(site, 'assets/app.css'));
++for (const f of fs.readdirSync(path.join(root, 'public'))) if (!f.includes('.old.')) fs.copyFileSync(path.join(root, 'public', f), path.join(site, f));
++let html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
++html = html.replace(/<script type="module"[^>]*><\/script>/, '<script defer src="/assets/app.js"></script>').replace('</head>', '<link rel="stylesheet" href="/assets/app.css"></head>');
++fs.writeFileSync(path.join(site, 'index.html'), html);
++
++const mime = { '.js': 'text/javascript', '.css': 'text/css', '.html': 'text/html; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.webmanifest': 'application/manifest+json' };
++const server = http.createServer((req, res) => {
++  const p = req.url.split('?')[0];
++  const f = path.join(site, p === '/' ? 'index.html' : p);
++  fs.readFile(f, (e, b) => { if (e || !f.startsWith(site)) { res.writeHead(404); res.end('nf'); } else { res.writeHead(200, { 'Content-Type': mime[path.extname(f)] || 'application/octet-stream' }); res.end(b); } });
++});
++
++let pass = 0, fail = 0;
++const log = (ok, id, name, extra = '') => { ok ? pass++ : fail++; console.log(`${ok ? 'PASS' : 'FAIL'} ${id} ${name}${ok ? '' : '\n       ' + extra}`); };
++
++(async () => {
++  await new Promise((r) => server.listen(0, r));
++  const base = `http://localhost:${server.address().port}`;
++  const browser = await chromium.launch();
++  const errors = [];
++  const mk = async (viewport, role = 'admin') => {
++    const ctx = await browser.newContext({ viewport, hasTouch: viewport.width < 600, isMobile: viewport.width < 600 });
++    const page = await ctx.newPage();
++    page.on('pageerror', (e) => errors.push(String(e)));
++    page.on('console', (m) => m.type() === 'error' && !/fonts\.(googleapis|gstatic)\.com/.test(m.location().url || '') && errors.push(`${m.text()} @ ${m.location().url}`));
++    await page.route(/fonts\.(googleapis|gstatic)\.com/, (r) => r.abort());
++    await page.route('**/api/**', (route) => {
++      const u = new URL(route.request().url());
++      const j = (o) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(o) });
++      if (u.pathname === '/api/auth/me') return j({ user: { id: 'u1', email: 'lan@gmail.com', displayName: 'Lan', role, status: 'active' } });
++      if (u.pathname === '/api/portfolio') return route.request().method() === 'GET' ? j({ data: null, version: 0 }) : j({ version: 1 });
++      if (u.pathname.startsWith('/api/admin')) return j({ accounts: [] });
++      return j({ prices: [] });
++    });
++    return page;
++  };
++  const tabs = (page) => page.locator('[data-pwa-tabbar] button');
++  const go = async (page, i) => { await tabs(page).nth(i).evaluate((b) => b.click()); await page.waitForTimeout(300); };
++  const goMore = async (page, label) => {
++    await go(page, 4);
++    await page.getByText(label, { exact: true }).first().evaluate((b) => b.click());
++    await page.waitForTimeout(400);
++  };
++  const noOverflow = (page) => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1);
++  const dialogInfo = (page) => page.evaluate(() => {
++    const d = document.querySelector('[role="dialog"][aria-labelledby]');
++    if (!d) return null;
++    const r = d.getBoundingClientRect();
++    return { left: r.left, right: r.right, bottom: r.bottom, vh: window.innerHeight, vw: window.innerWidth, radiusTop: getComputedStyle(d).borderTopLeftRadius };
++  });
++  const closeDialog = async (page) => { await page.keyboard.press('Escape'); await page.waitForTimeout(200); if (await page.locator('[role="dialog"]').count()) await page.locator('[role="dialog"] button[aria-label]').first().click().catch(() => {}); await page.waitForTimeout(150); };
++
++  const page = await mk({ width: 390, height: 844 });
++  await page.goto(base + '/?pwa=1');
++  await page.waitForSelector('[data-pwa-shell]');
++  await page.waitForTimeout(400);
++
++  // ---------- Khung chung ----------
++  log(await page.evaluate(() => document.documentElement.hasAttribute('data-pwa-app')), 'W1', 'vỏ app bật thuộc tính data-pwa-app trên <html>');
++  const hdr = await page.evaluate(() => { const h = document.querySelector('[data-pwa-header]'); return h && { pos: getComputedStyle(h).position, h: h.getBoundingClientRect().height }; });
++  log(hdr && hdr.pos === 'sticky' && hdr.h < 80, 'W2', 'thanh đầu app dính đầu màn hình, cao gọn (< 80px)', JSON.stringify(hdr));
++  log((await page.locator('[data-pwa-quick-actions] button').count()) === 3, 'W3', 'Tổng quan có 3 nút thao tác nhanh (thêm tài sản, thêm nợ, nạp/rút ví)');
++  log(await noOverflow(page), 'W4', 'Tổng quan: không tràn ngang');
++
++  // ---------- Tài sản ----------
++  await go(page, 1);
++  log(await noOverflow(page), 'A1', 'Tài sản: không tràn ngang');
++  log((await page.locator('[data-pwa-assets-summary]').count()) === 1 && (await page.locator('table').count()) === 0, 'A2', 'Tài sản: có khối tổng hợp, KHÔNG còn bảng nhiều cột');
++  const nPos = await page.locator('[data-position]').count();
++  log(nPos === 4 && (await page.locator('[data-pos-action]').count()) === 0, 'A3', 'Vị thế theo mã: 4 dòng gọn, nút thao tác ẩn cho tới khi mở dòng', String(nPos));
++  await page.locator('[data-position] >> nth=0').locator('button').first().evaluate((b) => b.click());
++  await page.waitForTimeout(150);
++  log((await page.locator('[data-pos-action]').count()) >= 2 && (await page.locator('[data-position-lots]').count()) === 1, 'A4', 'Bấm dòng vị thế: hiện các lô + nút Mua thêm / Bán (/ Cổ tức)');
++  await page.locator('[data-pos-action="buy"]').first().evaluate((b) => b.click());
++  await page.waitForTimeout(250);
++  let di = await dialogInfo(page);
++  log(!!di && (await page.locator('[role="dialog"]').first().innerText()).includes('Mua thêm'), 'A5', 'Mua thêm mở đúng hộp thoại của bản web');
++  log(!!di && di.left === 0 && Math.abs(di.right - di.vw) < 1 && Math.abs(di.bottom - di.vh) < 2 && parseFloat(di.radiusTop) > 8, 'A6', 'Hộp thoại là tấm trượt đáy màn hình: rộng hết ngang, sát đáy, bo góc trên', JSON.stringify(di));
++  await closeDialog(page);
++
++  const nCards = await page.locator('[data-pwa-asset]').count();
++  log(nCards === 6, 'A7', 'Danh sách: mỗi tài sản đang giữ một thẻ (6)', String(nCards));
++  await page.locator('[data-asset-category="stock"]').evaluate((b) => b.click()); await page.waitForTimeout(150);
++  log((await page.locator('[data-pwa-asset]').count()) === 2, 'A8', 'Chip "Cổ phiếu" lọc còn 2 thẻ');
++  await page.locator('[data-asset-category="all"]').evaluate((b) => b.click());
++  await page.locator('#asset-search').fill('vinhomes'); await page.waitForTimeout(150);
++  log((await page.locator('[data-pwa-asset]').count()) === 1, 'A9', 'Tìm "vinhomes" còn 1 thẻ');
++  await page.locator('#asset-search').fill('');
++  await page.getByRole('button', { name: /Đã bán/ }).first().evaluate((b) => b.click()); await page.waitForTimeout(150);
++  log((await page.locator('[data-pwa-asset]').count()) === 0 && (await page.getByText('Không tìm thấy tài sản nào').count()) === 1, 'A10', 'Lọc "Đã bán": 0 thẻ + thông báo trống');
++  await page.getByRole('button', { name: /Đang giữ/ }).first().evaluate((b) => b.click()); await page.waitForTimeout(150);
++  await page.locator('[data-pwa-asset] [data-asset-action="sell"]').first().evaluate((b) => b.click()); await page.waitForTimeout(250);
++  log(!!(await dialogInfo(page)), 'A11', '"Bán / Chốt lời" trên thẻ mở hộp thoại bán');
++  await closeDialog(page);
++  await page.locator('[data-pwa-asset] [data-asset-action="edit"]').first().evaluate((b) => b.click()); await page.waitForTimeout(250);
++  log(!!(await dialogInfo(page)), 'A12', '"Sửa thông tin" trên thẻ mở hộp thoại sửa');
++  await closeDialog(page);
++  await page.locator('[data-pwa-header-action]').evaluate((b) => b.click()); await page.waitForTimeout(300);
++  log(!!(await dialogInfo(page)) && (await page.locator('[role="dialog"]').first().innerText()).includes('Thêm Tài Sản Mới'), 'A13', 'Nút "Thêm tài sản" ở đầu màn hình mở form thêm tài sản');
++  await closeDialog(page);
++
++  // ---------- Khoản nợ ----------
++  await go(page, 2);
++  log(await noOverflow(page), 'D1', 'Khoản nợ: không tràn ngang');
++  log((await page.locator('[data-pwa-debts-summary]').count()) === 1 && (await page.locator('[data-pwa-debt]').count()) === 3, 'D2', 'Khoản nợ: khối tổng hợp + 3 thẻ khoản nợ');
++  await page.locator('[data-debt-security="unsecured"]').evaluate((b) => b.click()); await page.waitForTimeout(150);
++  log((await page.locator('[data-pwa-debt]').count()) === 1, 'D3', 'Chip "Tín chấp" lọc còn 1 khoản');
++  await page.locator('[data-debt-security="all"]').evaluate((b) => b.click()); await page.waitForTimeout(150);
++  await page.locator('[data-pwa-debt] [data-debt-action="detail"]').first().evaluate((b) => b.click()); await page.waitForTimeout(300);
++  di = await dialogInfo(page);
++  log(!!di && di.left === 0 && Math.abs(di.right - di.vw) < 1, 'D4', '"Chi tiết & lịch trả" mở chi tiết khoản vay dạng tấm trượt');
++  await closeDialog(page);
++  log((await page.locator('[data-pwa-debt] [data-debt-action="pay"]').count()) === 3, 'D5', 'Mỗi thẻ có nút "Trả kỳ này" (khóa nếu đã trả trong tháng)');
++  await page.locator('[data-pwa-header-action]').evaluate((b) => b.click()); await page.waitForTimeout(300);
++  log((await page.locator('[role="dialog"]').first().innerText().catch(() => '')).includes('Thêm Khoản Vay'), 'D6', 'Nút "Thêm khoản nợ" ở đầu màn hình mở form thêm khoản vay');
++  await closeDialog(page);
++
++  // ---------- Ví ----------
++  await go(page, 3);
++  log(await noOverflow(page), 'L1', 'Ví: không tràn ngang');
++  log((await page.locator('[data-pwa-wallet-hero]').count()) === 1 && (await page.locator('table').count()) === 0, 'L2', 'Ví: khối số dư + thao tác, KHÔNG còn bảng sổ cái');
++  const nTx = await page.locator('[data-tx]').count();
++  log(nTx === 7, 'L3', 'Nhật ký: 7 giao dịch dạng thẻ, gom theo ngày', String(nTx));
++  await page.locator('[data-ledger-type="debt_payment"]').evaluate((b) => b.click()); await page.waitForTimeout(150);
++  log((await page.locator('[data-tx]').count()) === 2, 'L4', 'Chip "Trả nợ" lọc còn 2 giao dịch');
++  await page.locator('[data-ledger-type="all"]').evaluate((b) => b.click());
++  await page.locator('[data-range="custom"]').evaluate((b) => b.click()); await page.waitForTimeout(150);
++  log((await page.locator('#ledger-from').count()) === 1 && (await page.locator('#ledger-to').count()) === 1, 'L5', 'Chip "Chọn ngày…" hiện hai ô Từ ngày / Đến ngày');
++  await page.locator('#ledger-from').fill('2026-10-01'); await page.waitForTimeout(150);
++  log((await page.locator('[data-tx]').count()) === 2, 'L6', 'Từ 01/10/2026: còn 2 giao dịch (05/10 và 01/10)', String(await page.locator('[data-tx]').count()));
++  await page.locator('[data-range="all"]').evaluate((b) => b.click());
++  await page.locator('[data-wallet-action="deposit"]').evaluate((b) => b.click()); await page.waitForTimeout(250);
++  log((await page.locator('[role="dialog"]').first().innerText().catch(() => '')).includes('Nạp Vốn'), 'L7', '"Nạp tiền" mở form nạp vốn (tấm trượt)');
++  await closeDialog(page);
++  const voidBtn = page.locator('[data-void-tx]').first();
++  if (await voidBtn.count()) {
++    await voidBtn.evaluate((b) => b.click()); await page.waitForTimeout(250);
++    log((await page.locator('[role="dialog"]').count()) >= 1, 'L8', 'Nút "Hủy" trên giao dịch hỏi xác nhận (không hủy ngay)');
++    await closeDialog(page);
++  } else log(true, 'L8', '(không có giao dịch nào được phép hủy trong dữ liệu mẫu — bỏ qua)');
++
++  // ---------- Mục Khác + màn hình phụ ----------
++  await go(page, 4);
++  log((await page.locator('[data-pwa-theme-toggle]').count()) === 1 && (await page.locator('[data-pwa-logout]').count()) === 1, 'M1', 'Mục Khác có nút đổi giao diện và Đăng xuất');
++  const before = await page.evaluate(() => document.documentElement.className + '|' + document.documentElement.getAttribute('data-theme'));
++  await page.locator('[data-pwa-theme-toggle]').evaluate((b) => b.click()); await page.waitForTimeout(150);
++  const after = await page.evaluate(() => document.documentElement.className + '|' + document.documentElement.getAttribute('data-theme'));
++  log(before !== after, 'M2', 'Đổi giao diện sáng/tối hoạt động', `${before} -> ${after}`);
++  await page.locator('[data-pwa-theme-toggle]').evaluate((b) => b.click());
++
++  await goMore(page, 'Cập nhật giá');
++  log(await noOverflow(page), 'P1', 'Cập nhật giá: không tràn ngang');
++  log((await page.locator('[data-price-row]').count()) >= 5 && (await page.locator('[data-pwa-price-list]').count()) >= 1 && (await page.locator('table').count()) === 0, 'P2', 'Cập nhật giá: mỗi tài sản một khối (không bảng), có ô nhập giá + nút Lưu');
++
++  await goMore(page, 'Lịch thu chi');
++  log(await noOverflow(page), 'C1', 'Lịch thu chi: không tràn ngang');
++  log((await page.locator('[data-pwa-calendar-summary]').count()) === 1, 'C2', 'Lịch thu chi: tổng kết tháng gọn trong một thẻ');
++  const nested = await page.evaluate(() => [...document.querySelectorAll('[data-pwa-event-list]')].every((e) => getComputedStyle(e).overflowY !== 'auto'));
++  log(nested, 'C3', 'Lịch thu chi: danh sách sự kiện không tạo vùng cuộn lồng nhau');
++
++  await goMore(page, 'Báo cáo');
++  log(await noOverflow(page), 'R1', 'Báo cáo: không tràn ngang');
++  log((await page.locator('[data-pwa-bs-summary]').count()) === 1 && (await page.locator('[data-pwa-compare]').count()) === 1, 'R2', 'Báo cáo: tóm tắt 3 số + biến động trong kỳ dạng danh sách');
++  await page.locator('[data-report-tab="cashflow"]').evaluate((b) => b.click()); await page.waitForTimeout(200);
++  log((await page.locator('[data-report="cashflow"]').count()) === 1 && (await noOverflow(page)), 'R3', 'Báo cáo: tab "Lưu chuyển tiền" hiện đủ, không tràn');
++  await page.locator('[data-report-tab="profit"]').evaluate((b) => b.click()); await page.waitForTimeout(200);
++  log(await noOverflow(page), 'R4', 'Báo cáo: tab "Hoạt động" không tràn ngang');
++
++  // ---------- Các độ rộng điện thoại khác: 360px (máy nhỏ) và 430px (máy lớn) ----------
++  for (const w of [360, 430]) {
++    await page.setViewportSize({ width: w, height: 800 });
++    const bad = [];
++    for (const [label, via] of [['Tổng quan', 0], ['Tài sản', 1], ['Khoản nợ', 2], ['Ví', 3], ['Cập nhật giá', 'more'], ['Lịch thu chi', 'more'], ['Báo cáo', 'more']]) {
++      if (via === 'more') await goMore(page, label); else await go(page, via);
++      if (!(await noOverflow(page))) bad.push(label);
++    }
++    log(bad.length === 0, 'W5', `Độ rộng ${w}px: mọi màn hình không tràn ngang`, bad.join(', '));
++  }
++
++  await page.context().close();
++
++  // ---------- Bản WEB phải giữ nguyên ----------
++  {
++    const wp = await mk({ width: 1280, height: 900 });
++    await wp.goto(base + '/'); await wp.waitForSelector('[data-sidebar]'); await wp.waitForTimeout(300);
++    log(!(await wp.evaluate(() => document.documentElement.hasAttribute('data-pwa-app'))), 'X1', 'Bản web: <html> KHÔNG có data-pwa-app');
++    await wp.getByText('Danh mục Tài sản', { exact: true }).first().evaluate((b) => b.closest('button,a').click()); await wp.waitForTimeout(300);
++    log((await wp.locator('table').count()) >= 1 && (await wp.locator('[data-pwa-asset]').count()) === 0 && (await wp.locator('[data-pwa-assets-summary]').count()) === 0, 'X2', 'Bản web: tab Tài sản vẫn là bảng cũ, không có khối của app');
++    await wp.getByText('Khoản nợ & Lịch trả', { exact: true }).first().evaluate((b) => b.closest('button,a').click()); await wp.waitForTimeout(300);
++    log((await wp.locator('[data-pwa-debt]').count()) === 0 && (await wp.locator('[data-pwa-debts-summary]').count()) === 0, 'X3', 'Bản web: tab Khoản nợ không có khối của app');
++    await wp.getByText('Ví & Dòng tiền', { exact: true }).first().evaluate((b) => b.closest('button,a').click()); await wp.waitForTimeout(300);
++    log((await wp.locator('table').count()) >= 1 && (await wp.locator('[data-pwa-tx-list]').count()) === 0, 'X4', 'Bản web: tab Ví vẫn là bảng sổ cái cũ');
++    await wp.context().close();
++  }
++
++  log(errors.length === 0, 'E1', 'Không có lỗi JS/console trong toàn bộ kịch bản', errors.slice(0, 3).join(' | '));
++  await browser.close(); server.close();
++  console.log(`\n==== Bố cục ứng dụng (PWA): ${pass} pass / ${fail} fail ====`);
++  process.exit(fail ? 1 : 0);
++})().catch((e) => { console.error(e); process.exit(1); });
+diff --git a/tests/run-all.sh b/tests/run-all.sh
+index 99ed5c8..34c6cd2 100644
+--- a/tests/run-all.sh
++++ b/tests/run-all.sh
+@@ -25,6 +25,7 @@ echo "== api (máy chủ, DB giả)"; check npx --no-install tsx --test tests/ap
+ echo "== python (script lấy giá)"; check python3 -m unittest discover -s tests/python
+ echo "== giao diện: hộp thoại mới + điện thoại (Chromium, Tailwind ngoại tuyến)"; check node tests/ui-smoke.cjs
+ echo "== giao diện: tab Cập nhật giá (Chromium)"; check node tests/prices-ui.cjs
+-echo "== PWA: manifest, biểu tượng, service worker, ngoại tuyến, nút cài (Chromium)"; check node tests/pwa.cjs
++echo "== PWA: manifest, biểu tượng, service worker, ngoại tuyến, vỏ ứng dụng (Chromium)"; check node tests/pwa-app.cjs
++echo "== PWA: bố cục các màn hình trên điện thoại (Chromium)"; check node tests/pwa-views.cjs
+ if [ "${E2E:-0}" = "1" ]; then echo "== e2e cũ (Chromium; hiện hỏng sẵn vì app đã có đăng nhập/API)"; check node tests/e2e.cjs; fi
+ echo; if [ "$FAILS" -gt 0 ]; then echo "CÓ $FAILS NHÓM TEST LỖI"; exit 1; else echo "TẤT CẢ NHÓM TEST ĐẠT"; fi

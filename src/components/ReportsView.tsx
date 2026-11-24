@@ -11,6 +11,8 @@ type Tab = 'balance' | 'cashflow' | 'profit';
 
 const KINDS: Array<[PeriodKind, string]> = [['month', 'Tháng'], ['quarter', 'Quý'], ['year', 'Năm'], ['custom', 'Tùy chọn']];
 const TABS: Array<[Tab, string]> = [['balance', 'Bảng cân đối'], ['cashflow', 'Báo cáo lưu chuyển tiền tệ'], ['profit', 'Báo cáo hoạt động kinh doanh']];
+/** Nhãn ngắn cho thanh chọn trên điện thoại (nhãn đầy đủ vẫn là tiêu đề trong từng báo cáo). */
+const TAB_SHORT: Record<Tab, string> = { balance: 'Bảng cân đối', cashflow: 'Lưu chuyển tiền', profit: 'Hoạt động' };
 
 const vnDate = (s: string) => `${s.slice(8, 10)}/${s.slice(5, 7)}/${s.slice(0, 4)}`;
 const signed = (n: number) => `${n > 0 ? '+' : n < 0 ? '-' : ''}${formatVND(Math.abs(n))}`;
@@ -42,7 +44,8 @@ const Section: React.FC<{ title: string; children: React.ReactNode }> = ({ title
   </div>
 );
 
-export const ReportsView: React.FC<{ state: UserFinancialState }> = ({ state }) => {
+export const ReportsView: React.FC<{ state: UserFinancialState; /** 'pwa': bố cục gọn cho điện thoại khi mở như ứng dụng (mặc định 'web'). */ layout?: 'web' | 'pwa' }> = ({ state, layout = 'web' }) => {
+  const isPwa = layout === 'pwa';
   const today = todayLocalStr();
   const [tab, setTab] = useState<Tab>('balance');
   const [spec, setSpec] = useState<PeriodSpec>({
@@ -72,9 +75,9 @@ export const ReportsView: React.FC<{ state: UserFinancialState }> = ({ state }) 
   const monthValue = `${spec.year}-${String(spec.month).padStart(2, '0')}`;
 
   return (
-    <div className="space-y-6 pb-12">
+    <div className={isPwa ? 'space-y-3' : 'space-y-6 pb-12'}>
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h2 className="text-lg font-semibold text-slate-900">Báo cáo</h2>
+        {!isPwa && <h2 className="text-lg font-semibold text-slate-900">Báo cáo</h2>}
         <span data-period-label className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-700">
           {period.valid ? `${period.label} · ${vnDate(period.from)} – ${vnDate(period.to)}` : period.label}
         </span>
@@ -133,6 +136,24 @@ export const ReportsView: React.FC<{ state: UserFinancialState }> = ({ state }) 
       </div>
 
       {/* Tab con */}
+      {isPwa ? (
+        <div className="flex gap-1 rounded-xl bg-slate-100 p-1" role="tablist">
+          {TABS.map(([k, label]) => (
+            <button
+              key={k}
+              type="button"
+              role="tab"
+              aria-selected={tab === k}
+              title={label}
+              data-report-tab={k}
+              onClick={() => setTab(k)}
+              className={`min-h-[36px] min-w-0 flex-1 truncate rounded-lg px-1.5 text-xs font-semibold ${tab === k ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500'}`}
+            >
+              {TAB_SHORT[k]}
+            </button>
+          ))}
+        </div>
+      ) : (
       <div className="flex gap-1 border-b border-slate-200 text-sm">
         {TABS.map(([k, label]) => (
           <button
@@ -146,6 +167,7 @@ export const ReportsView: React.FC<{ state: UserFinancialState }> = ({ state }) 
           </button>
         ))}
       </div>
+      )}
 
       {!data ? (
         <div className="rounded-xl border border-slate-200 bg-white p-8 text-center text-sm text-slate-500">Chọn kỳ báo cáo hợp lệ.</div>
@@ -153,6 +175,7 @@ export const ReportsView: React.FC<{ state: UserFinancialState }> = ({ state }) 
         <>
           {tab === 'balance' && (
             <BalanceSheetView
+              layout={layout}
               state={state}
               balance={data.pb.end}
               compare={{ start: snap?.groups ?? data.pb.startGroups, end: data.pb.endGroups, startSource: snap ? `ảnh chụp ngày ${vnDate(snap.date)}` : 'tính lại từ lịch sử' }}

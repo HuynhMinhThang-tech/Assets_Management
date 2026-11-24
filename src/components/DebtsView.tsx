@@ -45,6 +45,8 @@ import { AddDebtOptions, canVoidDebt, PreexistingAssetInput } from '../utils/ops
 import { buildTrackedDebt, changeAt, ensureTimeline } from '../utils/debtCore';
 import { DebtActionHandlers, DebtDetailModal } from './DebtActions';
 import type { DebtEditInput } from '../utils/editOps';
+import { PwaDebtsSummary, PwaDebtsFilters, PwaDebtCard } from './pwa/PwaDebtsParts';
+import { PwaEmpty } from './pwa/pwaUi';
 
 const DEBT_CATEGORY_OPTIONS: { id: DebtCategory; label: string }[] = [
   { id: 'mortgage', label: 'Vay nhà / BĐS' },
@@ -77,6 +79,8 @@ interface DebtsViewProps {
   onPrepayDebt: DebtActionHandlers['onPrepay'];
   onReconcileDebt: DebtActionHandlers['onReconcile'];
   onUndoReconcile: DebtActionHandlers['onUndoReconcile'];
+  /** 'pwa': bố cục gọn cho điện thoại khi mở như ứng dụng (cùng dữ liệu, cùng hộp thoại). Mặc định 'web' = bố cục cũ. */
+  layout?: 'web' | 'pwa';
 }
 
 export const DebtsView: React.FC<DebtsViewProps> = ({
@@ -95,7 +99,9 @@ export const DebtsView: React.FC<DebtsViewProps> = ({
   onUndoReconcile,
   autoOpenAdd,
   onAutoOpenConsumed,
+  layout = 'web',
 }) => {
+  const isPwa = layout === 'pwa';
   const [scheduleDebtId, setScheduleDebtId] = useState<string | null>(null);
   const selectedDebtForSchedule = scheduleDebtId ? state.debts.find((d) => d.id === scheduleDebtId) || null : null;
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -137,8 +143,20 @@ export const DebtsView: React.FC<DebtsViewProps> = ({
   });
 
   return (
-    <div className="space-y-6 pb-12">
+    <div className={isPwa ? 'space-y-3' : 'space-y-6 pb-12'}>
       {/* 1. TOP SUMMARY BANNER */}
+      {isPwa && (
+        <PwaDebtsSummary
+          totalRemaining={totalRemainingDebt}
+          totalOriginal={totalOriginalDebt}
+          totalPaid={totalPaidDebt}
+          securedCount={securedDebts.length}
+          unsecuredCount={unsecuredDebts.length}
+          totalSecured={totalSecuredDebt}
+          totalUnsecured={totalUnsecuredDebt}
+        />
+      )}
+      {!isPwa && (
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {/* Total Debt */}
         <div className="bg-white p-5 rounded-xl border border-slate-200">
@@ -224,8 +242,38 @@ export const DebtsView: React.FC<DebtsViewProps> = ({
           </span>
         </div>
       </div>
+      )}
 
       {/* 2. FILTER & TOOLBAR */}
+      {isPwa && (
+        <PwaDebtsFilters
+          securityFilter={securityFilter}
+          onSecurity={setSecurityFilter}
+          securityCounts={{
+            all: state.debts.length,
+            secured: state.debts.filter(isSecuredDebt).length,
+            unsecured: state.debts.filter((d) => !isSecuredDebt(d)).length,
+          }}
+          categoryFilter={categoryFilter}
+          onCategory={setCategoryFilter}
+          categoryOptions={DEBT_CATEGORY_OPTIONS.map((opt) => ({
+            id: opt.id,
+            label: opt.label,
+            count: state.debts.filter((d) => d.category === opt.id).length,
+          }))}
+          totalCount={state.debts.length}
+          voidedCount={voidedCount}
+          showVoided={showVoided}
+          onShowVoided={setShowVoided}
+          shown={filteredDebts.length}
+          filtersActive={securityFilter !== 'all' || categoryFilter !== 'all'}
+          onClear={() => {
+            setSecurityFilter('all');
+            setCategoryFilter('all');
+          }}
+        />
+      )}
+      {!isPwa && (
       <div className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-3.5 sm:flex-row sm:items-end">
         <div className="sm:w-60">
           <label htmlFor="debt-security-filter" className="mb-1 block text-[11px] font-semibold text-slate-500">
@@ -286,9 +334,29 @@ export const DebtsView: React.FC<DebtsViewProps> = ({
           )}
         </div>
       </div>
+      )}
 
       {/* 3. DEBT CARDS LIST */}
-      {filteredDebts.length === 0 ? (
+      {isPwa ? (
+        filteredDebts.length === 0 ? (
+          <PwaEmpty icon={<CreditCard className="h-9 w-9" />}>Hiện không có khoản nợ nào trong danh mục lọc.</PwaEmpty>
+        ) : (
+          <div className="space-y-3" data-pwa-debt-list="">
+            {filteredDebts.map((debt) => (
+              <PwaDebtCard
+                key={debt.id}
+                debt={debt}
+                state={state}
+                canVoid={canVoidDebt(state, debt.id).ok}
+                onVoid={() => onVoidDebt(debt.id)}
+                onFundUse={() => setFundUseDebtId(debt.id)}
+                onDetail={() => setScheduleDebtId(debt.id)}
+                onPay={(periodIndex) => onPayDebtPeriod(debt.id, periodIndex, true)}
+              />
+            ))}
+          </div>
+        )
+      ) : filteredDebts.length === 0 ? (
         <div className="bg-white rounded-xl border border-slate-200 p-12 text-center text-xs text-slate-400">
           <CreditCard className="w-10 h-10 text-slate-300 mx-auto mb-2" />
           <p>Hiện không có khoản nợ nào trong danh mục lọc.</p>

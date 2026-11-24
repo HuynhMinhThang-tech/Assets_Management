@@ -7,6 +7,9 @@ import {
   PlusCircle,
   ArrowDownRight,
   ChevronRight,
+  Sun,
+  Moon,
+  LogOut,
 } from 'lucide-react';
 
 export type PwaSecondaryTab = 'prices' | 'calendar' | 'balance' | 'admin';
@@ -15,6 +18,9 @@ interface PwaMoreViewProps {
   user: { displayName: string; email: string; role: 'admin' | 'user' };
   priceAlertCount: number;
   adminPendingCount: number;
+  isDark: boolean;
+  onToggleTheme: () => void;
+  onLogout: () => void;
   onSelectSubTab: (tab: PwaSecondaryTab) => void;
   onOpenAddAsset: () => void;
   onOpenAddDebt: () => void;
@@ -29,6 +35,9 @@ export const PwaMoreView: React.FC<PwaMoreViewProps> = ({
   user,
   priceAlertCount,
   adminPendingCount,
+  isDark,
+  onToggleTheme,
+  onLogout,
   onSelectSubTab,
   onOpenAddAsset,
   onOpenAddDebt,
@@ -170,6 +179,30 @@ export const PwaMoreView: React.FC<PwaMoreViewProps> = ({
               </div>
             </div>
             <ChevronRight className="h-4 w-4 shrink-0 text-slate-400" />
+          </button>
+        </div>
+      </section>
+
+      {/* Nhóm 4: Giao diện & đăng xuất (chuyển từ thanh đầu app xuống đây cho gọn) */}
+      <section>
+        <div className="divide-y divide-slate-100 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_1px_2px_rgba(28,27,24,0.04)]">
+          <button type="button" onClick={onToggleTheme} className={ROW_BTN} data-pwa-theme-toggle>
+            <div className="flex min-w-0 items-center gap-3">
+              <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-slate-100 text-slate-700">
+                {isDark ? <Sun className="h-4 w-4 text-accent-ink" /> : <Moon className="h-4 w-4" />}
+              </span>
+              <span className="text-sm font-semibold text-slate-900">Giao diện</span>
+            </div>
+            <span className="shrink-0 text-xs font-semibold text-slate-500">{isDark ? 'Tối · chuyển sang sáng' : 'Sáng · chuyển sang tối'}</span>
+          </button>
+
+          <button type="button" onClick={onLogout} className={ROW_BTN} data-pwa-logout>
+            <div className="flex min-w-0 items-center gap-3">
+              <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-rose-50 text-rose-600">
+                <LogOut className="h-4 w-4" />
+              </span>
+              <span className="text-sm font-semibold text-rose-600">Đăng xuất</span>
+            </div>
           </button>
         </div>
       </section>

@@ -17,6 +17,8 @@ interface PricesViewProps {
   state: UserFinancialState;
   /** Áp các giá lên danh mục (App giữ state). Trả về kết quả để hiện thông báo. */
   onApplyPrices: (updates: PriceUpdate[]) => ApplyResult;
+  /** 'pwa': bố cục gọn cho điện thoại khi mở như ứng dụng (mặc định 'web': bảng). */
+  layout?: 'web' | 'pwa';
 }
 
 const GROUPS: { category: AssetCategory; title: string; hint: string }[] = [
@@ -49,7 +51,8 @@ const STATUS_LABEL: Record<PlanItem['status'], string> = {
   ok: 'Sẵn sàng', anomaly: 'Lệch bất thường', unmatched: 'Không khớp', invalid: 'Dòng lỗi', older: 'Bỏ qua (cũ)', future: 'Bỏ qua (tương lai)', readonly: 'Bỏ qua',
 };
 
-export const PricesView: React.FC<PricesViewProps> = ({ state, onApplyPrices }) => {
+export const PricesView: React.FC<PricesViewProps> = ({ state, onApplyPrices, layout = 'web' }) => {
+  const isPwa = layout === 'pwa';
   const dialog = useDialog();
   const today = todayLocalStr();
   const rows = useMemo(() => listPriceRows(state, today), [state, today]);
@@ -242,6 +245,140 @@ export const PricesView: React.FC<PricesViewProps> = ({ state, onApplyPrices }) 
     const priceLabel = r.mode === 'unit' ? `mỗi ${r.unit}` : 'tổng giá trị';
     const cur = r.mode === 'unit' ? r.currentUnitPrice : a.currentValue;
 
+    if (isPwa) {
+      // Bố cục điện thoại: mỗi tài sản một khối, ô nhập giá và nút Lưu nằm cùng hàng, dễ chạm.
+      if (r.mode === 'readonly') {
+        return (
+          <div key={a.id} data-price-row={a.id} className="px-3.5 py-3">
+            <div className="text-[14px] font-semibold text-slate-900">{a.name}</div>
+            <div className="mt-0.5 text-[11px] text-slate-500">
+              Giá trị hiện tại <span className="font-mono font-semibold text-slate-800">{formatVND(a.currentValue)}</span> – tự tính theo lãi suất, không cần nhập giá.
+            </div>
+          </div>
+        );
+      }
+      const pnlNow = a.currentValue - a.initialCost;
+      return (
+        <div key={a.id} data-price-row={a.id} className="space-y-2.5 px-3.5 py-3">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <div className="text-[14px] font-semibold leading-snug text-slate-900">{a.name}</div>
+              <div className="text-[11px] text-slate-500">
+                {r.mode === 'unit' ? `${fmtQty(r.quantity)} ${r.unit}` : 'Nhập tổng giá trị'}
+                {r.quoteKey && r.mode === 'unit' ? ` · ${r.quoteKey.symbol}` : ''}
+              </div>
+            </div>
+            <div className="shrink-0 text-right">
+              <div className="font-mono text-[13px] font-bold tabular-nums text-slate-900">{cur !== null ? formatVND(cur) : '—'}</div>
+              <div className="text-[10px] text-slate-400">{r.mode === 'unit' ? `hiện tại / ${r.unit}` : 'hiện tại'}</div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-x-3 gap-y-1 rounded-xl bg-slate-50 p-2.5 text-[11px]">
+            <div>
+              <div className="text-slate-400">Giá vốn</div>
+              <div className="font-mono font-semibold tabular-nums text-slate-800">
+                {r.mode === 'unit' && r.costPerUnit !== null ? formatVND(Math.round(r.costPerUnit)) : formatVND(a.initialCost)}
+              </div>
+            </div>
+            <div>
+              <div className="text-slate-400">Lãi/lỗ hiện tại</div>
+              <div className={`font-mono font-semibold tabular-nums ${tone(pnlNow)}`}>{signed(pnlNow)}</div>
+            </div>
+            <div className={`col-span-2 ${stale ? 'font-semibold text-amber-700' : 'text-slate-400'}`}>
+              {stale ? `Quá hạn ${r.staleDays} ngày (nhắc sau ${r.staleThreshold} ngày) · ` : ''}định giá {fmtDate(a.lastValuationDate)}
+            </div>
+          </div>
+
+          {dep && (
+            <div data-depreciation className="flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
+              <span>
+                Gợi ý khấu hao {dep.ratePerYear}%/năm: <span className="font-mono font-semibold text-slate-800">{formatVND(dep.suggestedValue)}</span>
+              </span>
+              <button type="button" onClick={() => useDepreciation(r)} className="min-h-[32px] rounded-lg border border-slate-300 px-2.5 font-semibold text-slate-700 active:bg-slate-50">
+                Điền vào ô
+              </button>
+            </div>
+          )}
+
+          {s && (
+            <div data-auto-price className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 p-2.5">
+              <div className="min-w-0 text-[11px] text-slate-500">
+                <div className="text-slate-400">Giá tự động</div>
+                <div className="font-mono text-[13px] font-semibold tabular-nums text-slate-900">{formatVND(s.newUnitPrice)}</div>
+                <div>
+                  đóng cửa {fmtDate(s.date)}
+                  {s.dayChangePct !== null && <span className={`ml-1 font-semibold ${tone(s.dayChangePct)}`}>{formatPercent(s.dayChangePct, 2)}</span>}
+                </div>
+                {s.status === 'same' && <div className="text-slate-400">Đã khớp giá này</div>}
+                {s.status === 'newer_manual' && <div className="text-slate-400">Bạn đã định giá mới hơn</div>}
+              </div>
+              {s.status === 'ok' && (
+                <button
+                  type="button"
+                  onClick={() => void applyOneAuto(r, s)}
+                  className={`min-h-[40px] shrink-0 rounded-xl px-3.5 text-xs font-semibold text-on-accent ${s.anomaly ? 'bg-amber-600 active:bg-amber-700' : 'bg-accent active:bg-accent-hover'}`}
+                >
+                  {s.anomaly ? `Lệch ${formatPercent(s.changePct ?? 0)} – kiểm tra` : 'Áp dụng'}
+                </button>
+              )}
+            </div>
+          )}
+          {!s && r.quoteKey && r.mode === 'unit' && (
+            <div className="text-[11px] text-slate-400">{loading ? 'Đang tải…' : 'Chưa có giá tự động'}</div>
+          )}
+
+          <div>
+            <div className="flex items-center gap-2">
+              <div className="min-w-0 flex-1">
+                <CurrencyInput
+                  value={edit}
+                  allowDecimal={r.allowDecimal}
+                  onChange={(v) => setEdits((e) => ({ ...e, [a.id]: v }))}
+                  invalid={false}
+                  className="h-10 w-full rounded-xl border border-slate-300 px-3 text-right text-sm focus:border-slate-500 focus:outline-none"
+                />
+              </div>
+              <button
+                type="button"
+                disabled={!(edit > 0)}
+                onClick={() => void saveManual(r)}
+                className="min-h-[40px] shrink-0 rounded-xl bg-accent px-4 text-xs font-semibold text-on-accent active:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                Lưu
+              </button>
+            </div>
+            <div className="mt-0.5 text-right text-[10px] text-slate-400">Giá mới: {priceLabel} (VND)</div>
+            {!s && (
+              <input
+                type="text"
+                list="valuation-sources"
+                data-source-input
+                placeholder="Nguồn định giá (tùy chọn)"
+                value={sources[a.id] || ''}
+                onChange={(e) => setSources((x) => ({ ...x, [a.id]: e.target.value }))}
+                className="mt-1 h-9 w-full rounded-lg border border-slate-200 px-2.5 text-xs text-slate-700 placeholder:text-slate-400 focus:border-slate-400 focus:outline-none"
+              />
+            )}
+          </div>
+
+          {pv && (
+            <div data-price-preview className="rounded-xl bg-slate-50 px-2.5 py-2 text-[11px]">
+              <span className="text-slate-500">Sau khi lưu: </span>
+              <span className="font-mono font-semibold tabular-nums text-slate-900">{formatVND(pv.total)}</span>
+              <span className={`ml-2 font-mono font-semibold tabular-nums ${tone(pv.pnl)}`}>
+                {signed(pv.pnl)}
+                {pv.pnlPct !== null && ` (${formatPercent(pv.pnlPct)})`}
+              </span>
+              {isAnomalous(pv.changePct) && (
+                <div className="font-semibold text-amber-700">Lệch &gt; {ANOMALY_PCT}% so với hiện tại</div>
+              )}
+            </div>
+          )}
+        </div>
+      );
+    }
+
     if (r.mode === 'readonly') {
       return (
         <tr key={a.id} className="border-t border-slate-100">
@@ -371,10 +508,18 @@ export const PricesView: React.FC<PricesViewProps> = ({ state, onApplyPrices }) 
   };
 
   return (
-    <div className="space-y-6 pb-12">
+    <div className={isPwa ? 'space-y-3' : 'space-y-6 pb-12'}>
+      {isPwa && (
+        <datalist id="valuation-sources">
+          <option value="Giá rao bán cùng khu" />
+          <option value="Ngân hàng thẩm định" />
+          <option value="Hóa đơn / hợp đồng mua" />
+          <option value="Tự ước tính" />
+        </datalist>
+      )}
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h2 className="text-lg font-semibold text-slate-900">Cập nhật giá</h2>
+          {!isPwa && <h2 className="text-lg font-semibold text-slate-900">Cập nhật giá</h2>}
           <p className="mt-0.5 text-xs text-slate-500">
             {loading ? (
               <span className="inline-flex items-center gap-1"><Loader2 className="h-3 w-3 animate-spin" /> Đang tải giá thị trường…</span>
@@ -389,7 +534,7 @@ export const PricesView: React.FC<PricesViewProps> = ({ state, onApplyPrices }) 
             )}
           </p>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
+        <div className={isPwa ? 'grid w-full grid-cols-3 gap-2 [&>button]:min-h-[40px] [&>button]:justify-center [&>button]:px-2' : 'flex flex-wrap items-center gap-2'}>
           <button type="button" onClick={() => void loadQuotes()} disabled={loading} className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50">
             <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} /> Làm mới
           </button>
@@ -397,7 +542,7 @@ export const PricesView: React.FC<PricesViewProps> = ({ state, onApplyPrices }) 
             <Download className="h-3.5 w-3.5" /> Tải file mẫu
           </button>
           <button type="button" onClick={() => fileRef.current?.click()} disabled={!hasPriceable} className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50">
-            <FileUp className="h-3.5 w-3.5" /> Nhập từ file CSV
+            <FileUp className="h-3.5 w-3.5" /> {isPwa ? 'Nhập CSV' : 'Nhập từ file CSV'}
           </button>
           <input ref={fileRef} type="file" accept=".csv,.txt,text/csv,text/plain,.xlsx,.xls" className="hidden" onChange={(e) => void onPickFile(e)} data-price-file />
           <button
@@ -405,7 +550,7 @@ export const PricesView: React.FC<PricesViewProps> = ({ state, onApplyPrices }) 
             data-apply-all
             onClick={() => void applyAllAuto()}
             disabled={autoApplicable.length === 0}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-accent px-3.5 py-1.5 text-xs font-medium text-on-accent hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-40"
+            className={`inline-flex items-center gap-1.5 rounded-lg bg-accent px-3.5 py-1.5 text-xs font-medium text-on-accent hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-40${isPwa ? ' col-span-3' : ''}`}
           >
             <CheckCircle2 className="h-3.5 w-3.5" /> Áp dụng giá tự động ({autoApplicable.length})
           </button>
@@ -438,10 +583,13 @@ export const PricesView: React.FC<PricesViewProps> = ({ state, onApplyPrices }) 
         if (list.length === 0) return null;
         return (
           <section key={g.category} data-price-group={g.category} className="rounded-xl border border-slate-200 bg-white">
-            <div className="border-b border-slate-200 px-5 py-3">
+            <div className={`border-b border-slate-200 ${isPwa ? 'px-3.5' : 'px-5'} py-3`}>
               <h3 className="text-sm font-semibold text-slate-900">{g.title}</h3>
               <p className="text-[11px] text-slate-500">{g.hint}</p>
             </div>
+            {isPwa ? (
+              <div className="divide-y divide-slate-100" data-pwa-price-list="">{list.map(renderRow)}</div>
+            ) : (
             <div className="overflow-x-auto">
               <table className="w-full min-w-[860px] text-sm">
                 <thead>
@@ -457,6 +605,7 @@ export const PricesView: React.FC<PricesViewProps> = ({ state, onApplyPrices }) 
                 <tbody>{list.map(renderRow)}</tbody>
               </table>
             </div>
+            )}
           </section>
         );
       })}

@@ -52,6 +52,15 @@ Chi tiết về Neon và Vercel: `docs/DEPLOY.md`.
 Các file liên quan: `public/manifest.webmanifest`, `public/sw.js` (service worker), biểu tượng `public/pwa-*.png` và `public/apple-touch-icon.png`, đăng ký trong `src/utils/pwa.ts`, nút cài trong `src/components/InstallAppButton.tsx`.
 Service worker **không bao giờ lưu `/api/*`** (số liệu tài chính luôn lấy từ máy chủ); chỉ lưu khung trang, JS/CSS và biểu tượng để mở nhanh và mở được khi mất mạng (dữ liệu thì cần mạng). Chỉ đăng ký ở bản build (`npm run build`), không đăng ký khi `npm run dev`. Sửa `public/sw.js` thì đổi `VERSION` ở đầu file để máy người dùng bỏ cache cũ. Kiểm thử: `node tests/pwa.cjs`.
 
+### Giao diện khi mở như ứng dụng
+
+Khi mở từ biểu tượng đã cài (hoặc thêm `?pwa=1` vào địa chỉ để xem thử ngay trên trình duyệt), ứng dụng dùng vỏ `src/components/pwa/PwaAppShell.tsx`: thanh đầu gọn, thanh tab đáy (Tổng quan · Tài sản · Khoản nợ · Ví · Khác), hộp thoại hiện như tấm trượt từ đáy màn hình. Các màn hình Tài sản, Khoản nợ, Ví, Lịch thu chi, Báo cáo, Cập nhật giá được **sắp xếp lại cho điện thoại** (thẻ thay cho bảng, bộ lọc dạng chip, số liệu gom gọn) nhưng dùng **chung dữ liệu, hàm xử lý và hộp thoại** với bản web.
+
+- Cách làm: mỗi màn hình nhận thêm tham số `layout?: 'web' | 'pwa'` (mặc định `'web'` = giao diện cũ, không đổi). Khối giao diện riêng cho app nằm trong `src/components/pwa/` (`pwaUi.tsx` là bộ thành phần dùng chung).
+- CSS riêng cho app nằm ở cuối `src/index.css`, chỉ có tác dụng khi `<html>` có thuộc tính `data-pwa-app` (do vỏ app bật), nên không ảnh hưởng bản web.
+- Thêm/sửa chức năng ở một màn hình: sửa phần logic trong file màn hình như bình thường; nếu có thêm nút hay thông tin mới thì thêm cả vào khối giao diện app tương ứng.
+- Kiểm thử bố cục app (điện thoại 390px, Chromium): `node tests/pwa-views.cjs`; kiểm thử vỏ app và service worker: `node tests/pwa-app.cjs`.
+
 ## Xuống dòng (line endings)
 
 Repo dùng LF cho mọi file (`.gitattributes`: `* text=auto eol=lf`), kể cả trên Windows. Nếu `git apply` báo lỗi vì CRLF, chạy một lần `git add --renormalize .` rồi commit (xem hướng dẫn kèm patch giai đoạn 0).

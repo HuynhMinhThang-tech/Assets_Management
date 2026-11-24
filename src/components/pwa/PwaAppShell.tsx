@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   LayoutGrid,
   PieChart,
@@ -6,11 +6,11 @@ import {
   Wallet as WalletIcon,
   MoreHorizontal,
   Sun,
-  Moon,
-  LogOut,
   ChevronLeft,
   Info,
   WifiOff,
+  Plus,
+  CloudOff,
 } from 'lucide-react';
 import { Asset, Debt, FundUse, UserFinancialState } from '../../types/finance';
 import { PublicUser, AdminAccount } from '../../utils/auth';
@@ -166,6 +166,17 @@ export const PwaAppShell: React.FC<PwaAppShellProps> = ({
   const isOnline = useOnlineStatus();
   const [moreOpen, setMoreOpen] = useState(false);
 
+  // Bật các quy tắc CSS riêng của ứng dụng (tấm trượt, cỡ chữ ô nhập, toast...) — xem khối "CHẾ ĐỘ ỨNG DỤNG" trong index.css
+  useEffect(() => {
+    document.documentElement.setAttribute('data-pwa-app', '');
+    return () => document.documentElement.removeAttribute('data-pwa-app');
+  }, []);
+
+  // Mỗi lần chuyển màn hình thì cuộn về đầu trang (thanh tab đáy dùng chung một vùng cuộn)
+  useEffect(() => {
+    window.scrollTo({ top: 0 });
+  }, [currentTab, moreOpen]);
+
   const isSecondaryView = !moreOpen && SECONDARY_TABS.has(currentTab);
   const activeBottom: 'dashboard' | 'assets' | 'debts' | 'wallet' | 'more' =
     moreOpen || isSecondaryView ? 'more' : (currentTab as 'dashboard' | 'assets' | 'debts' | 'wallet');
@@ -180,6 +191,11 @@ export const PwaAppShell: React.FC<PwaAppShellProps> = ({
     onSelectTab(tab);
   };
 
+  const goAnyTab = (tab: NavTab) => {
+    if (SECONDARY_TABS.has(tab)) goSecondaryTab(tab as PwaSecondaryTab);
+    else goPrimaryTab(tab as 'dashboard' | 'assets' | 'debts' | 'wallet');
+  };
+
   const triggerAction = (tab: NavTab, action: PendingAction) => {
     setMoreOpen(false);
     onOpenAction(tab, action);
@@ -190,76 +206,87 @@ export const PwaAppShell: React.FC<PwaAppShellProps> = ({
   const moreAlerts = priceAlertCount + adminPendingCount;
   const containerWidth = isDashboardRoot || moreOpen ? 'max-w-lg' : 'max-w-3xl';
 
+  // Nút thêm nhanh ở góc phải tiêu đề của từng màn hình (bản web để ở thanh đầu trang)
+  const headerAction: { label: string; onClick: () => void } | null = moreOpen
+    ? null
+    : currentTab === 'assets'
+    ? { label: 'Thêm tài sản', onClick: () => triggerAction('assets', 'add_asset') }
+    : currentTab === 'debts'
+    ? { label: 'Thêm khoản nợ', onClick: () => triggerAction('debts', 'add_debt') }
+    : null;
+
   return (
     <div
       data-pwa-shell
-      className="min-h-screen bg-slate-50 font-sans antialiased text-slate-900 pt-[env(safe-area-inset-top)] pb-[calc(5.25rem+env(safe-area-inset-bottom))]"
+      className="min-h-screen bg-slate-50 font-sans antialiased text-slate-900 pb-[calc(5rem+env(safe-area-inset-bottom))]"
     >
-      <div className={`mx-auto w-full ${containerWidth} px-4`}>
-        {/* Thanh đầu app tối giản kiểu native mobile app */}
-        <header data-pwa-header className="flex items-start justify-between gap-3 pt-4 pb-4">
-          <div className="min-w-0 flex-1">
+      {/* Thanh đầu app: dính đầu màn hình, tránh tai thỏ / thanh trạng thái */}
+      <header
+        data-pwa-header
+        className="sticky top-0 z-20 border-b border-slate-200/70 bg-slate-50/90 pt-[env(safe-area-inset-top)] backdrop-blur-md"
+      >
+        <div className={`mx-auto flex w-full ${containerWidth} items-center justify-between gap-3 px-4 py-2.5`}>
+          <div className="flex min-w-0 flex-1 items-center gap-1.5">
             {isSecondaryView && (
               <button
                 type="button"
                 onClick={() => setMoreOpen(true)}
-                className="mb-1 -ml-1 inline-flex min-h-[36px] items-center gap-0.5 rounded-lg px-1 text-xs font-semibold text-accent-ink hover:bg-slate-100"
+                aria-label="Quay lại mục Khác"
+                className="-ml-2 grid h-10 w-10 shrink-0 place-items-center rounded-xl text-slate-600 active:bg-slate-100"
               >
-                <ChevronLeft className="h-4 w-4" />
-                <span>Khác</span>
+                <ChevronLeft className="h-5 w-5" />
               </button>
             )}
-            <h1 className="truncate text-2xl font-bold tracking-tight text-slate-900">
-              {headerTitle}
-            </h1>
-            {isDashboardRoot ? (
-              <p className="mt-1 flex items-center gap-1.5 text-sm text-slate-500">
-                <Sun className="h-4 w-4 shrink-0 text-accent-ink" />
-                <span className="truncate">
-                  {greetingForNow()},{' '}
-                  <span className="font-semibold text-slate-900">{user.displayName}</span>
-                </span>
-              </p>
-            ) : (
-              <p className="mt-1 truncate text-xs text-slate-500 font-mono tabular-nums">
-                Tiền khả dụng:{' '}
-                <span className="font-semibold text-slate-900">
-                  {formatVND(state.wallet.availableCash)}
-                </span>
-              </p>
-            )}
+            <div className="min-w-0">
+              <h1 className="truncate text-xl font-bold leading-tight tracking-tight text-slate-900">{headerTitle}</h1>
+              {isDashboardRoot ? (
+                <p className="flex items-center gap-1.5 truncate text-xs text-slate-500">
+                  <Sun className="h-3.5 w-3.5 shrink-0 text-accent-ink" />
+                  <span className="truncate">
+                    {greetingForNow()}, <span className="font-semibold text-slate-900">{user.displayName}</span>
+                  </span>
+                </p>
+              ) : !moreOpen ? (
+                <p className="truncate font-mono text-[11px] tabular-nums text-slate-500">
+                  Tiền khả dụng: <span className="font-semibold text-slate-900">{formatVND(state.wallet.availableCash)}</span>
+                </p>
+              ) : null}
+            </div>
           </div>
 
-          <div className="flex shrink-0 items-center gap-2 pt-0.5">
+          {headerAction && (
             <button
               type="button"
-              onClick={onToggleTheme}
-              aria-label={isDark ? 'Chuyển giao diện sáng' : 'Chuyển giao diện tối'}
-              title={isDark ? 'Giao diện sáng' : 'Giao diện tối'}
-              className="grid h-11 w-11 place-items-center rounded-xl border border-slate-200 bg-slate-100/80 text-slate-700 transition-colors hover:bg-slate-200/70"
+              onClick={headerAction.onClick}
+              data-pwa-header-action
+              className="inline-flex min-h-[40px] shrink-0 items-center gap-1 rounded-xl bg-accent px-3.5 text-xs font-semibold text-on-accent active:bg-accent-hover"
             >
-              {isDark ? <Sun className="h-5 w-5 text-accent-ink" /> : <Moon className="h-5 w-5" />}
+              <Plus className="h-4 w-4" />
+              <span>{headerAction.label}</span>
             </button>
-            <button
-              type="button"
-              onClick={onLogout}
-              aria-label="Đăng xuất"
-              title="Đăng xuất"
-              className="grid h-11 w-11 place-items-center rounded-xl border border-slate-200 bg-white text-rose-600 transition-colors hover:bg-rose-50"
-            >
-              <LogOut className="h-5 w-5" />
-            </button>
-          </div>
-        </header>
+          )}
+        </div>
+      </header>
 
-        {/* Thông báo ngoại tuyến hoặc xung đột đồng bộ */}
+      <div className={`mx-auto w-full ${containerWidth} px-4 pt-3`}>
+        {/* Thông báo: ngoại tuyến, chưa lưu được, xung đột đồng bộ */}
         {!isOnline && (
           <div
             role="status"
-            className="mb-3 flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-xs text-slate-600"
+            className="mb-3 flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600"
           >
             <WifiOff className="h-4 w-4 shrink-0 text-amber-600" />
             <span>Đang ngoại tuyến — thay đổi sẽ đồng bộ khi có kết nối lại.</span>
+          </div>
+        )}
+
+        {syncStatus === 'error' && isOnline && (
+          <div
+            role="status"
+            className="mb-3 flex items-center gap-2 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-medium text-rose-700"
+          >
+            <CloudOff className="h-4 w-4 shrink-0" />
+            <span>Chưa lưu được lên máy chủ — đang thử lại.</span>
           </div>
         )}
 
@@ -267,7 +294,7 @@ export const PwaAppShell: React.FC<PwaAppShellProps> = ({
           <button
             type="button"
             onClick={onResolveConflict}
-            className="mb-3 flex w-full items-center justify-between gap-2 rounded-xl border border-amber-300 bg-amber-50 px-3.5 py-2.5 text-left text-xs font-semibold text-amber-800 hover:bg-amber-100"
+            className="mb-3 flex w-full items-center justify-between gap-2 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-left text-xs font-semibold text-amber-800 active:bg-amber-100"
           >
             <span>Dữ liệu chưa đồng bộ do thay đổi từ thiết bị khác</span>
             <span className="shrink-0 underline">Xử lý</span>
@@ -277,26 +304,26 @@ export const PwaAppShell: React.FC<PwaAppShellProps> = ({
         {state.isDemo && !moreOpen && (
           <div
             role="status"
-            className="mb-4 rounded-2xl border border-sky-200 bg-sky-50 p-3.5 text-xs text-sky-900"
+            className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border border-sky-200 bg-sky-50 px-3 py-2.5 text-xs text-sky-900"
           >
-            <div className="flex items-start gap-2.5">
+            <div className="flex min-w-0 flex-1 basis-40 items-start gap-2">
               <Info className="mt-0.5 h-4 w-4 shrink-0" />
-              <div className="flex-1">
-                <strong>Bạn đang xem DỮ LIỆU MẪU.</strong> Số liệu dưới đây là giả định để minh họa.
-              </div>
+              <span>
+                <strong>Đang xem DỮ LIỆU MẪU</strong> — số liệu giả định để minh họa.
+              </span>
             </div>
-            <div className="mt-2.5 flex flex-wrap items-center gap-2 pl-6">
+            <div className="flex items-center gap-2">
               <button
                 type="button"
                 onClick={onClearDemo}
-                className="min-h-[34px] rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-on-accent hover:bg-accent-hover"
+                className="min-h-[34px] rounded-lg bg-accent px-3 text-xs font-semibold text-on-accent active:bg-accent-hover"
               >
                 Xóa dữ liệu mẫu
               </button>
               <button
                 type="button"
                 onClick={onKeepDemo}
-                className="min-h-[34px] rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                className="min-h-[34px] rounded-lg border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-700 active:bg-slate-50"
               >
                 Giữ lại
               </button>
@@ -305,12 +332,15 @@ export const PwaAppShell: React.FC<PwaAppShellProps> = ({
         )}
 
         {/* Nội dung chính */}
-        <main>
+        <main data-pwa-main>
           {moreOpen ? (
             <PwaMoreView
               user={{ displayName: user.displayName, email: user.email, role: user.role }}
               priceAlertCount={priceAlertCount}
               adminPendingCount={adminPendingCount}
+              isDark={isDark}
+              onToggleTheme={onToggleTheme}
+              onLogout={onLogout}
               onSelectSubTab={goSecondaryTab}
               onOpenAddAsset={() => triggerAction('assets', 'add_asset')}
               onOpenAddDebt={() => triggerAction('debts', 'add_debt')}
@@ -322,15 +352,16 @@ export const PwaAppShell: React.FC<PwaAppShellProps> = ({
               {currentTab === 'dashboard' && (
                 <PwaOverview
                   state={state}
-                  onNavigateTab={(tab) => {
-                    if (SECONDARY_TABS.has(tab)) goSecondaryTab(tab as PwaSecondaryTab);
-                    else goPrimaryTab(tab as 'dashboard' | 'assets' | 'debts' | 'wallet');
-                  }}
+                  onNavigateTab={goAnyTab}
+                  onOpenAddAsset={() => triggerAction('assets', 'add_asset')}
+                  onOpenAddDebt={() => triggerAction('debts', 'add_debt')}
+                  onOpenDeposit={() => triggerAction('wallet', 'deposit')}
                 />
               )}
 
               {currentTab === 'assets' && (
                 <AssetsView
+                  layout="pwa"
                   state={state}
                   autoOpenAdd={pendingAction === 'add_asset'}
                   onAutoOpenConsumed={onAutoOpenConsumed}
@@ -348,10 +379,11 @@ export const PwaAppShell: React.FC<PwaAppShellProps> = ({
                 />
               )}
 
-              {currentTab === 'prices' && <PricesView state={state} onApplyPrices={onApplyPrices} />}
+              {currentTab === 'prices' && <PricesView layout="pwa" state={state} onApplyPrices={onApplyPrices} />}
 
               {currentTab === 'debts' && (
                 <DebtsView
+                  layout="pwa"
                   state={state}
                   autoOpenAdd={pendingAction === 'add_debt'}
                   onAutoOpenConsumed={onAutoOpenConsumed}
@@ -372,6 +404,7 @@ export const PwaAppShell: React.FC<PwaAppShellProps> = ({
 
               {currentTab === 'wallet' && (
                 <WalletView
+                  layout="pwa"
                   state={state}
                   autoOpenDeposit={pendingAction === 'deposit'}
                   onAutoOpenConsumed={onAutoOpenConsumed}
@@ -384,16 +417,14 @@ export const PwaAppShell: React.FC<PwaAppShellProps> = ({
 
               {currentTab === 'calendar' && (
                 <CalendarView
+                  layout="pwa"
                   state={state}
-                  onNavigateTab={(tab) => {
-                    if (SECONDARY_TABS.has(tab)) goSecondaryTab(tab as PwaSecondaryTab);
-                    else goPrimaryTab(tab as 'dashboard' | 'assets' | 'debts' | 'wallet');
-                  }}
+                  onNavigateTab={goAnyTab}
                   onPayDebtPeriod={onPayDebtPeriod}
                 />
               )}
 
-              {currentTab === 'balance' && <ReportsView state={state} />}
+              {currentTab === 'balance' && <ReportsView layout="pwa" state={state} />}
 
               {currentTab === 'admin' && user.role === 'admin' && (
                 <AdminView

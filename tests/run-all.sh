@@ -25,6 +25,7 @@ echo "== api (máy chủ, DB giả)"; check npx --no-install tsx --test tests/ap
 echo "== python (script lấy giá)"; check python3 -m unittest discover -s tests/python
 echo "== giao diện: hộp thoại mới + điện thoại (Chromium, Tailwind ngoại tuyến)"; check node tests/ui-smoke.cjs
 echo "== giao diện: tab Cập nhật giá (Chromium)"; check node tests/prices-ui.cjs
-echo "== PWA: manifest, biểu tượng, service worker, ngoại tuyến, nút cài (Chromium)"; check node tests/pwa.cjs
+echo "== PWA: manifest, biểu tượng, service worker, ngoại tuyến, vỏ ứng dụng (Chromium)"; check node tests/pwa-app.cjs
+echo "== PWA: bố cục các màn hình trên điện thoại (Chromium)"; check node tests/pwa-views.cjs
 if [ "${E2E:-0}" = "1" ]; then echo "== e2e cũ (Chromium; hiện hỏng sẵn vì app đã có đăng nhập/API)"; check node tests/e2e.cjs; fi
 echo; if [ "$FAILS" -gt 0 ]; then echo "CÓ $FAILS NHÓM TEST LỖI"; exit 1; else echo "TẤT CẢ NHÓM TEST ĐẠT"; fi

@@ -66,6 +66,8 @@ import { EditAssetModal } from './EditInfoModals';
 import { ImprovementModal, PositionsPanel } from './PositionsPanel';
 import type { BuyMoreInput, ImprovementInput, PositionSellInput } from '../utils/positions';
 import type { AssetEditInput } from '../utils/editOps';
+import { PwaAssetsSummary, PwaAssetsFilters, PwaAssetCard } from './pwa/PwaAssetsParts';
+import { PwaEmpty } from './pwa/pwaUi';
 
 interface AssetsViewProps {
   state: UserFinancialState;
@@ -91,6 +93,8 @@ interface AssetsViewProps {
   onReceiveInterest: (p: { assetId: string; amount: number; date: string; note?: string }) => boolean | void;
   /** Tái tục sổ tiết kiệm (đổi kỳ hạn, lãi suất; nhập lãi vào gốc hoặc rút lãi về ví). */
   onRolloverSavings: (p: RolloverInput) => boolean | void;
+  /** 'pwa': bố cục gọn cho điện thoại khi mở như ứng dụng (cùng dữ liệu, cùng hộp thoại). Mặc định 'web' = bố cục cũ. */
+  layout?: 'web' | 'pwa';
 }
 
 const PAYOUT_LABEL: Record<string, string> = { maturity: 'cuối kỳ', monthly: 'hàng tháng', upfront: 'đầu kỳ' };
@@ -280,7 +284,9 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
   onReceiveInterest,
   onRolloverSavings,
   onSellAsset,
+  layout = 'web',
 }) => {
+  const isPwa = layout === 'pwa';
   const { confirm: confirmDialog, choose: chooseDialog } = useDialog();
   const dialogApi = { choose: chooseDialog };
   const [selectedCategory, setSelectedCategory] = useState<AssetCategory | 'all'>('all');
@@ -480,8 +486,21 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
   };
 
   return (
-    <div className="space-y-6 pb-12">
+    <div className={isPwa ? 'space-y-3' : 'space-y-6 pb-12'}>
       {/* 1. TOP SUMMARY CARDS (cùng bố cục với tab Khoản nợ) */}
+      {isPwa && (
+        <PwaAssetsSummary
+          portfolioValue={portfolioValue}
+          portfolioCost={portfolioCost}
+          portfolioPnL={portfolioPnL}
+          portfolioPnLPct={portfolioPnLPct}
+          realizedFromSales={realizedFromSales}
+          activeCount={activeAssets.length}
+          categoryTotals={categoryTotals}
+          categoryColors={CATEGORY_COLORS}
+        />
+      )}
+      {!isPwa && (
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {/* Tổng thị giá */}
         <div className="bg-white p-5 rounded-xl border border-slate-200">
@@ -560,14 +579,38 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
           </span>
         </div>
       </div>
+      )}
 
       {/* Vị thế theo mã: gộp các lô cùng mã (mua thêm / bán theo giá vốn bình quân / cổ tức) */}
       <PositionsPanel
         state={state}
         handlers={{ onBuyMore, onSellPosition, onPositionDividend }}
+        layout={layout}
       />
 
       {/* 2. FILTER & TOOLBAR (nằm dưới các thẻ, giống tab Khoản nợ) */}
+      {isPwa && (
+        <PwaAssetsFilters
+          categories={categories}
+          selectedCategory={selectedCategory}
+          onCategory={setSelectedCategory}
+          countByCategory={countByCategory}
+          statusFilter={statusFilter}
+          onStatus={setStatusFilter}
+          countByStatus={countByStatus}
+          searchQuery={searchQuery}
+          onSearch={setSearchQuery}
+          shown={filteredAssets.length}
+          total={state.assets.length}
+          filtersActive={filtersActive}
+          onClear={() => {
+            setSelectedCategory('all');
+            setStatusFilter('active');
+            setSearchQuery('');
+          }}
+        />
+      )}
+      {!isPwa && (
       <div className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-3.5 lg:flex-row lg:items-end">
         <div className="lg:w-56">
           <label htmlFor="asset-category-filter" className="mb-1 block text-[11px] font-semibold text-slate-500">
@@ -640,8 +683,33 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
           )}
         </div>
       </div>
+      )}
 
       {/* Assets Table / List */}
+      {isPwa && (
+        filteredAssets.length === 0 ? (
+          <PwaEmpty icon={<Layers className="h-9 w-9" />}>Không tìm thấy tài sản nào phù hợp với bộ lọc hiện tại.</PwaEmpty>
+        ) : (
+          <div className="space-y-3" data-pwa-asset-list="">
+            {filteredAssets.map((asset) => (
+              <PwaAssetCard
+                key={asset.id}
+                asset={asset}
+                linkedDebt={state.debts.find((d) => d.id === asset.linkedDebtId || d.collateralAssetId === asset.id)}
+                canVoid={canVoidAsset(state, asset.id).ok}
+                onEdit={() => setEditInfoAsset(asset)}
+                onImprove={() => setImproveAsset(asset)}
+                onIncome={() => openIncomeEdit(asset)}
+                onInterest={() => setInterestAsset(asset)}
+                onRollover={() => setRolloverAsset(asset)}
+                onSell={() => handleOpenSell(asset)}
+                onVoid={() => onVoidAsset(asset.id)}
+              />
+            ))}
+          </div>
+        )
+      )}
+      {!isPwa && (
       <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
         {filteredAssets.length === 0 ? (
           <div className="py-16 text-center text-slate-400 text-xs">
@@ -946,6 +1014,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
           </div>
         )}
       </div>
+      )}
 
       {/* MODAL: SELL / REALIZE PnL (cập nhật giá nằm ở tab "Cập nhật giá") */}
       {sellAssetTarget && (
