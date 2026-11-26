@@ -1,0 +1,47 @@
+{
+  "name": "fintrack-vn",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --port=3000 --host=0.0.0.0",
+    "dev:api": "tsx --env-file=.env.local scripts/dev-api.ts",
+    "build": "vite build",
+    "preview": "vite preview",
+    "clean": "rm -rf dist",
+    "lint": "tsc --noEmit",
+    "test:logic": "tsx tests/logic.test.ts",
+    "test:phase1": "tsx tests/phase1.test.ts",
+    "test:phase2": "tsx tests/phase2.test.ts",
+    "test:phase3": "tsx tests/phase3.test.ts",
+    "test:phase4": "tsx tests/phase4.test.ts",
+    "test:phase5": "tsx tests/phase5.test.ts",
+    "test:loans": "tsx tests/loans.test.ts",
+    "test:edits": "tsx tests/edits.test.ts",
+    "test:positions": "tsx tests/positions.test.ts",
+    "test:valuation": "tsx tests/valuation.test.ts",
+    "test:consistency": "tsx tests/consistency.test.ts",
+    "test:api": "tsx --test tests/api/handlers.test.ts tests/api/syncer.test.ts tests/api/prices.test.ts",
+    "test:prices-ui": "node tests/prices-ui.cjs",
+    "test:ui": "node tests/ui-smoke.cjs",
+    "test:py": "python3 -m unittest discover -s tests/python",
+    "test:all": "bash tests/run-all.sh"
+  },
+  "dependencies": {
+    "@neondatabase/serverless": "^1.2.0",
+    "@tailwindcss/vite": "^4.3.3",
+    "@vitejs/plugin-react": "^6.1.1",
+    "lucide-react": "^0.546.0",
+    "react": "^19.0.1",
+    "react-dom": "^19.0.1",
+    "vite": "^8.3.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.14.0",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "tailwindcss": "^4.3.3",
+    "tsx": "^4.21.0",
+    "typescript": "^7.0.2"
+  }
+}
