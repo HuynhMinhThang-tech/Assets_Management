@@ -135,6 +135,17 @@ const pngSize = (buf) => ({ w: buf.readUInt32BE(16), h: buf.readUInt32BE(20) });
     log((await page.locator('[data-sidebar]').count()) === 0, 'P15', 'thêm ?pwa=1 để xem thử vỏ PWA ngay trên trình duyệt');
     await ctx.close();
   }
+  // Màn hình hẹp (điện thoại mở bằng trình duyệt, chưa cài): dùng giao diện ứng dụng thay vì bảng rộng kéo ngang
+  {
+    const ctx = await browser.newContext({ viewport: { width: 390, height: 844 } }); const page = await mkPage(ctx);
+    await page.goto(base + '/'); await page.waitForSelector('[data-pwa-shell]');
+    log((await page.locator('[data-sidebar]').count()) === 0, 'P14b', 'điện thoại 390px mở bằng trình duyệt (chưa cài): tự dùng vỏ ứng dụng');
+    await page.setViewportSize({ width: 1280, height: 800 }); await page.waitForSelector('[data-sidebar]');
+    log((await page.locator('[data-pwa-shell]').count()) === 0, 'P14c', 'phóng to cửa sổ lên máy tính: tự chuyển sang giao diện web đầy đủ');
+    await page.goto(base + '/?web=1'); await page.setViewportSize({ width: 390, height: 844 }); await page.waitForSelector('[data-open-nav]');
+    log((await page.locator('[data-pwa-shell]').count()) === 0, 'P14d', '?web=1 ép giao diện web ngay cả trên màn hình điện thoại');
+    await ctx.close();
+  }
   log(errors.length === 0, 'P16', 'không có lỗi JS/console trong toàn bộ kịch bản', errors.slice(0, 4).join(' | '));
   console.log(`\n==== PWA (manifest, service worker, vỏ ứng dụng): ${pass} pass / ${fail} fail ====`);
   await browser.close(); server.close();

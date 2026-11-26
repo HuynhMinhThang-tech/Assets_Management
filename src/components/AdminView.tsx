@@ -257,9 +257,8 @@ export const AdminView: React.FC<AdminViewProps> = ({ currentUser, accounts, onC
                         </span>
                       )}
                     </div>
-                    <div className="truncate text-xs text-slate-500">
-                      {a.email} · {subline(a)}
-                    </div>
+                    <div className="truncate text-xs text-slate-500">{a.email}</div>
+                    <div className="truncate text-[11px] text-slate-400">{subline(a)}</div>
                   </div>
                 </div>
                 <div className="flex shrink-0 flex-wrap items-center gap-2 sm:justify-end">{actionsFor(a)}</div>

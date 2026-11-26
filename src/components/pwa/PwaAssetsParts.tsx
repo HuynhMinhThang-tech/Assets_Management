@@ -61,7 +61,7 @@ export const PwaAssetsSummary: React.FC<PwaAssetsSummaryProps> = ({
     <div className="flex items-start justify-between gap-3">
       <div className="min-w-0">
         <div className="text-[11px] font-medium text-slate-500">Tổng thị giá tài sản</div>
-        <div className="mt-0.5 truncate font-mono text-[22px] font-bold leading-tight tracking-tight tabular-nums text-slate-900">
+        <div className="mt-0.5 truncate font-mono text-[18px] min-[360px]:text-[22px] font-bold leading-tight tracking-tight tabular-nums text-slate-900">
           {formatVND(portfolioValue)}
         </div>
       </div>

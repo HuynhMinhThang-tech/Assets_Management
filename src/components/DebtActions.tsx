@@ -10,6 +10,7 @@ import {
 } from '../utils/debtOps';
 import { CurrencyInput } from './CurrencyInput';
 import { FieldError, Modal, ModalBody, ModalFooter } from './ui/Modal';
+import { PwaDebtDetail } from './pwa/PwaDebtDetail';
 
 type Result = boolean | void;
 
@@ -343,7 +344,9 @@ export const DebtDetailModal: React.FC<{
   handlers: DebtActionHandlers;
   editLog?: EditLogEntry[];
   onClose: () => void;
-}> = ({ debt, cash, transactions, handlers, editLog = [], onClose }) => {
+  /** 'pwa': danh sách + panel chi tiết thay cho các bảng rộng (xem pwa/PwaDebtDetail.tsx). */
+  layout?: 'web' | 'pwa';
+}> = ({ debt, cash, transactions, handlers, editLog = [], onClose, layout = 'web' }) => {
   const [tab, setTab] = useState<Tab>('schedule');
   const [dialog, setDialog] = useState<Dialog>(null);
   const [showPre, setShowPre] = useState(false);
@@ -358,6 +361,34 @@ export const DebtDetailModal: React.FC<{
   const rateNow = currentRate(debt);
   const tabs: Array<[Tab, string]> = [['schedule', 'Lịch trả nợ'], ['history', 'Lịch sử thanh toán'], ['rates', 'Lịch sử lãi suất']];
   if ((debt.adjustments || []).length > 0) tabs.push(['adjust', 'Điều chỉnh sao kê']);
+
+  const dialogs = (
+    <>
+      {dialog === 'edit' && handlers.onEditDebt && (
+        <EditDebtModal debt={debt} editLog={editLog} onClose={() => setDialog(null)} onSave={(patch) => handlers.onEditDebt!(debt.id, patch)} />
+      )}
+      {dialog === 'rate' && <RateChangeModal debt={debt} onClose={() => setDialog(null)} onSave={handlers.onAddRateChange} />}
+      {dialog === 'settle' && <SettleModal debt={debt} cash={cash} onClose={() => setDialog(null)} onSave={handlers.onSettle} />}
+      {dialog === 'prepay' && <PrepayModal debt={debt} cash={cash} onClose={() => setDialog(null)} onSave={handlers.onPrepay} />}
+      {dialog === 'reconcile' && <ReconcileModal debt={debt} onClose={() => setDialog(null)} onSave={handlers.onReconcile} onUndo={() => handlers.onUndoReconcile(debt.id)} />}
+    </>
+  );
+
+  if (layout === 'pwa') {
+    return (
+      <>
+        <PwaDebtDetail
+          debt={debt}
+          cash={cash}
+          payments={payments}
+          handlers={handlers}
+          onClose={onClose}
+          onOpenDialog={setDialog}
+        />
+        {dialogs}
+      </>
+    );
+  }
 
   return (
     <>
@@ -601,13 +632,7 @@ export const DebtDetailModal: React.FC<{
         </ModalFooter>
       </Modal>
 
-      {dialog === 'edit' && handlers.onEditDebt && (
-        <EditDebtModal debt={debt} editLog={editLog} onClose={() => setDialog(null)} onSave={(patch) => handlers.onEditDebt!(debt.id, patch)} />
-      )}
-      {dialog === 'rate' && <RateChangeModal debt={debt} onClose={() => setDialog(null)} onSave={handlers.onAddRateChange} />}
-      {dialog === 'settle' && <SettleModal debt={debt} cash={cash} onClose={() => setDialog(null)} onSave={handlers.onSettle} />}
-      {dialog === 'prepay' && <PrepayModal debt={debt} cash={cash} onClose={() => setDialog(null)} onSave={handlers.onPrepay} />}
-      {dialog === 'reconcile' && <ReconcileModal debt={debt} onClose={() => setDialog(null)} onSave={handlers.onReconcile} onUndo={() => handlers.onUndoReconcile(debt.id)} />}
+      {dialogs}
     </>
   );
 };

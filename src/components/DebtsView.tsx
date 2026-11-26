@@ -595,6 +595,7 @@ export const DebtsView: React.FC<DebtsViewProps> = ({
       {/* MODAL 1: CHI TIẾT KHOẢN VAY (lịch trả, lịch sử thanh toán, lãi suất, thao tác) */}
       {selectedDebtForSchedule && (
         <DebtDetailModal
+          layout={layout}
           debt={selectedDebtForSchedule}
           cash={state.wallet.availableCash}
           transactions={state.transactions}

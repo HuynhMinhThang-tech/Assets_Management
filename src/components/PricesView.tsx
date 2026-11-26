@@ -618,6 +618,39 @@ export const PricesView: React.FC<PricesViewProps> = ({ state, onApplyPrices, la
               {planCounts.anomaly > 0 && <span className="rounded-full bg-amber-50 px-2.5 py-1 text-amber-800">{planCounts.anomaly} lệch bất thường</span>}
               {planCounts.other > 0 && <span className="rounded-full bg-slate-100 px-2.5 py-1 text-slate-600">{planCounts.other} bỏ qua</span>}
             </div>
+            {isPwa ? (
+              /* Ứng dụng: mỗi dòng của file là một thẻ (không phải kéo ngang qua 6 cột) */
+              <ul data-import-plan className="divide-y divide-slate-100 overflow-hidden rounded-xl border border-slate-200">
+                {plan.map((i, idx) => (
+                  <li key={idx} className="px-3.5 py-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="truncate text-[13px] font-semibold text-slate-900">{i.assetName ?? i.key ?? '—'}</div>
+                        <div className="mt-0.5 truncate text-[11px] text-slate-500">
+                          Dòng {i.line}
+                          {i.assetName && i.key ? ` · mã trong file: ${i.key}` : ''}
+                          {i.date ? ` · ${fmtDate(i.date)}` : ''}
+                        </div>
+                      </div>
+                      <div className="shrink-0 text-right">
+                        <div className="font-mono text-[13px] font-bold tabular-nums text-slate-900">
+                          {i.price !== null ? formatVND(i.price) : '—'}
+                        </div>
+                        {i.changePct != null && (
+                          <div className={`font-mono text-[11px] ${tone(i.changePct)}`}>{formatPercent(i.changePct)}</div>
+                        )}
+                      </div>
+                    </div>
+                    <div className="mt-1.5 flex items-start gap-2">
+                      <span className={`shrink-0 rounded px-1.5 py-0.5 text-[11px] font-semibold ${STATUS_STYLE[i.status]}`}>
+                        {STATUS_LABEL[i.status]}
+                      </span>
+                      {i.message && <span className="min-w-0 text-[11px] leading-snug text-slate-500">{i.message}</span>}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            ) : (
             <div className="overflow-x-auto rounded-lg border border-slate-200">
               <table data-import-plan className="w-full min-w-[640px] text-xs">
                 <thead>
@@ -650,6 +683,7 @@ export const PricesView: React.FC<PricesViewProps> = ({ state, onApplyPrices, la
                 </tbody>
               </table>
             </div>
+            )}
             {planCounts.anomaly > 0 && (
               <label className="mt-3 flex items-center gap-2 text-xs text-slate-700">
                 <input type="checkbox" checked={includeAnomaly} onChange={(e) => setIncludeAnomaly(e.target.checked)} />

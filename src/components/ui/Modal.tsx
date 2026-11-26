@@ -1,4 +1,4 @@
-import React, { useEffect, useId, useRef } from 'react';
+import React, { useEffect, useId, useRef, useState } from 'react';
 import { AlertCircle, X } from 'lucide-react';
 
 /**
@@ -8,6 +8,9 @@ import { AlertCircle, X } from 'lucide-react';
  * Khi nội dung cao hơn màn hình, phần dư bị đẩy ra CẢ HAI phía và phần trên không bao giờ cuộn tới được.
  * Ở đây khung có chiều cao tối đa = màn hình, header/footer đứng yên, chỉ phần thân (ModalBody) cuộn.
  */
+
+// Ngăn xếp các modal đang mở: chỉ modal trên cùng nhận phím Esc (modal xếp chồng không bị đóng cùng lúc).
+const openStack: symbol[] = [];
 
 let lockCount = 0;
 function lockScroll() {
@@ -32,34 +35,69 @@ interface ModalProps {
   onClose: () => void;
   size?: keyof typeof SIZES;
   children: React.ReactNode;
+  /**
+   * Chỉ bật cho hộp thoại XEM chi tiết (không có ô nhập, nên đóng nhầm cũng không mất dữ liệu):
+   * chạm vào nền mờ để đóng, và ở chế độ ứng dụng còn vuốt thanh tiêu đề xuống để đóng.
+   */
+  dismissible?: boolean;
 }
 
-export const Modal: React.FC<ModalProps> = ({ title, subtitle, onClose, size = 'md', children }) => {
+const SWIPE_CLOSE_PX = 100;
+
+export const Modal: React.FC<ModalProps> = ({ title, subtitle, onClose, size = 'md', children, dismissible = false }) => {
   const titleId = useId();
+  const [dragY, setDragY] = useState(0);
+  const dragStart = useRef<number | null>(null);
   const closeRef = useRef(onClose);
   closeRef.current = onClose;
 
   useEffect(() => {
     lockScroll();
+    const me = Symbol('modal');
+    openStack.push(me);
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') closeRef.current();
+      if (e.key === 'Escape' && openStack[openStack.length - 1] === me) closeRef.current();
     };
     window.addEventListener('keydown', onKey);
     return () => {
       window.removeEventListener('keydown', onKey);
+      const i = openStack.indexOf(me);
+      if (i >= 0) openStack.splice(i, 1);
       unlockScroll();
     };
   }, []);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-3 sm:p-4">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-3 sm:p-4"
+      onClick={(e) => {
+        if (dismissible && e.target === e.currentTarget) onClose();
+      }}
+    >
       <div
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
+        style={dragY > 0 ? { transform: `translateY(${dragY}px)`, transition: 'none' } : undefined}
         className={`animate-dialog-in flex max-h-[calc(100dvh-1.5rem)] w-full ${SIZES[size]} flex-col overflow-hidden rounded-xl bg-white shadow-2xl sm:max-h-[calc(100dvh-2rem)]`}
       >
-        <div className="flex shrink-0 items-start justify-between gap-3 border-b border-slate-100 px-5 py-4">
+        <div
+          className={`flex shrink-0 items-start justify-between gap-3 border-b border-slate-100 px-5 py-4 ${
+            dismissible ? 'touch-none' : ''
+          }`}
+          onTouchStart={(e) => {
+            if (dismissible && e.touches.length === 1) dragStart.current = e.touches[0].clientY;
+          }}
+          onTouchMove={(e) => {
+            if (dragStart.current !== null) setDragY(Math.max(0, e.touches[0].clientY - dragStart.current));
+          }}
+          onTouchEnd={() => {
+            if (dragStart.current === null) return;
+            dragStart.current = null;
+            if (dragY > SWIPE_CLOSE_PX) onClose();
+            else setDragY(0);
+          }}
+        >
           <div className="min-w-0">
             <h3 id={titleId} className="text-base font-semibold text-slate-900">
               {title}

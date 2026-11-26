@@ -18,7 +18,7 @@ export const PwaWalletHero: React.FC<{
 }> = ({ available, totalDeposited, totalWithdrawn, onDeposit, onWithdraw, onIncome }) => (
   <PwaCard className="p-3.5" data-pwa-wallet-hero="">
     <div className="text-[11px] font-medium text-slate-500">Tiền khả dụng ví đầu tư</div>
-    <div className="mt-0.5 truncate font-mono text-[26px] font-bold leading-tight tracking-tight tabular-nums text-slate-900">
+    <div className="mt-0.5 truncate font-mono text-[21px] min-[360px]:text-[26px] font-bold leading-tight tracking-tight tabular-nums text-slate-900">
       {formatVND(available)}
     </div>
 

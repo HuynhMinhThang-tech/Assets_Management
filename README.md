@@ -46,15 +46,15 @@ Chi tiết về Neon và Vercel: `docs/DEPLOY.md`.
 
 Ứng dụng cài được lên màn hình chính điện thoại / máy tính, cùng cách làm với Nhật Ký Giao Dịch:
 
-- **Android, Chrome/Edge máy tính:** bấm nút **Cài đặt ứng dụng (PWA)** ở cuối thanh bên (hoặc nút cài trên thanh địa chỉ).
-- **iPhone/iPad:** mở bằng Safari → Chia sẻ → **Thêm vào MH chính**. Nút **Hướng dẫn cài iPhone PWA** ở thanh bên mở sẵn các bước này.
+- **Android, Chrome/Edge máy tính:** bấm nút **Cài đặt ứng dụng (PWA)** ở cuối thanh bên (trên điện thoại: tab **Khác → Ứng dụng**), hoặc nút cài trên thanh địa chỉ.
+- **iPhone/iPad:** mở bằng Safari → Chia sẻ → **Thêm vào MH chính**. Nút **Hướng dẫn cài iPhone PWA** (thanh bên, hoặc tab **Khác → Ứng dụng** trên điện thoại) mở sẵn các bước này.
 
 Các file liên quan: `public/manifest.webmanifest`, `public/sw.js` (service worker), biểu tượng `public/pwa-*.png` và `public/apple-touch-icon.png`, đăng ký trong `src/utils/pwa.ts`, nút cài trong `src/components/InstallAppButton.tsx`.
 Service worker **không bao giờ lưu `/api/*`** (số liệu tài chính luôn lấy từ máy chủ); chỉ lưu khung trang, JS/CSS và biểu tượng để mở nhanh và mở được khi mất mạng (dữ liệu thì cần mạng). Chỉ đăng ký ở bản build (`npm run build`), không đăng ký khi `npm run dev`. Sửa `public/sw.js` thì đổi `VERSION` ở đầu file để máy người dùng bỏ cache cũ. Kiểm thử: `node tests/pwa.cjs`.
 
 ### Giao diện khi mở như ứng dụng
 
-Khi mở từ biểu tượng đã cài (hoặc thêm `?pwa=1` vào địa chỉ để xem thử ngay trên trình duyệt), ứng dụng dùng vỏ `src/components/pwa/PwaAppShell.tsx`: thanh đầu gọn, thanh tab đáy (Tổng quan · Tài sản · Khoản nợ · Ví · Khác), hộp thoại hiện như tấm trượt từ đáy màn hình. Các màn hình Tài sản, Khoản nợ, Ví, Lịch thu chi, Báo cáo, Cập nhật giá được **sắp xếp lại cho điện thoại** (thẻ thay cho bảng, bộ lọc dạng chip, số liệu gom gọn) nhưng dùng **chung dữ liệu, hàm xử lý và hộp thoại** với bản web.
+Khi mở từ biểu tượng đã cài, hoặc khi màn hình hẹp (**dưới 1024px**: điện thoại, máy tính bảng dọc — kể cả mở bằng trình duyệt thường), hoặc thêm `?pwa=1` vào địa chỉ để xem thử ngay trên máy tính, ứng dụng dùng vỏ `src/components/pwa/PwaAppShell.tsx`: thanh đầu gọn, thanh tab đáy (Tổng quan · Tài sản · Khoản nợ · Ví · Khác), hộp thoại hiện như tấm trượt từ đáy màn hình. Các màn hình Tài sản, Khoản nợ, Ví, Lịch thu chi, Báo cáo, Cập nhật giá được **sắp xếp lại cho điện thoại** (thẻ thay cho bảng, bộ lọc dạng chip, số liệu gom gọn; các bảng nhiều cột như lịch trả nợ chỉ hiện vài thông tin trên mỗi dòng, **bấm vào dòng mở panel đầy đủ**) nhưng dùng **chung dữ liệu, hàm xử lý và hộp thoại** với bản web. Thêm `?web=1` vào địa chỉ để ép dùng giao diện web (có sidebar và bảng) ngay cả trên màn hình hẹp — hữu ích khi so sánh hoặc kiểm thử.
 
 - Cách làm: mỗi màn hình nhận thêm tham số `layout?: 'web' | 'pwa'` (mặc định `'web'` = giao diện cũ, không đổi). Khối giao diện riêng cho app nằm trong `src/components/pwa/` (`pwaUi.tsx` là bộ thành phần dùng chung).
 - CSS riêng cho app nằm ở cuối `src/index.css`, chỉ có tác dụng khi `<html>` có thuộc tính `data-pwa-app` (do vỏ app bật), nên không ảnh hưởng bản web.

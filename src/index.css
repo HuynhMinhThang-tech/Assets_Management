@@ -381,6 +381,15 @@ html[data-pwa-app] [role="dialog"][aria-labelledby] button { min-height: 2.25rem
   html[data-pwa-app] [role="dialog"][aria-labelledby] { animation: none; }
 }
 
+/* Form trong hộp thoại: hàng 3 ô nhập (ngày, số tiền, ...) quá chật trên điện thoại (~100px/ô, chữ bị cắt) -> chia 2 cột.
+   Chỉ áp cho hàng có ô nhập; hàng chỉ hiển thị số liệu (không có ô nhập) vẫn giữ 3 cột. */
+html[data-pwa-app] [role="dialog"] .grid-cols-3:has(input:not([type="checkbox"]):not([type="radio"]), select, textarea) {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+html[data-pwa-app] [role="dialog"] .grid-cols-4:has(input:not([type="checkbox"]):not([type="radio"]), select, textarea) {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
 /* Lớp phủ hộp thoại (fixed) nằm giữa các khối dùng space-y-*: bỏ lề thừa để tấm trượt sát đáy và lớp mờ phủ kín màn hình */
 html[data-pwa-app] [data-pwa-shell] .fixed.inset-0 { margin: 0 !important; }
 

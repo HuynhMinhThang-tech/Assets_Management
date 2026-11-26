@@ -11,6 +11,7 @@ import {
   Moon,
   LogOut,
 } from 'lucide-react';
+import { InstallAppButton, useInstallPrompt } from '../InstallAppButton';
 
 export type PwaSecondaryTab = 'prices' | 'calendar' | 'balance' | 'admin';
 
@@ -44,6 +45,7 @@ export const PwaMoreView: React.FC<PwaMoreViewProps> = ({
   onOpenDeposit,
   onOpenAccount,
 }) => {
+  const { isInstalled } = useInstallPrompt();
   const initial = (Array.from(user.displayName.trim())[0] || '?').toUpperCase();
 
   return (
@@ -182,6 +184,19 @@ export const PwaMoreView: React.FC<PwaMoreViewProps> = ({
           </button>
         </div>
       </section>
+
+      {/* Nhóm 3b: Cài ứng dụng (chỉ khi đang mở trong trình duyệt, chưa cài ra màn hình chính) */}
+      {!isInstalled && (
+        <section data-pwa-install-group>
+          <h2 className="mb-2 px-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Ứng dụng</h2>
+          <div className="space-y-2.5 rounded-2xl border border-slate-200 bg-white p-3.5 shadow-[0_1px_2px_rgba(28,27,24,0.04)]">
+            <p className="text-xs leading-relaxed text-slate-500">
+              Cài FinTrack lên màn hình chính để mở nhanh như một ứng dụng, không còn thanh địa chỉ của trình duyệt.
+            </p>
+            <InstallAppButton />
+          </div>
+        </section>
+      )}
 
       {/* Nhóm 4: Giao diện & đăng xuất (chuyển từ thanh đầu app xuống đây cho gọn) */}
       <section>

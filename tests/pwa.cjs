@@ -142,7 +142,7 @@ const pngSize = (buf) => ({ w: buf.readUInt32BE(16), h: buf.readUInt32BE(20) });
   // Điện thoại: nút nằm trong ngăn kéo và hộp thoại không bị nhốt trong ngăn kéo
   {
     const ctx = await browser.newContext({ viewport: { width: 390, height: 844 } }); const page = await mkPage(ctx);
-    await page.goto(base + '/'); await page.waitForSelector('[data-open-nav]');
+    await page.goto(base + '/?web=1'); await page.waitForSelector('[data-open-nav]'); // ?web=1: ép giao diện web (mặc định điện thoại dùng vỏ ứng dụng)
     await page.click('[data-open-nav]'); await page.waitForTimeout(300);
     await page.locator('[data-install-guide]').click();
     await page.waitForSelector('[role="dialog"]');

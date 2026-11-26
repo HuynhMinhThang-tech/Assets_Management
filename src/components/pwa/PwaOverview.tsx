@@ -175,7 +175,7 @@ export const PwaOverview: React.FC<PwaOverviewProps> = ({ state, onNavigateTab, 
         </div>
         <div
           title={net.fullTitle}
-          className={`mt-0.5 truncate font-mono text-[26px] font-bold leading-tight tracking-tight tabular-nums ${net.valueClass || 'text-slate-900'}`}
+          className={`mt-0.5 truncate font-mono text-[21px] min-[360px]:text-[26px] font-bold leading-tight tracking-tight tabular-nums ${net.valueClass || 'text-slate-900'}`}
         >
           {formatVND(summary.netWorth)}
         </div>
