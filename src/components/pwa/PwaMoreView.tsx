@@ -1,17 +1,5 @@
 import React from 'react';
-import {
-  TrendingUp,
-  CalendarDays,
-  Scale,
-  ShieldCheck,
-  PlusCircle,
-  ArrowDownRight,
-  ChevronRight,
-  Sun,
-  Moon,
-  LogOut,
-} from 'lucide-react';
-import { InstallAppButton, useInstallPrompt } from '../InstallAppButton';
+import { TrendingUp, CalendarDays, Scale, ShieldCheck, ChevronRight, LogOut } from 'lucide-react';
 
 export type PwaSecondaryTab = 'prices' | 'calendar' | 'balance' | 'admin';
 
@@ -19,13 +7,8 @@ interface PwaMoreViewProps {
   user: { displayName: string; email: string; role: 'admin' | 'user' };
   priceAlertCount: number;
   adminPendingCount: number;
-  isDark: boolean;
-  onToggleTheme: () => void;
   onLogout: () => void;
   onSelectSubTab: (tab: PwaSecondaryTab) => void;
-  onOpenAddAsset: () => void;
-  onOpenAddDebt: () => void;
-  onOpenDeposit: () => void;
   onOpenAccount: () => void;
 }
 
@@ -36,16 +19,10 @@ export const PwaMoreView: React.FC<PwaMoreViewProps> = ({
   user,
   priceAlertCount,
   adminPendingCount,
-  isDark,
-  onToggleTheme,
   onLogout,
   onSelectSubTab,
-  onOpenAddAsset,
-  onOpenAddDebt,
-  onOpenDeposit,
   onOpenAccount,
 }) => {
-  const { isInstalled } = useInstallPrompt();
   const initial = (Array.from(user.displayName.trim())[0] || '?').toUpperCase();
 
   return (
@@ -63,7 +40,6 @@ export const PwaMoreView: React.FC<PwaMoreViewProps> = ({
               </span>
               <div className="min-w-0">
                 <div className="text-sm font-semibold text-slate-900">Cập nhật giá</div>
-                <div className="truncate text-xs text-slate-500">Định giá cổ phiếu, quỹ, vàng & bất động sản</div>
               </div>
             </div>
             <div className="flex shrink-0 items-center gap-2">
@@ -83,7 +59,6 @@ export const PwaMoreView: React.FC<PwaMoreViewProps> = ({
               </span>
               <div className="min-w-0">
                 <div className="text-sm font-semibold text-slate-900">Lịch thu chi</div>
-                <div className="truncate text-xs text-slate-500">Theo dõi kỳ trả nợ & đáo hạn sắp tới</div>
               </div>
             </div>
             <ChevronRight className="h-4 w-4 shrink-0 text-slate-400" />
@@ -96,7 +71,6 @@ export const PwaMoreView: React.FC<PwaMoreViewProps> = ({
               </span>
               <div className="min-w-0">
                 <div className="text-sm font-semibold text-slate-900">Báo cáo</div>
-                <div className="truncate text-xs text-slate-500">Bảng cân đối tài sản, nợ & dòng tiền</div>
               </div>
             </div>
             <ChevronRight className="h-4 w-4 shrink-0 text-slate-400" />
@@ -110,7 +84,6 @@ export const PwaMoreView: React.FC<PwaMoreViewProps> = ({
                 </span>
                 <div className="min-w-0">
                   <div className="text-sm font-semibold text-slate-900">Quản trị</div>
-                  <div className="truncate text-xs text-slate-500">Duyệt tài khoản & hỗ trợ người dùng</div>
                 </div>
               </div>
               <div className="flex shrink-0 items-center gap-2">
@@ -126,50 +99,12 @@ export const PwaMoreView: React.FC<PwaMoreViewProps> = ({
         </div>
       </section>
 
-      {/* Nhóm 2: Thao tác nhanh */}
-      <section>
-        <h2 className="mb-2 px-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
-          Thao tác nhanh
-        </h2>
-        <div className="divide-y divide-slate-100 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_1px_2px_rgba(28,27,24,0.04)]">
-          <button type="button" onClick={onOpenAddAsset} className={ROW_BTN}>
-            <div className="flex min-w-0 items-center gap-3">
-              <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-accent-soft text-accent-ink">
-                <PlusCircle className="h-4 w-4" />
-              </span>
-              <span className="text-sm font-semibold text-slate-900">Thêm tài sản</span>
-            </div>
-            <ChevronRight className="h-4 w-4 shrink-0 text-slate-400" />
-          </button>
-
-          <button type="button" onClick={onOpenAddDebt} className={ROW_BTN}>
-            <div className="flex min-w-0 items-center gap-3">
-              <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-rose-50 text-rose-600">
-                <PlusCircle className="h-4 w-4" />
-              </span>
-              <span className="text-sm font-semibold text-slate-900">Thêm khoản nợ</span>
-            </div>
-            <ChevronRight className="h-4 w-4 shrink-0 text-slate-400" />
-          </button>
-
-          <button type="button" onClick={onOpenDeposit} className={ROW_BTN}>
-            <div className="flex min-w-0 items-center gap-3">
-              <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-emerald-50 text-emerald-600">
-                <ArrowDownRight className="h-4 w-4" />
-              </span>
-              <span className="text-sm font-semibold text-slate-900">Nạp / Rút ví</span>
-            </div>
-            <ChevronRight className="h-4 w-4 shrink-0 text-slate-400" />
-          </button>
-        </div>
-      </section>
-
       {/* Nhóm 3: Tài khoản cá nhân & sao lưu */}
       <section>
         <h2 className="mb-2 px-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
           Tài khoản
         </h2>
-        <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_1px_2px_rgba(28,27,24,0.04)]">
+        <div className="divide-y divide-slate-100 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_1px_2px_rgba(28,27,24,0.04)]">
           <button type="button" onClick={onOpenAccount} className={ROW_BTN}>
             <div className="flex min-w-0 items-center gap-3">
               <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full border border-accent/30 bg-accent-soft text-sm font-semibold text-accent-ink">
@@ -181,34 +116,6 @@ export const PwaMoreView: React.FC<PwaMoreViewProps> = ({
               </div>
             </div>
             <ChevronRight className="h-4 w-4 shrink-0 text-slate-400" />
-          </button>
-        </div>
-      </section>
-
-      {/* Nhóm 3b: Cài ứng dụng (chỉ khi đang mở trong trình duyệt, chưa cài ra màn hình chính) */}
-      {!isInstalled && (
-        <section data-pwa-install-group>
-          <h2 className="mb-2 px-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Ứng dụng</h2>
-          <div className="space-y-2.5 rounded-2xl border border-slate-200 bg-white p-3.5 shadow-[0_1px_2px_rgba(28,27,24,0.04)]">
-            <p className="text-xs leading-relaxed text-slate-500">
-              Cài FinTrack lên màn hình chính để mở nhanh như một ứng dụng, không còn thanh địa chỉ của trình duyệt.
-            </p>
-            <InstallAppButton />
-          </div>
-        </section>
-      )}
-
-      {/* Nhóm 4: Giao diện & đăng xuất (chuyển từ thanh đầu app xuống đây cho gọn) */}
-      <section>
-        <div className="divide-y divide-slate-100 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_1px_2px_rgba(28,27,24,0.04)]">
-          <button type="button" onClick={onToggleTheme} className={ROW_BTN} data-pwa-theme-toggle>
-            <div className="flex min-w-0 items-center gap-3">
-              <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-slate-100 text-slate-700">
-                {isDark ? <Sun className="h-4 w-4 text-accent-ink" /> : <Moon className="h-4 w-4" />}
-              </span>
-              <span className="text-sm font-semibold text-slate-900">Giao diện</span>
-            </div>
-            <span className="shrink-0 text-xs font-semibold text-slate-500">{isDark ? 'Tối · chuyển sang sáng' : 'Sáng · chuyển sang tối'}</span>
           </button>
 
           <button type="button" onClick={onLogout} className={ROW_BTN} data-pwa-logout>

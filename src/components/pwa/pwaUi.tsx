@@ -1,5 +1,5 @@
 import React from 'react';
-import { Search, X } from 'lucide-react';
+import { ChevronDown, Search, X } from 'lucide-react';
 
 /**
  * Các thành phần giao diện nhỏ dùng chung cho các màn hình ở chế độ ứng dụng (PWA).
@@ -93,6 +93,63 @@ export function PwaChips<T extends string>({
         );
       })}
     </div>
+  );
+}
+
+/**
+ * Ô chọn dạng danh sách thả xuống (chọn một) — thay cho hàng chip / thanh tab ở các bộ lọc.
+ * Dùng thẻ <select> gốc để điện thoại mở bảng chọn của hệ điều hành. `caption` = nhãn nhỏ hiện phía trên (tùy chọn),
+ * `attr` = tên thuộc tính data-* gắn lên <select> để test chọn theo tên.
+ */
+export function PwaSelect<T extends string>({
+  items,
+  value,
+  onChange,
+  label,
+  caption,
+  attr,
+  className = '',
+}: {
+  items: ChipItem<T>[];
+  value: T;
+  onChange: (id: T) => void;
+  label: string;
+  caption?: string;
+  attr?: string;
+  className?: string;
+}) {
+  const dataProps = attr ? ({ [attr]: '' } as Record<string, string>) : {};
+  const current = items.find((it) => it.id === value) ?? items[0];
+  return (
+    <label className={`block min-w-0 ${className}`}>
+      {caption && <span className="mb-1 block text-[11px] font-semibold text-slate-600">{caption}</span>}
+      <span className="relative block">
+        {/* <select> thật nằm trong suốt phủ lên ô hiển thị: giữ nguyên bảng chọn của điện thoại, còn ô hiển thị tự cắt chữ dài và để số đếm riêng */}
+        <select
+          aria-label={label}
+          value={value}
+          onChange={(e) => onChange(e.target.value as T)}
+          {...dataProps}
+          className="peer absolute inset-0 z-10 h-full w-full cursor-pointer appearance-none opacity-0"
+        >
+          {items.map((it) => (
+            <option key={it.id} value={it.id}>
+              {it.count !== undefined ? `${it.label} (${it.count})` : it.label}
+            </option>
+          ))}
+        </select>
+        <span
+          aria-hidden="true"
+          className="flex h-10 items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white pl-3 pr-2.5 text-[13px] font-medium text-slate-800 peer-focus-visible:border-accent"
+        >
+          <span className="min-w-0 truncate">{current?.label}</span>
+          <span className="flex shrink-0 items-center gap-1.5">
+            {current?.count !== undefined && <span className="font-mono text-[11px] text-slate-400">{current.count}</span>}
+            <ChevronDown className="h-4 w-4 text-slate-400" />
+          </span>
+        </span>
+      </span>
+    </label>
   );
 }
 

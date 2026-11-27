@@ -10,7 +10,7 @@ import {
   todayLocalStr,
 } from '../../utils/calculations';
 import { changeAt, ensureTimeline } from '../../utils/debtCore';
-import { PwaAction, PwaBadge, PwaCard, PwaChips, PwaResultLine } from './pwaUi';
+import { PwaAction, PwaBadge, PwaCard, PwaResultLine, PwaSelect } from './pwaUi';
 
 const vnDate = (d: string) => (/^\d{4}-\d{2}-\d{2}$/.test(d) ? `${d.slice(8, 10)}/${d.slice(5, 7)}/${d.slice(0, 4)}` : d);
 
@@ -101,24 +101,26 @@ export interface PwaDebtsFiltersProps {
 
 export const PwaDebtsFilters: React.FC<PwaDebtsFiltersProps> = (p) => (
   <PwaCard className="space-y-2.5 p-3.5" data-pwa-debts-filters="">
-    <PwaChips
-      label="Hình thức vay"
-      attr="data-debt-security"
-      value={p.securityFilter}
-      onChange={p.onSecurity}
-      items={[
-        { id: 'all', label: 'Tất cả', count: p.securityCounts.all },
-        { id: 'secured', label: 'Thế chấp', count: p.securityCounts.secured },
-        { id: 'unsecured', label: 'Tín chấp', count: p.securityCounts.unsecured },
-      ]}
-    />
-    <PwaChips
-      label="Mục đích vay"
-      attr="data-debt-category"
-      value={p.categoryFilter}
-      onChange={p.onCategory}
-      items={[{ id: 'all', label: 'Mọi mục đích', count: p.totalCount }, ...p.categoryOptions.map((o) => ({ id: o.id, label: o.label, count: o.count }))]}
-    />
+    <div className="grid grid-cols-1 gap-2">
+      <PwaSelect
+        label="Hình thức vay"
+        attr="data-debt-security"
+        value={p.securityFilter}
+        onChange={p.onSecurity}
+        items={[
+          { id: 'all', label: 'Mọi hình thức', count: p.securityCounts.all },
+          { id: 'secured', label: 'Thế chấp', count: p.securityCounts.secured },
+          { id: 'unsecured', label: 'Tín chấp', count: p.securityCounts.unsecured },
+        ]}
+      />
+      <PwaSelect
+        label="Mục đích vay"
+        attr="data-debt-category"
+        value={p.categoryFilter}
+        onChange={p.onCategory}
+        items={[{ id: 'all', label: 'Mọi mục đích', count: p.totalCount }, ...p.categoryOptions.map((o) => ({ id: o.id, label: o.label, count: o.count }))]}
+      />
+    </div>
     <PwaResultLine shown={p.shown} total={p.totalCount} noun="khoản nợ" onClear={p.filtersActive ? p.onClear : undefined}>
       {p.voidedCount > 0 && (
         <label className="flex min-h-[28px] items-center gap-1.5 font-semibold text-slate-600">

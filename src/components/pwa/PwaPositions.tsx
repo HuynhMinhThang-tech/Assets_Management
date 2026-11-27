@@ -19,9 +19,8 @@ export const PwaPositionCards: React.FC<{
   onAction: (kind: 'buy' | 'sell' | 'div', key: string) => void;
 }> = ({ positions, open, onToggle, onAction }) => (
   <PwaCard as="section" data-testid="positions-panel" className="overflow-hidden">
-    <div className="flex items-baseline justify-between gap-2 border-b border-slate-100 px-3.5 py-2.5">
+    <div className="border-b border-slate-100 px-3.5 py-2.5">
       <h3 className="text-sm font-semibold text-slate-900">Vị thế theo mã</h3>
-      <span className="text-[11px] text-slate-500">Gộp lô cùng mã · chạm để mở</span>
     </div>
     <div className="divide-y divide-slate-100">
       {positions.map((p) => {
@@ -39,7 +38,6 @@ export const PwaPositionCards: React.FC<{
               <div className="flex items-center justify-between gap-3">
                 <span className="flex min-w-0 items-baseline gap-2">
                   <span className="text-[15px] font-semibold text-slate-900">{p.symbol}</span>
-                  <span className="text-[11px] text-slate-400">{p.lots.length} lô</span>
                 </span>
                 <span className="flex shrink-0 items-center gap-1.5">
                   <span className="font-mono text-[14px] font-bold tabular-nums text-slate-900">{formatVND(p.totalValue)}</span>

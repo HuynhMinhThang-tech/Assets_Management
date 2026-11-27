@@ -3,7 +3,7 @@ import { ArrowDownRight, ArrowUpRight, Clock, Coins, Undo2 } from 'lucide-react'
 import { CashTransaction } from '../../types/finance';
 import { formatVND, todayLocalStr } from '../../utils/calculations';
 import { LedgerSummary, RANGE_PRESETS, RangePreset, txEffect } from '../../utils/ledger';
-import { PwaAction, PwaCard, PwaChips, PwaEmpty, PwaStat } from './pwaUi';
+import { PwaAction, PwaCard, PwaEmpty, PwaSelect, PwaStat } from './pwaUi';
 
 const vnDate = (d: string) => (/^\d{4}-\d{2}-\d{2}$/.test(d) ? `${d.slice(8, 10)}/${d.slice(5, 7)}/${d.slice(0, 4)}` : d);
 
@@ -80,14 +80,17 @@ const TYPE_FILTERS = [
 
 export const PwaLedgerFilters: React.FC<PwaLedgerFiltersProps> = (p) => (
   <div className="space-y-2.5">
-    <PwaChips label="Loại giao dịch" attr="data-ledger-type" value={p.filterType} onChange={p.onFilterType} items={TYPE_FILTERS} />
-    <PwaChips
-      label="Khoảng thời gian"
-      attr="data-range"
-      value={p.rangePreset}
-      onChange={(id) => (id === 'custom' ? p.onCustom() : p.onPreset(id as Exclude<RangePreset, 'custom'>))}
-      items={[...RANGE_PRESETS.map((r) => ({ id: r.id as RangePreset, label: r.label })), { id: 'custom' as RangePreset, label: 'Chọn ngày…' }]}
-    />
+    <div className="grid grid-cols-2 gap-2">
+      <PwaSelect label="Loại giao dịch" caption="Loại giao dịch" attr="data-ledger-type" value={p.filterType} onChange={p.onFilterType} items={TYPE_FILTERS} />
+      <PwaSelect
+        label="Khoảng thời gian"
+        caption="Thời gian"
+        attr="data-range"
+        value={p.rangePreset}
+        onChange={(id) => (id === 'custom' ? p.onCustom() : p.onPreset(id as Exclude<RangePreset, 'custom'>))}
+        items={[...RANGE_PRESETS.map((r) => ({ id: r.id as RangePreset, label: r.label })), { id: 'custom' as RangePreset, label: 'Chọn ngày…' }]}
+      />
+    </div>
     {p.rangePreset === 'custom' && (
       <div className="grid grid-cols-2 gap-2">
         <label className="block text-[11px] font-semibold text-slate-600" htmlFor="ledger-from">

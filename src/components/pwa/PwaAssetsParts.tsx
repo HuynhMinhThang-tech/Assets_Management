@@ -22,7 +22,7 @@ import {
 } from '../../types/finance';
 import { formatPercent, formatVND } from '../../utils/calculations';
 import { getRecurringIncome } from '../../utils/calendar';
-import { PwaAction, PwaBadge, PwaCard, PwaChips, PwaResultLine, PwaSearch, PwaSegmented, PwaStat } from './pwaUi';
+import { PwaAction, PwaBadge, PwaCard, PwaResultLine, PwaSearch, PwaSelect, PwaStat } from './pwaUi';
 
 export const ASSET_CATEGORY_LABEL: Record<AssetCategory, string> = {
   real_estate: 'Bất động sản',
@@ -143,28 +143,31 @@ export const PwaAssetsFilters: React.FC<PwaAssetsFiltersProps> = (p) => (
       onChange={p.onSearch}
       placeholder="Tìm tên tài sản, mã cổ phiếu, dự án…"
     />
-    <PwaChips
-      label="Loại tài sản"
-      attr="data-asset-category"
-      value={p.selectedCategory}
-      onChange={p.onCategory}
-      items={p.categories.map((c) => ({
-        id: c.id,
-        label: c.id === 'all' ? 'Mọi loại' : c.label,
-        count: p.countByCategory(c.id),
-      }))}
-    />
-    <PwaSegmented
-      label="Trạng thái"
-      value={p.statusFilter}
-      onChange={p.onStatus}
-      items={[
-        { id: 'active', label: 'Đang giữ', count: p.countByStatus('active') },
-        { id: 'sold', label: 'Đã bán', count: p.countByStatus('sold') },
-        { id: 'voided', label: 'Đã hủy', count: p.countByStatus('voided') },
-        { id: 'all', label: 'Tất cả', count: p.countByStatus('all') },
-      ]}
-    />
+    <div className="grid grid-cols-2 gap-2">
+      <PwaSelect
+        label="Loại tài sản"
+        attr="data-asset-category"
+        value={p.selectedCategory}
+        onChange={p.onCategory}
+        items={p.categories.map((c) => ({
+          id: c.id,
+          label: c.id === 'all' ? 'Mọi loại' : c.label,
+          count: p.countByCategory(c.id),
+        }))}
+      />
+      <PwaSelect
+        label="Trạng thái"
+        attr="data-asset-status"
+        value={p.statusFilter}
+        onChange={p.onStatus}
+        items={[
+          { id: 'active', label: 'Đang giữ', count: p.countByStatus('active') },
+          { id: 'sold', label: 'Đã bán', count: p.countByStatus('sold') },
+          { id: 'voided', label: 'Đã hủy', count: p.countByStatus('voided') },
+          { id: 'all', label: 'Tất cả', count: p.countByStatus('all') },
+        ]}
+      />
+    </div>
     <PwaResultLine
       shown={p.shown}
       total={p.total}

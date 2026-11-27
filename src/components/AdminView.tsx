@@ -3,6 +3,7 @@ import { ArrowLeft, ShieldCheck } from 'lucide-react';
 import { AdminAccount, PublicUser } from '../utils/auth';
 import { api, ApiError } from '../utils/api';
 import { useDialog } from './ui/DialogProvider';
+import { PwaSelect } from './pwa/pwaUi';
 
 type AdminTab = 'pending' | 'reset' | 'active' | 'blocked';
 
@@ -13,6 +14,8 @@ interface AdminViewProps {
   /** Gọi sau mỗi thao tác để nạp lại danh sách tài khoản từ máy chủ. */
   onChanged: () => void;
   onBack: () => void;
+  /** 'pwa': bộ lọc tab dạng danh sách thả xuống cho điện thoại (mặc định 'web': hàng nút). */
+  layout?: 'web' | 'pwa';
 }
 
 const fmtTime = (iso?: string) => {
@@ -30,7 +33,7 @@ const btn = {
     'rounded-lg border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-semibold text-rose-700 hover:bg-rose-100',
 };
 
-export const AdminView: React.FC<AdminViewProps> = ({ currentUser, accounts, onChanged, onBack }) => {
+export const AdminView: React.FC<AdminViewProps> = ({ currentUser, accounts, onChanged, onBack, layout = 'web' }) => {
   const { confirm, alert, toast } = useDialog();
   const [tab, setTab] = useState<AdminTab>('pending');
 
@@ -208,6 +211,15 @@ export const AdminView: React.FC<AdminViewProps> = ({ currentUser, accounts, onC
         </button>
       </div>
 
+      {layout === 'pwa' ? (
+        <PwaSelect<AdminTab>
+          label="Nhóm tài khoản"
+          attr="data-admin-tab"
+          value={tab}
+          onChange={setTab}
+          items={tabs.map((t) => ({ id: t.id, label: t.label, count: t.list.length }))}
+        />
+      ) : (
       <div className="flex flex-wrap gap-2">
         {tabs.map((t) => {
           const isActive = t.id === tab;
@@ -236,6 +248,7 @@ export const AdminView: React.FC<AdminViewProps> = ({ currentUser, accounts, onC
           );
         })}
       </div>
+      )}
 
       <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
         {current.list.length === 0 ? (

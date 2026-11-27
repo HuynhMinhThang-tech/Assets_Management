@@ -81,7 +81,12 @@ const log = (ok, id, name, extra = '') => { ok ? pass++ : fail++; console.log(`$
   log(await page.evaluate(() => document.documentElement.hasAttribute('data-pwa-app')), 'W1', 'vỏ app bật thuộc tính data-pwa-app trên <html>');
   const hdr = await page.evaluate(() => { const h = document.querySelector('[data-pwa-header]'); return h && { pos: getComputedStyle(h).position, h: h.getBoundingClientRect().height }; });
   log(hdr && hdr.pos === 'sticky' && hdr.h < 80, 'W2', 'thanh đầu app dính đầu màn hình, cao gọn (< 80px)', JSON.stringify(hdr));
-  log((await page.locator('[data-pwa-quick-actions] button').count()) === 3, 'W3', 'Tổng quan có 3 nút thao tác nhanh (thêm tài sản, thêm nợ, nạp/rút ví)');
+  log((await page.locator('[data-pwa-quick-actions]').count()) === 0 && (await page.locator('[data-overview-range]').count()) === 1 && (await page.locator('[data-pwa-theme-toggle]').count()) === 1, 'W3', 'Tổng quan: không còn 3 nút thao tác nhanh; có bộ lọc thời gian và nút đổi sáng/tối ở đầu trang');
+  const netBefore = await page.locator('[data-pwa-overview] section').first().innerText();
+  await page.selectOption('[data-overview-range]', 'last_month'); await page.waitForTimeout(250);
+  log((await page.locator('[data-pwa-net-delta]').count()) === 1 && (await page.locator('[data-pwa-overview] section').first().innerText()) !== netBefore, 'W3b', 'Lọc thời gian \"Tháng trước\": thẻ Tài sản ròng đổi số theo cuối kỳ và hiện biến động so với đầu kỳ');
+  await page.selectOption('[data-overview-range]', 'all'); await page.waitForTimeout(250);
+  log((await page.locator('[data-pwa-net-delta]').count()) === 0 && (await page.locator('[data-pwa-overview] section').first().innerText()) === netBefore, 'W3c', 'Lọc thời gian \"Hiện tại\": trở về số liệu hôm nay như ban đầu');
   log(await noOverflow(page), 'W4', 'Tổng quan: không tràn ngang');
 
   // ---------- Tài sản ----------
@@ -102,15 +107,15 @@ const log = (ok, id, name, extra = '') => { ok ? pass++ : fail++; console.log(`$
 
   const nCards = await page.locator('[data-pwa-asset]').count();
   log(nCards === 6, 'A7', 'Danh sách: mỗi tài sản đang giữ một thẻ (6)', String(nCards));
-  await page.locator('[data-asset-category="stock"]').evaluate((b) => b.click()); await page.waitForTimeout(150);
-  log((await page.locator('[data-pwa-asset]').count()) === 2, 'A8', 'Chip "Cổ phiếu" lọc còn 2 thẻ');
-  await page.locator('[data-asset-category="all"]').evaluate((b) => b.click());
+  await page.selectOption('[data-asset-category]', 'stock'); await page.waitForTimeout(150);
+  log((await page.locator('[data-pwa-asset]').count()) === 2, 'A8', 'Danh sách thả xuống \"Cổ phiếu\" lọc còn 2 thẻ');
+  await page.selectOption('[data-asset-category]', 'all');
   await page.locator('#asset-search').fill('vinhomes'); await page.waitForTimeout(150);
   log((await page.locator('[data-pwa-asset]').count()) === 1, 'A9', 'Tìm "vinhomes" còn 1 thẻ');
   await page.locator('#asset-search').fill('');
-  await page.getByRole('button', { name: /Đã bán/ }).first().evaluate((b) => b.click()); await page.waitForTimeout(150);
+  await page.selectOption('[data-asset-status]', 'sold'); await page.waitForTimeout(150);
   log((await page.locator('[data-pwa-asset]').count()) === 0 && (await page.getByText('Không tìm thấy tài sản nào').count()) === 1, 'A10', 'Lọc "Đã bán": 0 thẻ + thông báo trống');
-  await page.getByRole('button', { name: /Đang giữ/ }).first().evaluate((b) => b.click()); await page.waitForTimeout(150);
+  await page.selectOption('[data-asset-status]', 'active'); await page.waitForTimeout(150);
   await page.locator('[data-pwa-asset] [data-asset-action="sell"]').first().evaluate((b) => b.click()); await page.waitForTimeout(250);
   log(!!(await dialogInfo(page)), 'A11', '"Bán / Chốt lời" trên thẻ mở hộp thoại bán');
   await closeDialog(page);
@@ -125,9 +130,9 @@ const log = (ok, id, name, extra = '') => { ok ? pass++ : fail++; console.log(`$
   await go(page, 2);
   log(await noOverflow(page), 'D1', 'Khoản nợ: không tràn ngang');
   log((await page.locator('[data-pwa-debts-summary]').count()) === 1 && (await page.locator('[data-pwa-debt]').count()) === 3, 'D2', 'Khoản nợ: khối tổng hợp + 3 thẻ khoản nợ');
-  await page.locator('[data-debt-security="unsecured"]').evaluate((b) => b.click()); await page.waitForTimeout(150);
-  log((await page.locator('[data-pwa-debt]').count()) === 1, 'D3', 'Chip "Tín chấp" lọc còn 1 khoản');
-  await page.locator('[data-debt-security="all"]').evaluate((b) => b.click()); await page.waitForTimeout(150);
+  await page.selectOption('[data-debt-security]', 'unsecured'); await page.waitForTimeout(150);
+  log((await page.locator('[data-pwa-debt]').count()) === 1, 'D3', 'Danh sách thả xuống \"Tín chấp\" lọc còn 1 khoản');
+  await page.selectOption('[data-debt-security]', 'all'); await page.waitForTimeout(150);
   await page.locator('[data-pwa-debt] [data-debt-action="detail"]').first().evaluate((b) => b.click()); await page.waitForTimeout(300);
   di = await dialogInfo(page);
   log(!!di && di.left === 0 && Math.abs(di.right - di.vw) < 1, 'D4', '"Chi tiết & lịch trả" mở chi tiết khoản vay dạng tấm trượt');
@@ -143,14 +148,14 @@ const log = (ok, id, name, extra = '') => { ok ? pass++ : fail++; console.log(`$
   log((await page.locator('[data-pwa-wallet-hero]').count()) === 1 && (await page.locator('table').count()) === 0, 'L2', 'Ví: khối số dư + thao tác, KHÔNG còn bảng sổ cái');
   const nTx = await page.locator('[data-tx]').count();
   log(nTx === 7, 'L3', 'Nhật ký: 7 giao dịch dạng thẻ, gom theo ngày', String(nTx));
-  await page.locator('[data-ledger-type="debt_payment"]').evaluate((b) => b.click()); await page.waitForTimeout(150);
-  log((await page.locator('[data-tx]').count()) === 2, 'L4', 'Chip "Trả nợ" lọc còn 2 giao dịch');
-  await page.locator('[data-ledger-type="all"]').evaluate((b) => b.click());
-  await page.locator('[data-range="custom"]').evaluate((b) => b.click()); await page.waitForTimeout(150);
-  log((await page.locator('#ledger-from').count()) === 1 && (await page.locator('#ledger-to').count()) === 1, 'L5', 'Chip "Chọn ngày…" hiện hai ô Từ ngày / Đến ngày');
+  await page.selectOption('[data-ledger-type]', 'debt_payment'); await page.waitForTimeout(150);
+  log((await page.locator('[data-tx]').count()) === 2, 'L4', 'Danh sách thả xuống \"Trả nợ\" lọc còn 2 giao dịch');
+  await page.selectOption('[data-ledger-type]', 'all');
+  await page.selectOption('[data-range]', 'custom'); await page.waitForTimeout(150);
+  log((await page.locator('#ledger-from').count()) === 1 && (await page.locator('#ledger-to').count()) === 1, 'L5', 'Chọn \"Chọn ngày…\" hiện hai ô Từ ngày / Đến ngày');
   await page.locator('#ledger-from').fill('2026-10-01'); await page.waitForTimeout(150);
   log((await page.locator('[data-tx]').count()) === 2, 'L6', 'Từ 01/10/2026: còn 2 giao dịch (05/10 và 01/10)', String(await page.locator('[data-tx]').count()));
-  await page.locator('[data-range="all"]').evaluate((b) => b.click());
+  await page.selectOption('[data-range]', 'all');
   await page.locator('[data-wallet-action="deposit"]').evaluate((b) => b.click()); await page.waitForTimeout(250);
   log((await page.locator('[role="dialog"]').first().innerText().catch(() => '')).includes('Nạp Vốn'), 'L7', '"Nạp tiền" mở form nạp vốn (tấm trượt)');
   await closeDialog(page);
@@ -163,12 +168,19 @@ const log = (ok, id, name, extra = '') => { ok ? pass++ : fail++; console.log(`$
 
   // ---------- Mục Khác + màn hình phụ ----------
   await go(page, 4);
-  log((await page.locator('[data-pwa-theme-toggle]').count()) === 1 && (await page.locator('[data-pwa-logout]').count()) === 1, 'M1', 'Mục Khác có nút đổi giao diện và Đăng xuất');
+  const moreText = await page.locator('[data-pwa-more]').innerText();
+  log((await page.locator('[data-pwa-logout]').count()) === 1 && (await page.locator('[data-pwa-theme-toggle]').count()) === 0 && (await page.locator('[data-pwa-install-group]').count()) === 0 && !/Thao tác nhanh|Ứng dụng|Giao diện/.test(moreText), 'M1', 'Mục Khác: chỉ còn chức năng mở rộng + Tài khoản/Đăng xuất (đã bỏ Thao tác nhanh, Ứng dụng, Giao diện)');
+  log(await page.evaluate(() => {
+    const logout = document.querySelector('[data-pwa-logout]'); const acct = logout && logout.previousElementSibling;
+    return !!acct && logout.parentElement === acct.parentElement;
+  }), 'M1b', 'Tài khoản và Đăng xuất nằm chung một thẻ');
+  await go(page, 0);
   const before = await page.evaluate(() => document.documentElement.className + '|' + document.documentElement.getAttribute('data-theme'));
   await page.locator('[data-pwa-theme-toggle]').evaluate((b) => b.click()); await page.waitForTimeout(150);
   const after = await page.evaluate(() => document.documentElement.className + '|' + document.documentElement.getAttribute('data-theme'));
-  log(before !== after, 'M2', 'Đổi giao diện sáng/tối hoạt động', `${before} -> ${after}`);
+  log(before !== after, 'M2', 'Nút sáng/tối ở đầu Tổng quan hoạt động', `${before} -> ${after}`);
   await page.locator('[data-pwa-theme-toggle]').evaluate((b) => b.click());
+  await go(page, 4);
 
   await goMore(page, 'Cập nhật giá');
   log(await noOverflow(page), 'P1', 'Cập nhật giá: không tràn ngang');

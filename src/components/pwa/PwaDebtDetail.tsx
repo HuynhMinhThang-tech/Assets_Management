@@ -15,7 +15,7 @@ import { currentRate, ensureTimeline } from '../../utils/debtCore';
 import { canRemoveRateChange } from '../../utils/debtOps';
 import { Modal, ModalBody } from '../ui/Modal';
 import type { DebtActionHandlers } from '../DebtActions';
-import { CARD_CLS, PwaAction, PwaBadge, PwaChips, PwaEmpty, PwaSegmented, PwaStat } from './pwaUi';
+import { CARD_CLS, PwaAction, PwaBadge, PwaEmpty, PwaSelect, PwaStat } from './pwaUi';
 
 /**
  * Chi tiết khoản vay ở chế độ ứng dụng.
@@ -382,22 +382,25 @@ export const PwaDebtDetail: React.FC<Props> = ({ debt, cash, payments, handlers,
 
           {/* Thanh chuyển mục dính ở đầu vùng cuộn để luôn thấy khi kéo xuống danh sách dài */}
           <div className="sticky -top-3 z-10 -mx-4 space-y-2 bg-white px-4 pb-2 pt-3 shadow-[0_1px_0_var(--border-hairline)]">
-            <PwaSegmented items={tabItems} value={tab} onChange={setTab} label="Mục chi tiết khoản vay" />
-            {tab === 'schedule' && (
-              <PwaChips<ScheduleFilter>
-                label="Lọc lịch trả"
-                value={filter}
-                onChange={(f) => {
-                  setFilter(f);
-                  setLimit(PAGE);
-                }}
-                items={[
-                  { id: 'open', label: 'Chưa trả', count: openItems.length },
-                  { id: 'paid', label: 'Đã trả', count: schedule.filter((i) => i.isPaid && (showPre || !i.preTracking)).length },
-                  { id: 'all', label: 'Tất cả' },
-                ]}
-              />
-            )}
+            <div className={`grid gap-2 ${tab === 'schedule' ? 'grid-cols-2' : 'grid-cols-1'}`}>
+              <PwaSelect<Tab> items={tabItems} value={tab} onChange={setTab} label="Mục chi tiết khoản vay" attr="data-debt-detail-tab" />
+              {tab === 'schedule' && (
+                <PwaSelect<ScheduleFilter>
+                  label="Lọc lịch trả"
+                  attr="data-schedule-filter"
+                  value={filter}
+                  onChange={(f) => {
+                    setFilter(f);
+                    setLimit(PAGE);
+                  }}
+                  items={[
+                    { id: 'open', label: 'Chưa trả', count: openItems.length },
+                    { id: 'paid', label: 'Đã trả', count: schedule.filter((i) => i.isPaid && (showPre || !i.preTracking)).length },
+                    { id: 'all', label: 'Tất cả' },
+                  ]}
+                />
+              )}
+            </div>
           </div>
 
           {/* ------------------------------------------------------------ Lịch trả nợ */}

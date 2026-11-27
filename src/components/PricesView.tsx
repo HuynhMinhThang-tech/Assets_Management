@@ -520,7 +520,7 @@ export const PricesView: React.FC<PricesViewProps> = ({ state, onApplyPrices, la
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           {!isPwa && <h2 className="text-lg font-semibold text-slate-900">Cập nhật giá</h2>}
-          <p className="mt-0.5 text-xs text-slate-500">
+          <p className={`mt-0.5 text-xs text-slate-500${isPwa && !loading && !loadError ? ' hidden' : ''}`}>
             {loading ? (
               <span className="inline-flex items-center gap-1"><Loader2 className="h-3 w-3 animate-spin" /> Đang tải giá thị trường…</span>
             ) : loadError ? (
@@ -585,7 +585,7 @@ export const PricesView: React.FC<PricesViewProps> = ({ state, onApplyPrices, la
           <section key={g.category} data-price-group={g.category} className="rounded-xl border border-slate-200 bg-white">
             <div className={`border-b border-slate-200 ${isPwa ? 'px-3.5' : 'px-5'} py-3`}>
               <h3 className="text-sm font-semibold text-slate-900">{g.title}</h3>
-              <p className="text-[11px] text-slate-500">{g.hint}</p>
+              {!isPwa && <p className="text-[11px] text-slate-500">{g.hint}</p>}
             </div>
             {isPwa ? (
               <div className="divide-y divide-slate-100" data-pwa-price-list="">{list.map(renderRow)}</div>

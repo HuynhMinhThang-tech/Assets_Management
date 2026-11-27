@@ -5,6 +5,7 @@ import {
   CreditCard,
   Wallet as WalletIcon,
   MoreHorizontal,
+  Moon,
   Sun,
   ChevronLeft,
   Info,
@@ -239,20 +240,31 @@ export const PwaAppShell: React.FC<PwaAppShellProps> = ({
             )}
             <div className="min-w-0">
               <h1 className="truncate text-xl font-bold leading-tight tracking-tight text-slate-900">{headerTitle}</h1>
-              {isDashboardRoot ? (
-                <p className="flex items-center gap-1.5 truncate text-xs text-slate-500">
-                  <Sun className="h-3.5 w-3.5 shrink-0 text-accent-ink" />
-                  <span className="truncate">
-                    {greetingForNow()}, <span className="font-semibold text-slate-900">{user.displayName}</span>
-                  </span>
-                </p>
-              ) : !moreOpen ? (
+              {isDashboardRoot ? null : !moreOpen ? (
                 <p className="truncate font-mono text-[11px] tabular-nums text-slate-500">
                   Tiền khả dụng: <span className="font-semibold text-slate-900">{formatVND(state.wallet.availableCash)}</span>
                 </p>
               ) : null}
             </div>
           </div>
+
+          {isDashboardRoot && (
+            <div className="flex min-w-0 shrink items-center gap-2" data-pwa-header-right>
+              <div className="min-w-0 text-right leading-tight" data-pwa-greeting>
+                <div className="truncate text-[11px] text-slate-500">{greetingForNow()},</div>
+                <div className="truncate text-xs font-semibold text-slate-900">{user.displayName}</div>
+              </div>
+              <button
+                type="button"
+                onClick={onToggleTheme}
+                data-pwa-theme-toggle
+                aria-label={isDark ? 'Chuyển sang giao diện sáng' : 'Chuyển sang giao diện tối'}
+                className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-slate-200 bg-white text-slate-600 active:bg-slate-100"
+              >
+                {isDark ? <Sun className="h-[18px] w-[18px]" /> : <Moon className="h-[18px] w-[18px]" />}
+              </button>
+            </div>
+          )}
 
           {headerAction && (
             <button
@@ -338,25 +350,14 @@ export const PwaAppShell: React.FC<PwaAppShellProps> = ({
               user={{ displayName: user.displayName, email: user.email, role: user.role }}
               priceAlertCount={priceAlertCount}
               adminPendingCount={adminPendingCount}
-              isDark={isDark}
-              onToggleTheme={onToggleTheme}
               onLogout={onLogout}
               onSelectSubTab={goSecondaryTab}
-              onOpenAddAsset={() => triggerAction('assets', 'add_asset')}
-              onOpenAddDebt={() => triggerAction('debts', 'add_debt')}
-              onOpenDeposit={() => triggerAction('wallet', 'deposit')}
               onOpenAccount={onOpenAccount}
             />
           ) : (
             <>
               {currentTab === 'dashboard' && (
-                <PwaOverview
-                  state={state}
-                  onNavigateTab={goAnyTab}
-                  onOpenAddAsset={() => triggerAction('assets', 'add_asset')}
-                  onOpenAddDebt={() => triggerAction('debts', 'add_debt')}
-                  onOpenDeposit={() => triggerAction('wallet', 'deposit')}
-                />
+                <PwaOverview state={state} onNavigateTab={goAnyTab} />
               )}
 
               {currentTab === 'assets' && (
@@ -428,6 +429,7 @@ export const PwaAppShell: React.FC<PwaAppShellProps> = ({
 
               {currentTab === 'admin' && user.role === 'admin' && (
                 <AdminView
+                  layout="pwa"
                   currentUser={user}
                   accounts={adminAccounts}
                   onChanged={onRefreshAccounts}

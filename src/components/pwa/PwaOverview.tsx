@@ -1,17 +1,26 @@
-import React from 'react';
-import { ArrowDownRight, ChevronRight, PlusCircle } from 'lucide-react';
+import React, { useMemo, useState } from 'react';
+import { ChevronRight } from 'lucide-react';
 import { UserFinancialState } from '../../types/finance';
 import { NavTab } from '../Sidebar';
 import { buildAllocation, CATEGORY_META } from '../../utils/allocation';
-import { calculateFinancialSummary, formatPercent, formatVND } from '../../utils/calculations';
+import { calculateFinancialSummary, formatPercent, formatVND, todayLocalStr } from '../../utils/calculations';
+import { RANGE_PRESETS, RangePreset, addDaysStr, isRangeInvalid, rangeForPreset } from '../../utils/ledger';
+import { buildPeriod, cashFlowReport, profitReport, stateAt } from '../../utils/reports';
+import { PwaSelect } from './pwaUi';
 
 interface PwaOverviewProps {
   state: UserFinancialState;
   onNavigateTab: (tab: NavTab) => void;
-  onOpenAddAsset: () => void;
-  onOpenAddDebt: () => void;
-  onOpenDeposit: () => void;
 }
+
+const vnDate = (d: string) => (/^\d{4}-\d{2}-\d{2}$/.test(d) ? `${d.slice(8, 10)}/${d.slice(5, 7)}/${d.slice(0, 4)}` : d);
+
+/** Bộ lọc thời gian của Tổng quan: "Hiện tại" = số liệu hôm nay (như trước); các mốc còn lại = số liệu tại cuối kỳ + biến động trong kỳ. */
+const OVERVIEW_RANGES: { id: RangePreset; label: string }[] = [
+  { id: 'all', label: 'Hiện tại' },
+  ...RANGE_PRESETS.filter((r) => r.id !== 'all').map((r) => ({ id: r.id as RangePreset, label: r.label })),
+  { id: 'custom', label: 'Chọn ngày…' },
+];
 
 const DONUT_SIZE = 120;
 const DONUT_R = 44;
@@ -30,10 +39,42 @@ interface StatCard {
   onClick?: () => void;
 }
 
-export const PwaOverview: React.FC<PwaOverviewProps> = ({ state, onNavigateTab, onOpenAddAsset, onOpenAddDebt, onOpenDeposit }) => {
-  const summary = calculateFinancialSummary(state);
-  const nextPayment = summary.upcomingPayments[0];
+export const PwaOverview: React.FC<PwaOverviewProps> = ({ state, onNavigateTab }) => {
+  const today = todayLocalStr();
+  const [preset, setPreset] = useState<RangePreset>('all');
+  const [customFrom, setCustomFrom] = useState('');
+  const [customTo, setCustomTo] = useState('');
+
+  const pickPreset = (id: RangePreset) => {
+    setPreset(id);
+    if (id === 'custom' && !customFrom && !customTo) {
+      const r = rangeForPreset('this_month', today);
+      setCustomFrom(r.from);
+      setCustomTo(r.to);
+    }
+  };
+
+  const range = preset === 'all' ? null : preset === 'custom' ? { from: customFrom, to: customTo } : rangeForPreset(preset, today);
+  const rangeInvalid = preset === 'custom' && !!range && isRangeInvalid(range);
+  const period = useMemo(() => {
+    if (!range || rangeInvalid || !range.from || !range.to) return null;
+    const p = buildPeriod({ kind: 'custom', year: 0, month: 0, quarter: 0, from: range.from, to: range.to }, today);
+    return p.valid ? p : null;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [range?.from, range?.to, rangeInvalid, today]);
+
+  // Số liệu "hiện tại" luôn dùng cho kỳ nợ sắp tới; số liệu theo kỳ (nếu có chọn) tính tại cuối kỳ.
+  const current = useMemo(() => calculateFinancialSummary(state), [state]);
+  const summary = useMemo(() => (period ? calculateFinancialSummary(stateAt(state, period.to, today)) : current), [state, period, current, today]);
+  const profit = useMemo(() => (period ? profitReport(state, period, today) : null), [state, period, today]);
+  const cash = useMemo(() => (period ? cashFlowReport(state, period, today) : null), [state, period, today]);
+  const nextPayment = current.upcomingPayments[0];
   const allocation = buildAllocation(summary.categoryBreakdown);
+
+  const periodPaid = cash ? -(cash.operating.interestPaid + cash.financing.principalPaid + cash.financing.fees) : 0;
+  const periodPrincipal = cash ? -cash.financing.principalPaid : 0;
+  const netDelta = profit ? summary.netWorth - profit.startEquity : 0;
+  const netDeltaPct = profit && profit.startEquity > 0 ? (netDelta / profit.startEquity) * 100 : null;
 
   const cards: StatCard[] = [
     {
@@ -78,27 +119,39 @@ export const PwaOverview: React.FC<PwaOverviewProps> = ({ state, onNavigateTab, 
       dotClass: summary.bookPnL >= 0 ? 'bg-win' : 'bg-loss',
       valueClass: summary.bookPnL >= 0 ? 'text-win' : 'text-loss',
     },
-    {
-      id: 'realized-pnl',
-      label: 'Lãi chốt thực tế',
-      value: `${summary.totalRealizedPnL >= 0 ? '+' : ''}${formatVND(summary.totalRealizedPnL, { compact: true })}`,
-      fullTitle: formatVND(summary.totalRealizedPnL),
-      sub: 'Từ bán & thu nhập',
-      dotClass: summary.totalRealizedPnL >= 0 ? 'bg-win' : 'bg-loss',
-      valueClass: summary.totalRealizedPnL >= 0 ? 'text-win' : 'text-loss',
-    },
-    {
-      id: 'monthly-debt',
-      label: 'Trả nợ tháng này',
-      value: formatVND(summary.monthlyDebtPaymentTotal, { compact: true }),
-      fullTitle: formatVND(summary.monthlyDebtPaymentTotal),
-      sub:
-        summary.monthlyDebtPaymentTotal > 0
-          ? `Gốc ${formatVND(summary.monthlyPrincipalTotal, { compact: true })}`
-          : 'Đã hoàn thành tháng này',
-      dotClass: summary.monthlyDebtPaymentTotal > 0 ? 'bg-amber-500' : 'bg-slate-400',
-      onClick: () => onNavigateTab('debts'),
-    },
+    (() => {
+      const v = profit ? profit.realizedProfit : summary.totalRealizedPnL;
+      return {
+        id: 'realized-pnl',
+        label: profit ? 'Lãi chốt trong kỳ' : 'Lãi chốt thực tế',
+        value: `${v >= 0 ? '+' : ''}${formatVND(v, { compact: true })}`,
+        fullTitle: formatVND(v),
+        dotClass: v >= 0 ? 'bg-win' : 'bg-loss',
+        valueClass: v >= 0 ? 'text-win' : 'text-loss',
+      };
+    })(),
+    period
+      ? {
+          id: 'monthly-debt',
+          label: 'Trả nợ trong kỳ',
+          value: formatVND(periodPaid, { compact: true }),
+          fullTitle: formatVND(periodPaid),
+          sub: periodPaid > 0 ? `Gốc ${formatVND(periodPrincipal, { compact: true })}` : undefined,
+          dotClass: periodPaid > 0 ? 'bg-amber-500' : 'bg-slate-400',
+          onClick: () => onNavigateTab('debts'),
+        }
+      : {
+          id: 'monthly-debt',
+          label: 'Trả nợ tháng này',
+          value: formatVND(summary.monthlyDebtPaymentTotal, { compact: true }),
+          fullTitle: formatVND(summary.monthlyDebtPaymentTotal),
+          sub:
+            summary.monthlyDebtPaymentTotal > 0
+              ? `Gốc ${formatVND(summary.monthlyPrincipalTotal, { compact: true })}`
+              : 'Đã hoàn thành tháng này',
+          dotClass: summary.monthlyDebtPaymentTotal > 0 ? 'bg-amber-500' : 'bg-slate-400',
+          onClick: () => onNavigateTab('debts'),
+        },
     {
       id: 'next-due',
       label: 'Kỳ đến hạn tới',
@@ -167,6 +220,44 @@ export const PwaOverview: React.FC<PwaOverviewProps> = ({ state, onNavigateTab, 
 
   return (
     <div className="space-y-3 animate-tab-in" data-pwa-overview>
+      {/* Bộ lọc thời gian (từ ngày nào đến ngày nào) */}
+      <div className="space-y-2" data-pwa-overview-range>
+        <PwaSelect<RangePreset> label="Khoảng thời gian" attr="data-overview-range" value={preset} onChange={pickPreset} items={OVERVIEW_RANGES} />
+        {preset === 'custom' && (
+          <div className="grid grid-cols-2 gap-2">
+            <label className="block text-[11px] font-semibold text-slate-600" htmlFor="overview-from">
+              Từ ngày
+              <input
+                id="overview-from"
+                type="date"
+                value={customFrom}
+                max={today}
+                aria-invalid={rangeInvalid ? true : undefined}
+                onChange={(e) => setCustomFrom(e.target.value)}
+                className="mt-1 h-10 w-full rounded-xl border border-slate-200 bg-white px-2.5 text-sm font-normal"
+              />
+            </label>
+            <label className="block text-[11px] font-semibold text-slate-600" htmlFor="overview-to">
+              Đến ngày
+              <input
+                id="overview-to"
+                type="date"
+                value={customTo}
+                max={today}
+                aria-invalid={rangeInvalid ? true : undefined}
+                onChange={(e) => setCustomTo(e.target.value)}
+                className="mt-1 h-10 w-full rounded-xl border border-slate-200 bg-white px-2.5 text-sm font-normal"
+              />
+            </label>
+            {rangeInvalid && (
+              <span role="alert" className="col-span-2 text-[11px] font-medium text-rose-600">
+                Ngày bắt đầu phải trước ngày kết thúc.
+              </span>
+            )}
+          </div>
+        )}
+      </div>
+
       {/* Thẻ chính: tài sản ròng */}
       <section className="rounded-2xl border border-slate-200 bg-white p-3.5 shadow-[0_1px_2px_rgba(28,27,24,0.04)]">
         <div className="flex items-center justify-between gap-2">
@@ -179,6 +270,16 @@ export const PwaOverview: React.FC<PwaOverviewProps> = ({ state, onNavigateTab, 
         >
           {formatVND(summary.netWorth)}
         </div>
+        {period && profit && (
+          <div data-pwa-net-delta className="mt-1 font-mono text-[11px] tabular-nums text-slate-500">
+            Tại {vnDate(period.to)} · so với {vnDate(addDaysStr(period.from, -1))}:{' '}
+            <span className={`font-semibold ${netDelta >= 0 ? 'text-win' : 'text-loss'}`}>
+              {netDelta >= 0 ? '+' : ''}
+              {formatVND(netDelta, { compact: true })}
+              {netDeltaPct !== null ? ` (${formatPercent(netDeltaPct)})` : ''}
+            </span>
+          </div>
+        )}
       </section>
 
       {/* Ba số nền tảng */}
@@ -198,34 +299,6 @@ export const PwaOverview: React.FC<PwaOverviewProps> = ({ state, onNavigateTab, 
       <div className="grid grid-cols-2 gap-2">
         {renderCard(byId('monthly-debt'), 'md')}
         {renderCard(byId('next-due'), 'md')}
-      </div>
-
-      {/* Thao tác nhanh */}
-      <div className="grid grid-cols-3 gap-2" data-pwa-quick-actions>
-        <button
-          type="button"
-          onClick={onOpenAddAsset}
-          className="flex min-h-[64px] flex-col items-center justify-center gap-1 rounded-2xl border border-slate-200 bg-white px-1 text-[11px] font-semibold text-slate-700 active:bg-slate-50"
-        >
-          <PlusCircle className="h-5 w-5 text-accent-ink" />
-          <span>Thêm tài sản</span>
-        </button>
-        <button
-          type="button"
-          onClick={onOpenAddDebt}
-          className="flex min-h-[64px] flex-col items-center justify-center gap-1 rounded-2xl border border-slate-200 bg-white px-1 text-[11px] font-semibold text-slate-700 active:bg-slate-50"
-        >
-          <PlusCircle className="h-5 w-5 text-rose-600" />
-          <span>Thêm khoản nợ</span>
-        </button>
-        <button
-          type="button"
-          onClick={onOpenDeposit}
-          className="flex min-h-[64px] flex-col items-center justify-center gap-1 rounded-2xl border border-slate-200 bg-white px-1 text-[11px] font-semibold text-slate-700 active:bg-slate-50"
-        >
-          <ArrowDownRight className="h-5 w-5 text-emerald-600" />
-          <span>Nạp / Rút ví</span>
-        </button>
       </div>
 
       {/* Thẻ biểu đồ phân bổ tài sản: Donut trái + chú giải phải */}
